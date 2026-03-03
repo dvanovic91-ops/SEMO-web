@@ -10,7 +10,7 @@ import { AddressSuggest } from '../components/AddressSuggest';
 const inputClass =
   'w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 placeholder:text-xs placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand';
 const labelClass = 'mb-1 block text-sm font-medium text-slate-700';
-const hintClass = 'text-xs text-slate-500 font-normal';
+const hintClass = 'text-[11px] text-slate-500 font-normal';
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -62,13 +62,7 @@ export const Register: React.FC = () => {
   };
 
   const handleSendCode = () => {
-    if (!email || !emailRegex.test(email)) {
-      setEmailError(true);
-      return;
-    }
-    setEmailError(false);
-    setCodeSent(true);
-    // TODO: 백엔드에 인증 메일 발송 요청
+    // 이메일 인증 기능은 일단 비활성화 — 단순 로그인용 필드만 사용
   };
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -147,54 +141,27 @@ export const Register: React.FC = () => {
             Основные данные
           </h2>
           <div className="space-y-4">
-            {/* 이메일 + 인증코드 구조: 형식 검사, 인증 통과 전 다음 단계 막기 */}
             <div>
               <label htmlFor="email" className={labelClass}>
-                Email <span className={hintClass}>(логин)</span>{' '}
-                <span className="text-brand">*</span>
+                Email <span className="text-brand">*</span>
               </label>
-              <div className="flex flex-col gap-2 sm:flex-row sm:gap-2">
-                <input
-                  id="email"
-                  type="email"
-                  placeholder="example@mail.ru"
-                  className={`${inputClass} ${emailError ? 'border-red-400' : ''}`}
-                  value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value);
-                    if (emailError) setEmailError(false);
-                  }}
-                  onBlur={handleEmailBlur}
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={handleSendCode}
-                  className="shrink-0 rounded-xl border border-slate-200 bg-white px-4 py-3.5 text-sm font-medium text-slate-700 transition hover:border-brand hover:text-brand"
-                >
-                  {codeSent ? 'Отправлено' : 'Код'}
-                </button>
-              </div>
+              <input
+                id="email"
+                type="email"
+                placeholder="example@mail.ru"
+                className={`${inputClass} ${emailError ? 'border-red-400' : ''}`}
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (emailError) setEmailError(false);
+                }}
+                onBlur={handleEmailBlur}
+                required
+              />
               {emailError && (
                 <p className="mt-1 text-xs text-red-500">
                   Введите корректный адрес email.
                 </p>
-              )}
-              {codeSent && (
-                <div className="mt-2">
-                  <label htmlFor="emailCode" className="mb-1 block text-xs text-slate-500">
-                    Код из письма
-                  </label>
-                  <input
-                    id="emailCode"
-                    type="text"
-                    placeholder="Введите код"
-                    className={inputClass}
-                    value={verificationCode}
-                    onChange={(e) => setVerificationCode(e.target.value)}
-                    maxLength={6}
-                  />
-                </div>
               )}
             </div>
             <div>
@@ -218,7 +185,7 @@ export const Register: React.FC = () => {
             {/* 닉네임 — 서비스에서 불러줄 이름 */}
             <div>
               <label htmlFor="nickname" className={labelClass}>
-                Имя для обращения <span className="text-brand">*</span>
+                Имя <span className="text-brand">*</span>
               </label>
               <input
                 id="nickname"
@@ -245,24 +212,9 @@ export const Register: React.FC = () => {
                 </label>
               </div>
             </div>
-            {/* 휴대폰: +7 999 999 9999, 숫자만 */}
-            <div>
-              <label htmlFor="phone" className={labelClass}>
-                Номер телефона
-              </label>
-              <input
-                id="phone"
-                type="tel"
-                placeholder="+7 999 999 9999"
-                className={inputClass}
-                value={phoneValue}
-                onChange={handlePhoneChange}
-                maxLength={16}
-              />
-            </div>
             <div>
               <label htmlFor="referrer" className={labelClass}>
-                Email рекомендателя <span className={hintClass}>(электронная почта человека, который порекомендовал вас)</span>
+                Email рекомендателя
               </label>
               <input
                 id="referrer"
@@ -270,6 +222,9 @@ export const Register: React.FC = () => {
                 placeholder="recommender@mail.ru"
                 className={inputClass}
               />
+              <p className={hintClass}>
+                * электронная почта человека, который порекомендовал вас
+              </p>
             </div>
           </div>
         </section>
@@ -285,7 +240,7 @@ export const Register: React.FC = () => {
                 <span className="inline-flex items-center gap-2">
                   Адрес (поиск по базе)
                   <span
-                    className="flex h-4 w-4 items-center justify-center rounded-full border border-brand text-[10px] text-brand"
+                    className="flex h-4 w-4 items-center justify-center rounded-full border border-brand text-[10px] text-brand cursor-help"
                     title="При вводе адреса нижние поля заполнятся автоматически."
                   >
                     ?
@@ -306,9 +261,6 @@ export const Register: React.FC = () => {
                 if (postcode !== undefined && postEl) postEl.value = postcode;
               }}
             />
-            <p className="text-xs text-slate-500">
-              При вводе адреса нижние поля заполнятся автоматически.
-            </p>
             <div className="space-y-4 rounded-xl border border-brand/20 bg-brand-soft/10 px-4 py-4">
             <div>
               <label htmlFor="cityRegion" className={labelClass}>
@@ -444,9 +396,35 @@ export const Register: React.FC = () => {
                 />
               </div>
             </div>
-            <p className="mt-2 text-xs text-slate-500">
-              ФИО как в паспорте (латинскими буквами).
+            <p className="mt-2 text-[11px] text-slate-500">
+              * ФИО как в паспорте (латинскими буквами).
             </p>
+            <div>
+              <label htmlFor="phone" className={labelClass}>
+                Номер телефона
+              </label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <input
+                  id="phone"
+                  type="tel"
+                  placeholder="+7 999 999 9999"
+                  className={`${inputClass} sm:flex-1`}
+                  value={phoneValue}
+                  onChange={handlePhoneChange}
+                  maxLength={16}
+                />
+                <button
+                  type="button"
+                  disabled
+                  className="shrink-0 rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-xs font-medium text-sky-700 opacity-70"
+                >
+                  Подтвердить в Telegram
+                </button>
+              </div>
+              <p className="mt-1 text-[11px] text-slate-500">
+                * Телефон подтверждается через Telegram, за подтверждение +200 баллов.
+              </p>
+            </div>
             </div>
           </div>
           {/* 하단 안내 문구는 제거 — 화면을 더 간결하게 유지 */}

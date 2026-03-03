@@ -12,7 +12,7 @@ import { supabase } from '../../lib/supabase';
 const inputClass =
   'w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 placeholder:text-xs placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand';
 const labelClass = 'mb-1 block text-sm font-medium text-slate-700';
-const hintClass = 'text-xs text-slate-500 font-normal';
+const hintClass = 'text-[11px] text-slate-500 font-normal';
 
 function formatPhone(value: string): string {
   // 회원가입/배송 입력과 동일한 형식: +7 999 999 9999
@@ -324,7 +324,7 @@ export const ProfileEdit: React.FC = () => {
                 <span className="inline-flex items-center gap-2">
                   Адрес (поиск по базе)
                   <span
-                    className="flex h-4 w-4 items-center justify-center rounded-full border border-brand text-[10px] text-brand"
+                    className="flex h-4 w-4 items-center justify-center rounded-full border border-brand text-[10px] text-brand cursor-help"
                     title="При вводе адреса нижние поля заполнятся автоматически."
                   >
                     ?
@@ -341,9 +341,6 @@ export const ProfileEdit: React.FC = () => {
                 if (postcode !== undefined) handleChange('postcode', postcode);
               }}
             />
-            <p className="text-xs text-slate-500">
-              При вводе адреса нижние поля заполнятся автоматически.
-            </p>
 
             <div className="space-y-4 rounded-xl border border-brand/20 bg-brand-soft/10 px-4 py-4">
               <div className="grid gap-3 sm:grid-cols-3">
@@ -384,7 +381,7 @@ export const ProfileEdit: React.FC = () => {
                   />
                 </div>
               </div>
-              <p className={hintClass}>ФИО как в паспорте (латинскими буквами).</p>
+              <p className={hintClass}>* ФИО как в паспорте (латинскими буквами).</p>
 
               <div>
                 <label htmlFor="pe-phone" className={labelClass}>
@@ -404,13 +401,13 @@ export const ProfileEdit: React.FC = () => {
                     type="button"
                     onClick={handleTelegramVerify}
                     disabled={!editing}
-                    className="shrink-0 rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-medium text-slate-700 transition hover:border-brand hover:text-brand disabled:opacity-60"
+                    className="shrink-0 rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-xs font-medium text-sky-700 transition hover:bg-sky-100 disabled:opacity-60"
                   >
                     Подтвердить в Telegram
                   </button>
                 </div>
-                <p className="mt-1 text-xs text-slate-500">
-                  Для безопасности доставки обязательна проверка номера телефона. При подтверждении через Telegram начислим 200 баллов.
+                <p className="mt-1 text-[11px] text-slate-500">
+                  * Телефон подтверждается через Telegram, за подтверждение +200 баллов.
                 </p>
                 {phoneError && <p className="mt-1 text-xs text-red-500">{phoneError}</p>}
               </div>
