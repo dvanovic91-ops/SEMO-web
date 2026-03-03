@@ -49,7 +49,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (supabase) {
+      let cancelled = false;
       const applySession = async (session: { user: { email?: string | null; id: string } } | null) => {
+        if (cancelled) return;
         if (session?.user) {
           setUserEmailState(session.user.email ?? null);
           setUserId(session.user.id);
@@ -59,9 +61,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               .select('is_admin')
               .eq('id', session.user.id)
               .single();
-            setIsAdmin(!!data?.is_admin);
+            if (!cancelled) setIsAdmin(!!data?.is_admin);
           } catch {
-            setIsAdmin(false);
+            if (!cancelled) setIsAdmin(false);
           }
           try {
             const raw = localStorage.getItem('semo_anon_result');
@@ -82,10 +84,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUserEmailState(null);
           setUserId(null);
         }
-        setInitialized(true);
+        if (!cancelled) setInitialized(true);
       };
 
+      const timeout = window.setTimeout(() => {
+        if (!cancelled) {
+          cancelled = true;
+          setInitialized(true);
+        }
+      }, 4000);
+
       supabase.auth.getSession().then(({ data: { session } }) => {
+        if (cancelled) return;
         if (session?.user) {
           void applySession(session);
           return;
@@ -101,11 +111,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsAdmin(false);
         setInitialized(true);
       });
+
       const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (cancelled) return;
         if (session?.user) {
           setUserEmailState(session.user.email ?? null);
           setUserId(session.user.id);
-          // 비회원 때 했던 테스트 결과가 있으면 DB에 저장 (가입 후 1회 남은 걸로 반영)
           try {
             const raw = localStorage.getItem('semo_anon_result');
             if (raw) {
@@ -114,9 +125,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 supabase
                   .from('skin_test_results')
                   .insert({ user_id: session.user.id, skin_type: data.skin_type })
-                  .then(() => {
-                    localStorage.removeItem('semo_anon_result');
-                  })
+                  .then(() => localStorage.removeItem('semo_anon_result'))
                   .catch(() => {});
               }
             }
@@ -129,7 +138,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setIsAdmin(false);
         }
       });
-      return () => subscription.unsubscribe();
+
+      return () => {
+        cancelled = true;
+        window.clearTimeout(timeout);
+        subscription.unsubscribe();
+      };
     }
     if (!supabase) {
       setInitialized(true);

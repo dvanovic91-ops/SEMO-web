@@ -10,6 +10,7 @@
  * - ProfileReviews.tsx: 내 리뷰 목록
  * - ProfileOrders.tsx: 주문 내역
  * - ProfileTestResults.tsx: 테스트 결과
+ * - ProfilePoints.tsx: 포인트 내역(목업 시)
  * - (추가 목업은 모두 여기에서 export하고 위 사용처 목록에 기록)
  */
 
@@ -18,6 +19,7 @@ export const USE_MOCK_DASHBOARD = true;
 export const USE_MOCK_REVIEWS = true;
 export const USE_MOCK_ORDERS = true;
 export const USE_MOCK_TEST_RESULTS = true;
+export const USE_MOCK_POINTS = true;
 
 // —— 프로필: 리뷰
 export const mockReviews: { id: string; product: string; text: string; date: string; rating: number }[] = [
@@ -66,6 +68,24 @@ export const mockOrders: MockOrder[] = [
     tracking: [{ status: 'delivered', message: 'Доставлено', date: '2026-01-15' }],
   },
 ];
+
+// —— 프로필: 포인트 내역 (잔액과 합계 일치하도록 유지)
+export interface MockPointHistoryItem {
+  id: string;
+  label: string;
+  amount: number;
+  date: string;
+}
+/** 목업 현재 잔액 (아래 mockPointHistory 합계와 동일하게 둠) */
+export const mockPointBalance = 900;
+export const mockPointHistory: MockPointHistoryItem[] = [
+  { id: '1', label: 'Регистрация', amount: 100, date: '2026-01-15' },
+  { id: '2', label: 'Тест типа кожи', amount: 50, date: '2026-02-01' },
+  { id: '3', label: 'Заказ #1001', amount: -200, date: '2026-02-10' },
+  { id: '4', label: 'Бонус', amount: 550, date: '2026-02-12' },
+  { id: '5', label: 'Тест типа кожи (бонус)', amount: 400, date: '2026-02-15' },
+];
+// 100+50-200+550+400 = 900
 
 // —— 프로필: 테스트 결과
 export const mockTestResults: { id: string; type: string; date: string }[] = [

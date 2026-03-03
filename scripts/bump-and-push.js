@@ -5,15 +5,18 @@ const { execSync } = require('child_process');
 const versionPath = path.join(__dirname, '..', 'src', 'version.ts');
 let content = fs.readFileSync(versionPath, 'utf8');
 
-// APP_VERSION = '1.9' 형태에서 숫자 추출 후 마지막 자리만 1 올림 (1.9 → 1.10, 1.10 → 1.11)
+// APP_VERSION = '1.9' 형태에서 숫자 추출. 뒷자리가 두 자리가 되면 앞을 1 올림 (1.9 → 2.0, 2.9 → 3.0)
 const match = content.match(/APP_VERSION\s*=\s*'(\d+)\.(\d+)'/);
 if (!match) {
   console.error('version.ts 형식을 못 찾았어요. APP_VERSION = \'1.9\' 형태인지 확인하세요.');
   process.exit(1);
 }
-const major = match[1];
-const minor = String(Number(match[2]) + 1);
-const newVersion = `${major}.${minor}`;
+const majorNum = Number(match[1]);
+const minorNum = Number(match[2]);
+const nextMinor = minorNum + 1;
+const newMajor = nextMinor >= 10 ? majorNum + 1 : majorNum;
+const newMinor = nextMinor >= 10 ? 0 : nextMinor;
+const newVersion = `${newMajor}.${newMinor}`;
 
 content = content.replace(/APP_VERSION\s*=\s*'[\d.]+'/, `APP_VERSION = '${newVersion}'`);
 fs.writeFileSync(versionPath, content);

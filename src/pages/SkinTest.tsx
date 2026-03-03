@@ -15,6 +15,8 @@ import { supabase } from '../lib/supabase';
 const MAX_TEST_COUNT = 2;
 /** 어드민 이메일 — 웹에서도 테스트 횟수 제한 없음 (봇 ADMIN_IDS와 별도) */
 const ADMIN_EMAILS = ['admin@semo-beautybox.com'];
+/** 테스트 횟수 제한 없음 (해당 이메일만) */
+const UNLIMITED_TEST_EMAILS = ['dvanovic91@gmail.com'];
 
 type Stage = 'intro' | 'profile' | 'test' | 'result';
 
@@ -26,6 +28,7 @@ function nextProfileStep(step: number): number {
 export const SkinTest: React.FC = () => {
   const { userId, userEmail } = useAuth();
   const isAdmin = !!userEmail && ADMIN_EMAILS.includes(userEmail);
+  const noTestLimit = !!userEmail && UNLIMITED_TEST_EMAILS.includes(userEmail);
   const [stage, setStage] = useState<Stage>('intro');
   const [testCount, setTestCount] = useState<number | null>(null);
   const [limitReached, setLimitReached] = useState(false);
@@ -53,13 +56,13 @@ export const SkinTest: React.FC = () => {
       .then(({ count }) => {
         const n = count ?? 0;
         setTestCount(n);
-        setLimitReached(n >= MAX_TEST_COUNT);
+        setLimitReached(!noTestLimit && n >= MAX_TEST_COUNT);
       })
       .catch(() => setTestCount(0));
-  }, [userId]);
+  }, [userId, noTestLimit]);
 
   const handleAgree = () => {
-    if (!isAdmin && limitReached) return;
+    if (!isAdmin && !noTestLimit && limitReached) return;
     setStage('profile');
     setProfileStep(0);
   };

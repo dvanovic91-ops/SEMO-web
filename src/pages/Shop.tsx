@@ -171,9 +171,9 @@ export const Shop: React.FC = () => {
                       {cardTop(product)}
                     </a>
                   ) : (
-                    <div className="flex flex-1 flex-col">
+                    <Link to={`/product/${product.id}`} className="flex flex-1 flex-col">
                       {cardTop(product)}
-                    </div>
+                    </Link>
                   )}
                   <button
                     type="button"

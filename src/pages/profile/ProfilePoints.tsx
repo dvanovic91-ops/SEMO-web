@@ -1,23 +1,49 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { getProfile } from '../../lib/profileStorage';
+import { supabase } from '../../lib/supabase';
+import { USE_MOCK_POINTS, mockPointBalance, mockPointHistory } from '../../data/mocks';
 
-/** 포인트 내역 — 쌓인 포인트 히스토리 (향후 API 연동) */
+/** 포인트 내역 — 잔액은 프로필과 동일 소스(DB 우선), 내역은 목업 또는 향후 API */
 export const ProfilePoints: React.FC = () => {
-  const { userEmail, isLoggedIn, initialized } = useAuth();
-  const profile = userEmail ? getProfile(userEmail) : null;
+  const { userEmail, userId, isLoggedIn, initialized } = useAuth();
+  const [dbPoints, setDbPoints] = useState<number | null>(null);
+
+  const refreshPoints = useCallback(() => {
+    if (!supabase || !userId) {
+      setDbPoints(null);
+      return;
+    }
+    supabase
+      .from('profiles')
+      .select('points')
+      .eq('id', userId)
+      .single()
+      .then(({ data }) => {
+        setDbPoints(data?.points ?? null);
+      })
+      .catch(() => setDbPoints(null));
+  }, [userId]);
+
+  useEffect(() => {
+    refreshPoints();
+  }, [refreshPoints]);
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') refreshPoints();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [refreshPoints]);
+
+  const localProfile = userEmail ? getProfile(userEmail) : null;
+  const points = dbPoints !== null ? dbPoints : (USE_MOCK_POINTS ? mockPointBalance : (localProfile?.points ?? 0));
+  const history = USE_MOCK_POINTS ? mockPointHistory : [];
 
   if (!initialized) return null;
   if (!isLoggedIn) return <Navigate to="/login" replace />;
-
-  const points = profile?.points ?? 0;
-  const history = [
-    { id: '1', label: 'Регистрация', amount: 100, date: '2026-01-15' },
-    { id: '2', label: 'Тест типа кожи', amount: 50, date: '2026-02-01' },
-    { id: '3', label: 'Заказ #1001', amount: -200, date: '2026-02-10' },
-    { id: '4', label: 'Бонус', amount: 550, date: '2026-02-12' },
-  ];
 
   return (
     <main className="mx-auto max-w-xl px-4 py-6 sm:px-6 sm:py-10 md:py-14">
@@ -36,6 +62,9 @@ export const ProfilePoints: React.FC = () => {
       </header>
 
       <ul className="space-y-3">
+        {history.length === 0 && !USE_MOCK_POINTS && (
+          <p className="text-sm text-slate-500">Пока нет записей.</p>
+        )}
         {history.map((item) => (
           <li
             key={item.id}

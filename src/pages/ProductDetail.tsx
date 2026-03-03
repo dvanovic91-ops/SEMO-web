@@ -37,6 +37,24 @@ function formatPrice(price: number): string {
   return `${price.toLocaleString('ru-RU')} руб.`;
 }
 
+/** UUID 형식인지 (DB products.id는 UUID) */
+function isUuid(s: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+}
+
+/** 뷰티박스 폴백 상품 (DB에 슬롯/상품 없을 때 Shop에서 링크하는 ID용) */
+const FALLBACK_PRODUCTS: Record<string, Product> = {
+  'type-1': { id: 'type-1', name: 'Тип 1', description: null, detail_description: null, image_url: null, rrp_price: 12000, prp_price: 11000, stock: null },
+  'type-2': { id: 'type-2', name: 'Тип 2', description: null, detail_description: null, image_url: null, rrp_price: 12000, prp_price: 11000, stock: null },
+  'type-3': { id: 'type-3', name: 'Тип 3', description: null, detail_description: null, image_url: null, rrp_price: 12000, prp_price: 11000, stock: null },
+  'type-4': { id: 'type-4', name: 'Тип 4', description: null, detail_description: null, image_url: null, rrp_price: 12000, prp_price: 11000, stock: null },
+  'family': { id: 'family', name: 'Family care', description: null, detail_description: null, image_url: null, rrp_price: 14000, prp_price: 13000, stock: null },
+};
+[0, 1, 2, 3, 4].forEach((i) => {
+  const id = `slot-${i}`;
+  if (!FALLBACK_PRODUCTS[id]) FALLBACK_PRODUCTS[id] = { id, name: `Слот ${i + 1}`, description: null, detail_description: null, image_url: null, rrp_price: 12000, prp_price: 11000, stock: null };
+});
+
 export const ProductDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const { isLoggedIn, userId } = useAuth();
@@ -56,10 +74,24 @@ export const ProductDetail: React.FC = () => {
   const BUCKET_REVIEW_PHOTOS = 'review-photos';
 
   useEffect(() => {
-    if (!id || !supabase) return;
+    if (!id) return;
+
+    setLoading(true);
+
+    if (!isUuid(id) && FALLBACK_PRODUCTS[id]) {
+      setProduct(FALLBACK_PRODUCTS[id]);
+      setComponents([]);
+      setReviews([]);
+      setLoading(false);
+      return;
+    }
+
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
 
     const load = async () => {
-      setLoading(true);
       const { data: prodData, error: prodErr } = await supabase
         .from('products')
         .select('id, name, description, detail_description, image_url, rrp_price, prp_price, stock')
@@ -111,7 +143,7 @@ export const ProductDetail: React.FC = () => {
 
   const handleSubmitReview = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!userId || !id || !supabase) {
+    if (!userId || !id || !supabase || !isUuid(id)) {
       setReviewError('Войдите, чтобы оставить отзыв.');
       return;
     }
@@ -307,7 +339,7 @@ export const ProductDetail: React.FC = () => {
           </ul>
           {reviews.length === 0 && <p className="text-sm text-slate-500">Пока нет отзывов.</p>}
 
-          {isLoggedIn ? (
+          {isLoggedIn && id && isUuid(id) ? (
             <form onSubmit={handleSubmitReview} className="mt-6 rounded-xl border border-slate-200 bg-white p-4">
               <h3 className="mb-3 text-sm font-semibold text-slate-800">Оставить отзыв</h3>
               <div className="mb-3">
@@ -380,11 +412,11 @@ export const ProductDetail: React.FC = () => {
                 {submittingReview ? 'Отправка…' : 'Отправить отзыв'}
               </button>
             </form>
-          ) : (
+          ) : !isLoggedIn ? (
             <p className="mt-4 text-sm text-slate-500">
               <Link to="/login" className="text-brand hover:underline">Войдите</Link>, чтобы оставить отзыв.
             </p>
-          )}
+          ) : null}
         </section>
       </article>
     </main>

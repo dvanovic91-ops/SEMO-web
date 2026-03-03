@@ -1,14 +1,49 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { USE_MOCK_TEST_RESULTS, mockTestResults } from '../../data/mocks';
+import { supabase } from '../../lib/supabase';
+
+/** DB skin_test_results 한 건 */
+type TestResultRow = {
+  id: string;
+  skin_type: string | null;
+  completed_at: string;
+};
 
 export const ProfileTestResults: React.FC = () => {
-  const { isLoggedIn, initialized } = useAuth();
+  const { isLoggedIn, initialized, userId } = useAuth();
+  const [list, setList] = useState<TestResultRow[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!supabase || !userId) {
+      setList([]);
+      setLoading(false);
+      return;
+    }
+    supabase
+      .from('skin_test_results')
+      .select('id, skin_type, completed_at')
+      .eq('user_id', userId)
+      .order('completed_at', { ascending: false })
+      .then(({ data }) => {
+        setList((data as TestResultRow[]) ?? []);
+      })
+      .catch(() => setList([]))
+      .finally(() => setLoading(false));
+  }, [userId]);
+
   if (!initialized) return null;
   if (!isLoggedIn) return <Navigate to="/login" replace />;
 
-  const list = USE_MOCK_TEST_RESULTS ? mockTestResults : [];
+  const formatDate = (iso: string) => {
+    try {
+      const d = new Date(iso);
+      return d.toLocaleDateString('ru-RU', { year: 'numeric', month: '2-digit', day: '2-digit' });
+    } catch {
+      return iso.slice(0, 10);
+    }
+  };
 
   return (
     <main className="mx-auto max-w-xl px-4 py-6 sm:px-6 sm:py-10 md:py-14">
@@ -21,17 +56,25 @@ export const ProfileTestResults: React.FC = () => {
         </h1>
         <p className="mt-1 text-sm text-slate-500">Последние результаты теста типа кожи</p>
       </header>
-      <ul className="space-y-3">
-        {list.map((r) => (
-          <li key={r.id} className="flex items-center justify-between rounded-xl border border-slate-100 bg-white px-4 py-4">
-            <div>
-              <p className="font-medium text-slate-800">{r.type}</p>
-              <p className="text-xs text-slate-500">{r.date}</p>
-            </div>
-            <Link to="/skin-test" className="text-sm font-medium text-brand hover:underline">Пройти снова</Link>
-          </li>
-        ))}
-      </ul>
+      {loading ? (
+        <p className="py-8 text-center text-sm text-slate-500">Загрузка…</p>
+      ) : list.length === 0 ? (
+        <p className="rounded-xl border border-slate-100 bg-slate-50/50 px-4 py-8 text-center text-slate-500">
+          Пока нет результатов. Пройдите тест типа кожи.
+        </p>
+      ) : (
+        <ul className="space-y-3">
+          {list.map((r) => (
+            <li key={r.id} className="flex items-center justify-between rounded-xl border border-slate-100 bg-white px-4 py-4">
+              <div>
+                <p className="font-medium text-slate-800">{r.skin_type ?? '—'}</p>
+                <p className="text-xs text-slate-500">{formatDate(r.completed_at)}</p>
+              </div>
+              <Link to="/skin-test" className="text-sm font-medium text-brand hover:underline">Пройти снова</Link>
+            </li>
+          ))}
+        </ul>
+      )}
       <p className="mt-6 text-center">
         <Link to="/profile" className="text-sm text-slate-500 hover:text-slate-700">← Profile</Link>
       </p>

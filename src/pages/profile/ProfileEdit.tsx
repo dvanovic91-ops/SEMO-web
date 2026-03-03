@@ -13,6 +13,8 @@ const inputClass =
   'w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 placeholder:text-xs placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand';
 const labelClass = 'mb-1 block text-sm font-medium text-slate-700';
 const hintClass = 'text-[11px] text-slate-500 font-normal';
+/** 필드 바로 아래 안내 문구 간격 통일 */
+const fieldHintSpacing = 'mt-4';
 
 function formatPhone(value: string): string {
   // 회원가입/배송 입력과 동일한 형식: +7 999 999 9999
@@ -105,7 +107,7 @@ export const ProfileEdit: React.FC = () => {
 
   if (!initialized) {
     return (
-      <main className="mx-auto max-w-xl px-4 py-8">
+      <main className="flex min-h-[50vh] items-center justify-center px-4">
         <p className="text-center text-sm text-slate-500">Загрузка…</p>
       </main>
     );
@@ -464,27 +466,38 @@ export const ProfileEdit: React.FC = () => {
                   />
                 </div>
               </div>
-              <p className={hintClass}>* ФИО как в паспорте (латинскими буквами).</p>
+              <p className={`${fieldHintSpacing} ${hintClass}`}>* ФИО как в паспорте (латинскими буквами).</p>
 
               <div>
                 <label htmlFor="pe-phone" className={labelClass}>
                   Номер телефона
                 </label>
-                <div className="flex flex-col gap-2 sm:flex-row">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <input
                     ref={phoneInputRef}
                     id="pe-phone"
                     type="tel"
                     placeholder="+7 999 999 9999"
-                    className={`${inputClass} sm:flex-1 ${telegramLinked ? 'cursor-default bg-slate-100 text-slate-500' : ''}`}
+                    className={`${inputClass} sm:flex-1 ${telegramLinked ? 'cursor-default !bg-slate-200 text-slate-600' : ''}`}
                     value={form.phone ?? ''}
                     onChange={editing && !telegramLinked ? handlePhoneChange : undefined}
                     readOnly={!editing || telegramLinked}
                   />
                   {telegramLinked ? (
-                    <span className="inline-flex shrink-0 items-center rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-xs font-medium text-sky-700">
-                      Telegram привязан
-                    </span>
+                    <div className="flex shrink-0 flex-wrap items-center gap-2">
+                      <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-xs font-medium text-sky-700">
+                        Telegram привязан
+                      </span>
+                      {editing && (
+                        <button
+                          type="button"
+                          onClick={handleUnlinkToChangePhone}
+                          className="text-xs font-medium text-sky-600 underline hover:text-sky-800"
+                        >
+                          Изменить номер
+                        </button>
+                      )}
+                    </div>
                   ) : (
                     <button
                       type="button"
@@ -496,7 +509,7 @@ export const ProfileEdit: React.FC = () => {
                     </button>
                   )}
                 </div>
-                <p className="mt-1 text-[11px] text-slate-500">
+                <p className={`${fieldHintSpacing} ${hintClass}`}>
                   * Телефон подтверждается через Telegram, за подтверждение +200 баллов.
                 </p>
                 {phoneError && <p className="mt-1 text-xs text-red-500">{phoneError}</p>}

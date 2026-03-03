@@ -10,7 +10,7 @@
 | 대시보드 | `src/pages/admin/Admin.tsx` | 매출 꺾은선 그래프(일/주/월/기간), 상품별 매출 표 |
 | 프로필 | `src/pages/profile/ProfileReviews.tsx` | 내 리뷰 목록 |
 | 프로필 | `src/pages/profile/ProfileOrders.tsx` | 주문 내역·배송 추적 |
-| 프로필 | `src/pages/profile/ProfileTestResults.tsx` | 테스트 결과 목록 |
+| 프로필 | `src/pages/profile/ProfileTestResults.tsx` | 테스트 결과 목록 — **실제 DB 사용 (목업 제거됨)** |
 
 - 위 파일들에서 `src/data/mocks` import 및 `USE_MOCK_*` 조건부 로직 제거 후, Supabase(또는 실제 백엔드) API로 교체하면 됩니다.
 - **추가 목업**을 넣을 때는 반드시 `index.ts`에 데이터/플래그를 두고, 이 표에 사용처를 한 줄 추가해 두세요.
