@@ -76,7 +76,21 @@ Supabase 대시보드 → **SQL Editor** → New query →
 
 ---
 
-## 6. 참고
+## 6. OAuth 로그인(구글/얀덱스) — 팝업 방식
 
+로그인 시 구글/얀덱스 인증을 **팝업**으로 띄우려면, Supabase에 콜백 URL을 등록해야 합니다.
+
+- Supabase 대시보드 → **Authentication** → **URL Configuration**
+- **Redirect URLs**에 다음을 추가:
+  - 로컬: `http://localhost:5173/auth/callback` (또는 사용 중인 포트)
+  - 운영: `https://실서비스도메인/auth/callback`
+
+저장 후 구글 버튼 클릭 시 팝업으로 인증하고, 완료되면 팝업이 닫히며 메인 화면에서 로그인된 상태로 유지됩니다. (팝업이 차단되면 기존처럼 전체 화면 리다이렉트로 동작합니다.)
+
+---
+
+## 7. 참고
+
+- **세션 유지:** "Оставаться в системе" 체크 시 세션은 localStorage에 저장되며, Supabase가 리프레시 토큰으로 자동 갱신합니다. 더 긴 만료를 원하면 Supabase 대시보드 → **Authentication** → **Settings** 에서 JWT expiry 등을 조정할 수 있습니다.
 - **anon key**는 프론트에 노출돼도 됩니다. 보안은 **Row Level Security (RLS)** 로 테이블마다 “누가 어떤 행을 볼 수 있는지” 제한하는 방식으로 맞춥니다.
 - **service_role key**는 절대 프론트나 공개 저장소에 넣지 마세요. 백엔드/Edge Function에서만 쓰는 용도입니다.

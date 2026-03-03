@@ -75,14 +75,10 @@ export const Profile: React.FC = () => {
   if (!initialized) return null;
   if (!isLoggedIn || !userEmail) return <Navigate to="/login" replace />;
 
-  const handleLogout = async () => {
-    try {
-      if (supabase) await supabase.auth.signOut();
-    } catch {
-      // ignore
-    }
-    setUserEmail(null);
+  const handleLogout = () => {
     navigate('/login', { replace: true });
+    setUserEmail(null);
+    if (supabase) supabase.auth.signOut().catch(() => {});
   };
 
   const gradeTooltipText = 'Обычный участник, Премиум участник';
@@ -178,7 +174,7 @@ export const Profile: React.FC = () => {
               <button
                 type="button"
                 onClick={handleTelegramLink}
-                className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                className="shrink-0 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
               >
                 связать
               </button>

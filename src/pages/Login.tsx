@@ -1,7 +1,8 @@
-import React from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { useAuth, TEST_ADMIN_EMAIL } from '../context/AuthContext';
-import { supabase } from '../lib/supabase';
+import React, { useState, useCallback, useEffect } from 'react';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import { supabase, setRememberMe } from '../lib/supabase';
+import { AUTH_MESSAGE_TYPE } from './AuthCallback';
 
 const inputClass =
   'w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand';
@@ -11,33 +12,57 @@ const inputClass =
  * OAuth 가입 시 백엔드에서 신규 사용자를 /register/shipping으로 보내면 배송 정보만 입력.
  * "Войти как администратор" 클릭 시 테스트 계정으로 로그인되어 개인정보(Profile) 화면으로 이동.
  */
+const POPUP_WIDTH = 500;
+const POPUP_HEIGHT = 600;
+
 export const Login: React.FC = () => {
-  const { setUserEmail } = useAuth();
   const navigate = useNavigate();
+  const { isLoggedIn, initialized } = useAuth();
+  const [rememberMe, setRememberMeChecked] = useState(true);
+  const [popupBlocked, setPopupBlocked] = useState(false);
 
-  /** Supabase Auth로 구글 로그인 (리다이렉트는 Supabase → 구글 → Supabase → 우리 사이트) */
-  const handleGoogleLogin = async () => {
+  useEffect(() => {
     if (!supabase) return;
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: `${window.location.origin}/` },
-    });
-    if (error) console.error(error);
-  };
-  const handleYandexLogin = async () => {
-    if (!supabase) return;
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'yandex',
-      options: { redirectTo: `${window.location.origin}/` },
-    });
-    if (error) console.error(error);
-  };
+    const onMessage = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin || e.data?.type !== AUTH_MESSAGE_TYPE) return;
+      const { access_token, refresh_token } = e.data;
+      if (!access_token || !refresh_token) return;
+      supabase.auth.setSession({ access_token, refresh_token }).then(() => {
+        navigate('/', { replace: true });
+      }).catch(() => {});
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [navigate]);
 
-  /** 테스트용: 관리자 이메일로 로그인 처리 후 개인정보 페이지로 이동 */
-  const handleTestAdminLogin = () => {
-    setUserEmail(TEST_ADMIN_EMAIL);
-    navigate('/profile', { replace: true });
-  };
+  if (!initialized) return null;
+  if (isLoggedIn) return <Navigate to="/" replace />;
+
+  const callbackUrl = `${window.location.origin}/auth/callback`;
+
+  const openOAuthPopup = useCallback(async (provider: 'google' | 'yandex') => {
+    if (!supabase) return;
+    setRememberMe(rememberMe);
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: { skipBrowserRedirect: true, redirectTo: callbackUrl },
+    });
+    if (error) {
+      console.error(error);
+      return;
+    }
+    if (!data?.url) return;
+    const left = Math.round((window.screen.width - POPUP_WIDTH) / 2);
+    const top = Math.round((window.screen.height - POPUP_HEIGHT) / 2);
+    const popup = window.open(data.url, 'semo_oauth', `width=${POPUP_WIDTH},height=${POPUP_HEIGHT},left=${left},top=${top},scrollbars=yes`);
+    if (!popup) {
+      setPopupBlocked(true);
+      window.location.href = data.url;
+    }
+  }, [rememberMe]);
+
+  const handleGoogleLogin = () => openOAuthPopup('google');
+  const handleYandexLogin = () => openOAuthPopup('yandex');
 
   return (
     <main className="mx-auto max-w-md px-4 py-12 sm:px-6 sm:py-16">
@@ -79,22 +104,23 @@ export const Login: React.FC = () => {
         </button>
       </section>
 
-      {/* 구글/얀덱스 연동 가입 */}
-      {/* 테스트용: 관리자 계정으로 로그인 → 개인정보(Profile) 화면 확인 */}
-      <section className="mt-8 rounded-xl border border-amber-200 bg-amber-50/50 p-4">
-        <p className="mb-2 text-center text-xs font-medium text-amber-800">
-          Для проверки личного кабинета (тест)
-        </p>
-        <button
-          type="button"
-          onClick={handleTestAdminLogin}
-          className="w-full rounded-full border border-amber-300 bg-white py-2.5 text-sm font-medium text-amber-800 transition hover:bg-amber-100"
-        >
-          Войти как администратор
-        </button>
-      </section>
+      <label className="mt-6 flex cursor-pointer items-center gap-2">
+        <input
+          type="checkbox"
+          checked={rememberMe}
+          onChange={(e) => setRememberMeChecked(e.target.checked)}
+          className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
+        />
+        <span className="text-sm text-slate-700">Оставаться в системе</span>
+      </label>
 
-      <div className="mt-10 flex flex-col items-center gap-4">
+      {popupBlocked && (
+        <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50/50 px-3 py-2 text-center text-xs text-amber-800">
+          Включите всплывающие окна для входа в отдельном окне или используйте открывшуюся вкладку.
+        </p>
+      )}
+
+      <div className="mt-6 flex flex-col items-center gap-4">
         <p className="text-sm text-slate-500">или</p>
         <div className="flex items-center justify-center gap-8">
           <button
@@ -123,16 +149,13 @@ export const Login: React.FC = () => {
         </div>
       </div>
 
-      <div className="mt-10 border-t border-slate-100 pt-8">
+      <div className="mt-6 border-t border-slate-100 pt-5">
         <Link
           to="/register"
           className="block w-full rounded-full border border-slate-200 py-3.5 text-center text-base font-medium text-slate-700 transition hover:border-brand hover:text-brand"
         >
           Зарегистрироваться
         </Link>
-        <p className="mt-4 text-center text-xs text-slate-500">
-          После регистрации привяжите Telegram в разделе «Профиль» — заказы и баллы будут доступны и в боте.
-        </p>
       </div>
 
       <p className="mt-6 text-center">

@@ -28,6 +28,7 @@ import { ProfilePoints } from './pages/profile/ProfilePoints';
 import { ProfileReviews } from './pages/profile/ProfileReviews';
 import { ProfileTestResults } from './pages/profile/ProfileTestResults';
 import { Support } from './pages/Support';
+import { AuthCallback, AUTH_MESSAGE_TYPE } from './pages/AuthCallback';
 
 const App: React.FC = () => {
   return (
@@ -52,6 +53,7 @@ const App: React.FC = () => {
               <Route path="/profile/reviews" element={<ProfileReviews />} />
               <Route path="/profile/orders" element={<ProfileOrders />} />
               <Route path="/login" element={<Login />} />
+              <Route path="/auth/callback" element={<AuthCallback />} />
               <Route path="/register" element={<Register />} />
               <Route path="/register/shipping" element={<RegisterShipping />} />
             </Routes>

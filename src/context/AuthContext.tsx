@@ -46,7 +46,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (supabase) {
-      supabase.auth.getSession().then(({ data: { session } }) => {
+      const applySession = (session: { user: { email?: string | null; id: string } } | null) => {
         if (session?.user) {
           setUserEmailState(session.user.email ?? null);
           setUserId(session.user.id);
@@ -66,13 +66,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             // ignore
           }
         } else {
-          try {
-            const stored = localStorage.getItem(STORAGE_KEY);
-            if (stored) setUserEmailState(stored);
-          } catch {
-            // ignore
-          }
+          setUserEmailState(null);
+          setUserId(null);
         }
+        setInitialized(true);
+      };
+
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session?.user) {
+          applySession(session);
+          return;
+        }
+        supabase.auth.refreshSession().then(({ data: { session: refreshed } }) => {
+          applySession(refreshed ?? null);
+        }).catch(() => {
+          applySession(null);
+        });
+      }).catch(() => {
+        setUserEmailState(null);
+        setUserId(null);
         setInitialized(true);
       });
       const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -98,24 +110,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             // ignore
           }
         } else {
-          try {
-            const stored = localStorage.getItem(STORAGE_KEY);
-            setUserEmailState(stored);
-            setUserId(null);
-          } catch {
-            setUserEmailState(null);
-            setUserId(null);
-          }
+          setUserEmailState(null);
+          setUserId(null);
         }
       });
       return () => subscription.unsubscribe();
     }
-    try {
-      setUserEmailState(localStorage.getItem(STORAGE_KEY));
-    } catch {
-      setUserEmailState(null);
+    if (!supabase) {
+      setInitialized(true);
     }
-    setInitialized(true);
     return undefined;
   }, []);
 
