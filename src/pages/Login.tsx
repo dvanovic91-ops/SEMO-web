@@ -45,32 +45,28 @@ export const Login: React.FC = () => {
     if (!supabase) return;
     setRememberMe(rememberMe);
     setOauthLoading(provider);
-    const left = Math.round((window.screen.width - POPUP_WIDTH) / 2);
-    const top = Math.round((window.screen.height - POPUP_HEIGHT) / 2);
-    const popup = window.open('', 'semo_oauth', `width=${POPUP_WIDTH},height=${POPUP_HEIGHT},left=${left},top=${top},scrollbars=yes`);
-    if (!popup) {
-      setOauthLoading(null);
-      setPopupBlocked(true);
-    }
     try {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider,
-        options: { skipBrowserRedirect: true, redirectTo: callbackUrl },
+        options: {
+          skipBrowserRedirect: true,
+          redirectTo: callbackUrl,
+          // 구글: 계정 선택 창 생략 — 이미 로그인된 구글 계정으로 바로 진행
+          ...(provider === 'google' && {
+            queryParams: { prompt: 'none' },
+          }),
+        },
       });
       if (error) {
         console.error(error);
-        if (popup) popup.close();
-        setOauthLoading(null);
         return;
       }
-      if (!data?.url) {
-        if (popup) popup.close();
-        setOauthLoading(null);
-        return;
-      }
-      if (popup) {
-        popup.location.href = data.url;
-      } else {
+      if (!data?.url) return;
+      const left = Math.round((window.screen.width - POPUP_WIDTH) / 2);
+      const top = Math.round((window.screen.height - POPUP_HEIGHT) / 2);
+      const popup = window.open(data.url, 'semo_oauth', `width=${POPUP_WIDTH},height=${POPUP_HEIGHT},left=${left},top=${top},scrollbars=yes`);
+      if (!popup) {
+        setPopupBlocked(true);
         window.location.href = data.url;
       }
     } finally {
