@@ -50,6 +50,7 @@ export const ProfileEdit: React.FC = () => {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
   const [initialForm, setInitialForm] = useState<Record<string, string> | null>(null);
+
   const [passwordSection, setPasswordSection] = useState(false);
   const [saved, setSaved] = useState(false);
   const [pwCurrent, setPwCurrent] = useState('');
@@ -57,6 +58,7 @@ export const ProfileEdit: React.FC = () => {
   const [pwConfirm, setPwConfirm] = useState('');
   const [pwError, setPwError] = useState('');
   const [pwSuccess, setPwSuccess] = useState(false);
+
   const [addressSearch, setAddressSearch] = useState('');
 
   const profile = userEmail ? getProfile(userEmail) : null;
@@ -104,7 +106,6 @@ export const ProfileEdit: React.FC = () => {
         setProfile({ ...profile, name: form.name, grade: profile.grade, points: profile.points });
       }
       if (supabase && userId && form.name) {
-        // Supabase profiles 테이블에도 이름 반영 (인사 문구와 일치)
         await supabase.from('profiles').update({ name: form.name }).eq('id', userId);
       }
       setEditing(false);
@@ -123,8 +124,11 @@ export const ProfileEdit: React.FC = () => {
   return (
     <main className="mx-auto max-w-xl px-4 py-6 sm:px-6 sm:py-10 md:py-14">
       <p className="mb-6">
-        <Link to="/profile" className="text-sm text-slate-500 hover:text-slate-700">← Profile</Link>
+        <Link to="/profile" className="text-sm text-slate-500 hover:text-slate-700">
+          ← Profile
+        </Link>
       </p>
+
       <header className="mb-8">
         <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
           Редактировать профиль
@@ -135,11 +139,14 @@ export const ProfileEdit: React.FC = () => {
       </header>
 
       <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
+        {/* 기본 인적 사항 */}
         <section>
           <h2 className="mb-4 text-lg font-semibold text-slate-900">Основные данные</h2>
           <div className="space-y-4">
             <div>
-              <label htmlFor="pe-name" className={labelClass}>Имя</label>
+              <label htmlFor="pe-name" className={labelClass}>
+                Имя
+              </label>
               <input
                 id="pe-name"
                 type="text"
@@ -149,10 +156,19 @@ export const ProfileEdit: React.FC = () => {
               />
             </div>
             <div>
-              <label htmlFor="pe-email" className={labelClass}>Email</label>
-              <input id="pe-email" type="email" className={`${inputClass} cursor-default bg-slate-50`} value={form.email ?? ''} readOnly />
+              <label htmlFor="pe-email" className={labelClass}>
+                Email
+              </label>
+              <input
+                id="pe-email"
+                type="email"
+                className={`${inputClass} cursor-default bg-slate-50`}
+                value={form.email ?? ''}
+                readOnly
+              />
             </div>
-            {/* 비밀번호 변경 - 기본 인적 사항 아래에 배치 */}
+
+            {/* 비밀번호 변경 */}
             <div className="mt-6 border-t border-slate-100 pt-4">
               <h3 className="mb-3 text-sm font-semibold text-slate-900">Сменить пароль</h3>
               {!passwordSection ? (
@@ -166,36 +182,51 @@ export const ProfileEdit: React.FC = () => {
               ) : (
                 <div className="space-y-4 rounded-xl border border-slate-100 bg-slate-50/50 p-4">
                   <div>
-                    <label htmlFor="pw-current" className={labelClass}>Текущий пароль</label>
+                    <label htmlFor="pw-current" className={labelClass}>
+                      Текущий пароль
+                    </label>
                     <input
                       id="pw-current"
                       type="password"
                       className={inputClass}
                       placeholder="••••••••"
                       value={pwCurrent}
-                      onChange={(e) => { setPwCurrent(e.target.value); setPwError(''); }}
+                      onChange={(e) => {
+                        setPwCurrent(e.target.value);
+                        setPwError('');
+                      }}
                     />
                   </div>
                   <div>
-                    <label htmlFor="pw-new" className={labelClass}>Новый пароль</label>
+                    <label htmlFor="pw-new" className={labelClass}>
+                      Новый пароль
+                    </label>
                     <input
                       id="pw-new"
                       type="password"
                       className={inputClass}
                       placeholder="••••••••"
                       value={pwNew}
-                      onChange={(e) => { setPwNew(e.target.value); setPwError(''); }}
+                      onChange={(e) => {
+                        setPwNew(e.target.value);
+                        setPwError('');
+                      }}
                     />
                   </div>
                   <div>
-                    <label htmlFor="pw-confirm" className={labelClass}>Повторите новый пароль</label>
+                    <label htmlFor="pw-confirm" className={labelClass}>
+                      Повторите новый пароль
+                    </label>
                     <input
                       id="pw-confirm"
                       type="password"
                       className={inputClass}
                       placeholder="••••••••"
                       value={pwConfirm}
-                      onChange={(e) => { setPwConfirm(e.target.value); setPwError(''); }}
+                      onChange={(e) => {
+                        setPwConfirm(e.target.value);
+                        setPwError('');
+                      }}
                     />
                   </div>
                   {pwError && <p className="text-sm text-red-600">{pwError}</p>}
@@ -223,7 +254,7 @@ export const ProfileEdit: React.FC = () => {
                           setPwError(
                             error.message === 'New password should be different from the old password.'
                               ? 'Новый пароль должен отличаться.'
-                              : error.message
+                              : error.message,
                           );
                           return;
                         }
@@ -257,6 +288,7 @@ export const ProfileEdit: React.FC = () => {
           </div>
         </section>
 
+        {/* 배송 + 주소 자동완성 */}
         <section>
           <h2 className="mb-4 text-lg font-semibold text-slate-900">Доставка</h2>
           <div className="space-y-4">
@@ -282,10 +314,13 @@ export const ProfileEdit: React.FC = () => {
                 if (postcode !== undefined) handleChange('postcode', postcode);
               }}
             />
+
             <div className="space-y-4 rounded-xl border border-brand/20 bg-brand-soft/10 px-4 py-4">
               <div className="grid gap-3 sm:grid-cols-3">
                 <div>
-                  <label htmlFor="pe-fio-last" className={labelClass}>Фамилия</label>
+                  <label htmlFor="pe-fio-last" className={labelClass}>
+                    Фамилия
+                  </label>
                   <input
                     id="pe-fio-last"
                     type="text"
@@ -295,7 +330,9 @@ export const ProfileEdit: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="pe-fio-first" className={labelClass}>Имя</label>
+                  <label htmlFor="pe-fio-first" className={labelClass}>
+                    Имя
+                  </label>
                   <input
                     id="pe-fio-first"
                     type="text"
@@ -305,7 +342,9 @@ export const ProfileEdit: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="pe-fio-middle" className={labelClass}>Отчество <span className={hintClass}>(если есть)</span></label>
+                  <label htmlFor="pe-fio-middle" className={labelClass}>
+                    Отчество <span className={hintClass}>(если есть)</span>
+                  </label>
                   <input
                     id="pe-fio-middle"
                     type="text"
@@ -315,11 +354,12 @@ export const ProfileEdit: React.FC = () => {
                   />
                 </div>
               </div>
-              <p className={hintClass}>
-                ФИО как в паспорте (латинскими буквами).
-              </p>
+              <p className={hintClass}>ФИО как в паспорте (латинскими буквами).</p>
+
               <div>
-                <label htmlFor="pe-city" className={labelClass}>Город / Регион</label>
+                <label htmlFor="pe-city" className={labelClass}>
+                  Город / Регион
+                </label>
                 <input
                   id="pe-city"
                   type="text"
@@ -329,7 +369,9 @@ export const ProfileEdit: React.FC = () => {
                 />
               </div>
               <div>
-                <label htmlFor="pe-street" className={labelClass}>Улица, Дом, Корпус</label>
+                <label htmlFor="pe-street" className={labelClass}>
+                  Улица, Дом, Корпус
+                </label>
                 <input
                   id="pe-street"
                   type="text"
@@ -339,17 +381,34 @@ export const ProfileEdit: React.FC = () => {
                 />
               </div>
               <div>
-                <label htmlFor="pe-apt" className={labelClass}>Кв. / Офис</label>
-                <input id="pe-apt" type="text" placeholder="кв. 104" className={inputClass} {...inputProps('apartmentOffice')} />
+                <label htmlFor="pe-apt" className={labelClass}>
+                  Кв. / Офис
+                </label>
+                <input
+                  id="pe-apt"
+                  type="text"
+                  placeholder="кв. 104"
+                  className={inputClass}
+                  {...inputProps('apartmentOffice')}
+                />
               </div>
               <div>
                 <label htmlFor="pe-postcode" className={labelClass}>
                   Postcode <span className={hintClass}>(индекс, 6 цифр)</span>
                 </label>
-                <input id="pe-postcode" type="text" placeholder="123456" maxLength={6} className={inputClass} {...inputProps('postcode')} />
+                <input
+                  id="pe-postcode"
+                  type="text"
+                  placeholder="123456"
+                  maxLength={6}
+                  className={inputClass}
+                  {...inputProps('postcode')}
+                />
               </div>
               <div>
-                <label htmlFor="pe-phone" className={labelClass}>Телефон</label>
+                <label htmlFor="pe-phone" className={labelClass}>
+                  Телефон
+                </label>
                 <input
                   id="pe-phone"
                   type="tel"
@@ -361,12 +420,23 @@ export const ProfileEdit: React.FC = () => {
                 />
               </div>
               <div>
-                <label htmlFor="pe-inn" className={`${labelClass} inline-flex items-center gap-1`}>INN <span className={hintClass}>(12 цифр)</span> <InnHelpTooltip /></label>
-                <input id="pe-inn" type="text" placeholder="12 цифр" maxLength={12} className={inputClass} {...inputProps('inn')} />
+                <label htmlFor="pe-inn" className={`${labelClass} inline-flex items-center gap-1`}>
+                  INN <span className={hintClass}>(12 цифр)</span> <InnHelpTooltip />
+                </label>
+                <input
+                  id="pe-inn"
+                  type="text"
+                  placeholder="12 цифр"
+                  maxLength={12}
+                  className={inputClass}
+                  {...inputProps('inn')}
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label htmlFor="pe-ps" className={labelClass}>Серия паспорта</label>
+                  <label htmlFor="pe-ps" className={labelClass}>
+                    Серия паспорта
+                  </label>
                   <input
                     id="pe-ps"
                     type="text"
@@ -377,7 +447,9 @@ export const ProfileEdit: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="pe-pn" className={labelClass}>Номер паспорта</label>
+                  <label htmlFor="pe-pn" className={labelClass}>
+                    Номер паспорта
+                  </label>
                   <input
                     id="pe-pn"
                     type="text"
@@ -388,6 +460,7 @@ export const ProfileEdit: React.FC = () => {
                   />
                 </div>
               </div>
+            </div>
           </div>
         </section>
 
@@ -416,8 +489,11 @@ export const ProfileEdit: React.FC = () => {
       </form>
 
       <p className="mt-8 text-center">
-        <Link to="/profile" className="text-sm text-slate-500 hover:text-slate-700">← Profile</Link>
+        <Link to="/profile" className="text-sm text-slate-500 hover:text-slate-700">
+          ← Profile
+        </Link>
       </p>
     </main>
   );
 };
+
