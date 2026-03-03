@@ -1,0 +1,227 @@
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { Link, Navigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import { getProfile } from '../lib/profileStorage';
+import { supabase } from '../lib/supabase';
+
+/**
+ * 로그인된 사용자 개인화면 — 인사/등급/포인트 박스. Supabase 로그인 시 DB 포인트(테스트 완료 시 500) 표시.
+ */
+export const Profile: React.FC = () => {
+  const { userEmail, userId, setUserEmail, isLoggedIn, initialized } = useAuth();
+  const [gradeTooltipOpen, setGradeTooltipOpen] = useState(false);
+  const [dbProfile, setDbProfile] = useState<{ name: string | null; grade: string; points: number; telegram_id: string | null } | null>(null);
+  const [linkToken, setLinkToken] = useState<string | null>(null);
+
+  const localProfile = useMemo(() => (userEmail ? getProfile(userEmail) : null), [userEmail]);
+
+  const refreshProfile = useCallback(() => {
+    if (!supabase || !userId) {
+      setDbProfile(null);
+      return;
+    }
+    supabase
+      .from('profiles')
+      .select('name, grade, points, telegram_id')
+      .eq('id', userId)
+      .single()
+      .then(({ data }) =>
+        setDbProfile(
+          data
+            ? {
+                name: data.name ?? '',
+                grade: data.grade ?? 'Обычный участник',
+                points: data.points ?? 0,
+                telegram_id: data.telegram_id ?? null,
+              }
+            : null
+        )
+      )
+      .catch(() => setDbProfile(null));
+  }, [userId]);
+
+  useEffect(() => {
+    refreshProfile();
+  }, [refreshProfile]);
+
+  const handleTelegramLink = async () => {
+    if (!supabase || !userId) return;
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    const { data, error } = await supabase.from('link_tokens').insert({ user_id: userId, expires_at: expiresAt }).select('token').single();
+    if (error || !data) return;
+    setLinkToken(data.token);
+  };
+
+  const profile = dbProfile ?? localProfile;
+
+  if (!initialized) return null;
+  if (!isLoggedIn || !userEmail) return <Navigate to="/login" replace />;
+
+  const handleLogout = () => {
+    setUserEmail(null);
+    window.location.href = '/login';
+  };
+
+  const gradeTooltipText = 'Обычный участник, Премиум участник';
+
+  return (
+    <main className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-10 md:py-14">
+      <header className="mb-6">
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
+          Profile
+        </h1>
+      </header>
+
+      {/* 옅은 주황 박스: 인사 + 등급(툴팁) + 포인트(별) */}
+      <div className="rounded-xl border border-brand/20 bg-brand-soft/30 px-4 py-5 sm:px-6 sm:py-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-base font-medium text-slate-800 sm:text-lg">
+              Здравствуйте, {profile?.name ?? 'Гость'}!
+            </p>
+            <div className="relative mt-1">
+              <button
+                type="button"
+                onClick={() => setGradeTooltipOpen((v) => !v)}
+                onBlur={() => setGradeTooltipOpen(false)}
+                className="text-sm text-brand hover:underline"
+                title={gradeTooltipText}
+              >
+                {profile?.grade ?? 'Обычный участник'}, подписка SEMO 2026!
+              </button>
+              {gradeTooltipOpen && (
+                <div
+                  className="absolute left-0 top-full z-10 mt-1 max-w-xs rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 shadow-lg"
+                  role="tooltip"
+                >
+                  {gradeTooltipText}
+                </div>
+              )}
+            </div>
+          </div>
+          <Link
+            to="/profile/points"
+            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-brand/30 bg-white px-4 py-2.5 text-sm font-medium text-slate-800 transition hover:bg-brand-soft/20"
+          >
+            <span className="tabular-nums">{profile?.points ?? 0}</span>
+            <span className="text-amber-500" aria-hidden>★</span>
+          </Link>
+        </div>
+      </div>
+
+      {/* Telegram 연동: 봇에서 테스트한 포인트를 웹에서 그대로 사용 */}
+      {userId && (
+        <div className="mt-6 rounded-xl border border-slate-100 bg-slate-50/50 px-4 py-4">
+          <p className="text-sm font-medium text-slate-800">Telegram</p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Рекомендуем привязать Telegram после регистрации — заказы и баллы будут видны и в боте.
+          </p>
+          {dbProfile?.telegram_id ? (
+            <p className="mt-1 text-xs text-slate-600">Связано с Telegram. Баллы из бота отображаются здесь.</p>
+          ) : linkToken ? (
+            <div className="mt-2 space-y-2">
+              <p className="text-xs text-slate-600">
+                Нажмите ссылку и откройте в Telegram — бот привяжет аккаунт. Затем обновите страницу.
+              </p>
+              <a
+                href={`https://t.me/My_SEMO_Beautybot?start=link_${linkToken}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block rounded-lg bg-[#0088cc] px-4 py-2 text-sm font-medium text-white hover:bg-[#0077b5]"
+              >
+                Открыть в Telegram
+              </a>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={handleTelegramLink}
+              className="mt-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Связать с Telegram
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* 그래픽/아이콘 메뉴: 프로필 수정, 테스트 결과, 리뷰, 주문 내역 — 한 줄 4개, 아이콘 위·텍스트 아래 */}
+      <nav className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-label="Profile menu">
+        <Link
+          to="/profile/edit"
+          className="flex h-full flex-col items-center gap-3 rounded-2xl border border-slate-100 bg-white p-4 text-center shadow-sm transition hover:border-brand/40 hover:bg-brand-soft/10"
+        >
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">
+            <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+            </svg>
+          </span>
+          <div>
+            <p className="text-sm font-medium text-slate-800">Редактировать профиль</p>
+            <p className="mt-1 text-xs text-slate-500">Пароль и персональные данные</p>
+          </div>
+        </Link>
+
+        <Link
+          to="/profile/test-results"
+          className="flex h-full flex-col items-center gap-3 rounded-2xl border border-slate-100 bg-white p-4 text-center shadow-sm transition hover:border-brand/40 hover:bg-brand-soft/10"
+        >
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">
+            <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+            </svg>
+          </span>
+          <div>
+            <p className="text-sm font-medium text-slate-800">Результаты тестов</p>
+            <p className="mt-1 text-xs text-slate-500">Последние результаты типа кожи</p>
+          </div>
+        </Link>
+
+        <Link
+          to="/profile/reviews"
+          className="flex h-full flex-col items-center gap-3 rounded-2xl border border-slate-100 bg-white p-4 text-center shadow-sm transition hover:border-brand/40 hover:bg-brand-soft/10"
+        >
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">
+            <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            </svg>
+          </span>
+          <div>
+            <p className="text-sm font-medium text-slate-800">Мои отзывы</p>
+            <p className="mt-1 text-xs text-slate-500">Оставленные отзывы</p>
+          </div>
+        </Link>
+
+        <Link
+          to="/profile/orders"
+          className="flex h-full flex-col items-center gap-3 rounded-2xl border border-slate-100 bg-white p-4 text-center shadow-sm transition hover:border-brand/40 hover:bg-brand-soft/10"
+        >
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">
+            <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+            </svg>
+          </span>
+          <div>
+            <p className="text-sm font-medium text-slate-800">История заказов</p>
+            <p className="mt-1 text-xs text-slate-500">Заказы и отслеживание доставки</p>
+          </div>
+        </Link>
+      </nav>
+
+      <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:gap-4">
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+        >
+          Выйти
+        </button>
+      </div>
+
+      <p className="mt-6 text-center">
+        <Link to="/" className="text-sm text-slate-500 hover:text-slate-700">
+          ← На главную
+        </Link>
+      </p>
+    </main>
+  );
+};

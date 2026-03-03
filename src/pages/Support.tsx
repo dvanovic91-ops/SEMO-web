@@ -1,0 +1,141 @@
+import React, { useState } from 'react';
+import { Navigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+
+/** 지원 메일 수신 주소 — .env의 VITE_SUPPORT_EMAIL로 변경 가능 */
+const SUPPORT_RECIPIENT_EMAIL =
+  import.meta.env.VITE_SUPPORT_EMAIL ?? 'support@semo-beautybox.com';
+
+const REQUEST_TYPES = [
+  { value: '', label: 'Выберите тип запроса' },
+  { value: 'product', label: 'Запрос по товару' },
+  { value: 'price', label: 'Запрос по цене' },
+  { value: 'shipping', label: 'Запрос по доставке' },
+  { value: 'other', label: 'Другой запрос' },
+] as const;
+
+const inputClass =
+  'w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand';
+const labelClass = 'mb-1.5 block text-sm font-medium text-slate-700';
+
+export const Support: React.FC = () => {
+  const { userEmail, initialized } = useAuth();
+  const [subject, setSubject] = useState('');
+  const [requestType, setRequestType] = useState('');
+  const [message, setMessage] = useState('');
+  const [sent, setSent] = useState(false);
+
+  if (!initialized) return null;
+  if (!userEmail) return <Navigate to="/login" replace />;
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    // TODO: 실제 발송 API 연동
+    setSent(true);
+  };
+
+  return (
+    <main className="mx-auto max-w-xl px-4 py-6 sm:px-6 sm:py-10 md:py-14">
+      <header className="mb-6 sm:mb-8">
+        <p className="text-sm font-medium tracking-wide text-brand">Поддержка</p>
+        <h1 className="mt-1 text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
+          Написать в поддержку
+        </h1>
+        <p className="mt-2 text-sm text-slate-600">
+          Заполните форму — мы ответим на указанный при регистрации email.
+        </p>
+        <p className="mt-1 text-xs text-slate-500 sm:text-sm">
+          Для быстрой консультации свяжитесь с нами через Telegram.
+        </p>
+      </header>
+
+      {sent ? (
+        <div className="rounded-xl border border-brand/20 bg-brand-soft/20 px-4 py-6 text-center text-slate-700">
+          <p className="font-medium">Сообщение отправлено.</p>
+          <p className="mt-1 text-sm">Мы ответим на {userEmail} в ближайшее время.</p>
+        </div>
+      ) : (
+        <form className="space-y-4 sm:space-y-5" onSubmit={handleSubmit}>
+          <div>
+            <label htmlFor="support-from" className={labelClass}>
+              Отправитель
+            </label>
+            <input
+              id="support-from"
+              type="email"
+              readOnly
+              value={userEmail ?? ''}
+              className={`${inputClass} cursor-default bg-slate-50 text-slate-600`}
+            />
+          </div>
+
+          <div>
+            <label htmlFor="support-to" className={labelClass}>
+              Получатель
+            </label>
+            <input
+              id="support-to"
+              type="text"
+              readOnly
+              value={SUPPORT_RECIPIENT_EMAIL}
+              className={`${inputClass} cursor-default bg-slate-100 text-slate-500`}
+            />
+          </div>
+
+          <div>
+            <label htmlFor="support-subject" className={labelClass}>
+              Тема
+            </label>
+            <input
+              id="support-subject"
+              type="text"
+              placeholder="Кратко опишите тему"
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              className={inputClass}
+            />
+          </div>
+
+          <div>
+            <label htmlFor="support-type" className={labelClass}>
+              Тип запроса
+            </label>
+            <select
+              id="support-type"
+              value={requestType}
+              onChange={(e) => setRequestType(e.target.value)}
+              className={inputClass}
+            >
+              {REQUEST_TYPES.map((opt) => (
+                <option key={opt.value || 'empty'} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="support-message" className={labelClass}>
+              Сообщение
+            </label>
+            <textarea
+              id="support-message"
+              rows={5}
+              placeholder="Опишите ваш вопрос или проблему"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              className={`${inputClass} min-h-[120px] resize-y sm:min-h-[160px]`}
+            />
+          </div>
+
+          <button
+            type="submit"
+            className="w-full rounded-full bg-brand py-3.5 text-base font-semibold text-white transition hover:bg-brand/90 sm:py-4"
+          >
+            Отправить
+          </button>
+        </form>
+      )}
+    </main>
+  );
+};

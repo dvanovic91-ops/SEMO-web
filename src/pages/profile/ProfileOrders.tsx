@@ -1,0 +1,109 @@
+import React from 'react';
+import { Link, Navigate } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
+
+/**
+ * 주문 내역 — 향후 주문 목록·배송 추적 API 연동용 구조.
+ * 타입: Order, OrderItem, ShipmentTracking 등 확장 가능.
+ */
+export interface OrderItem {
+  id: string;
+  name: string;
+  quantity: number;
+  price: number;
+}
+
+export interface ShipmentTracking {
+  status: string;
+  message: string;
+  date?: string;
+}
+
+export interface Order {
+  id: string;
+  date: string;
+  total: number;
+  status: 'pending' | 'paid' | 'shipped' | 'delivered' | 'cancelled';
+  items: OrderItem[];
+  tracking?: ShipmentTracking[];
+}
+
+const MOCK_ORDERS: Order[] = [
+  {
+    id: 'ORD-2026-001',
+    date: '2026-02-25',
+    total: 15900,
+    status: 'shipped',
+    items: [{ id: 'i1', name: 'Beauty Box — Весна 2026', quantity: 1, price: 15900 }],
+    tracking: [
+      { status: 'shipped', message: 'Отправлено', date: '2026-02-26' },
+      { status: 'in_transit', message: 'В пути', date: '2026-02-27' },
+    ],
+  },
+  {
+    id: 'ORD-2026-002',
+    date: '2026-01-10',
+    total: 8900,
+    status: 'delivered',
+    items: [{ id: 'i2', name: 'Сыворотка для лица', quantity: 1, price: 8900 }],
+    tracking: [{ status: 'delivered', message: 'Доставлено', date: '2026-01-15' }],
+  },
+];
+
+const statusLabel: Record<Order['status'], string> = {
+  pending: 'Ожидает оплаты',
+  paid: 'Оплачен',
+  shipped: 'Отправлен',
+  delivered: 'Доставлен',
+  cancelled: 'Отменён',
+};
+
+export const ProfileOrders: React.FC = () => {
+  const { isLoggedIn, initialized } = useAuth();
+  if (!initialized) return null;
+  if (!isLoggedIn) return <Navigate to="/login" replace />;
+
+  return (
+    <main className="mx-auto max-w-xl px-4 py-6 sm:px-6 sm:py-10 md:py-14">
+      <p className="mb-6">
+        <Link to="/profile" className="text-sm text-slate-500 hover:text-slate-700">← Profile</Link>
+      </p>
+      <header className="mb-8">
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
+          История заказов
+        </h1>
+        <p className="mt-1 text-sm text-slate-500">
+          Заказы и отслеживание доставки (структура готова для API)
+        </p>
+      </header>
+
+      <ul className="space-y-4">
+        {MOCK_ORDERS.map((order) => (
+          <li key={order.id} className="rounded-xl border border-slate-100 bg-white p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="font-medium text-slate-800">{order.id}</p>
+              <span className="text-sm text-slate-500">{order.date}</span>
+            </div>
+            <p className="mt-1 text-sm text-slate-600">
+              {statusLabel[order.status]} · {order.total.toLocaleString('ru-RU')} ₽
+            </p>
+            {order.tracking && order.tracking.length > 0 && (
+              <div className="mt-3 border-t border-slate-100 pt-3">
+                <p className="text-xs font-medium text-slate-500">Отслеживание</p>
+                <ul className="mt-1 space-y-1 text-sm text-slate-600">
+                  {order.tracking.map((t, i) => (
+                    <li key={i}>{t.date} — {t.message}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+
+      <p className="mt-8 text-center">
+        <Link to="/profile" className="text-sm text-slate-500 hover:text-slate-700">← Profile</Link>
+      </p>
+    </main>
+  );
+};

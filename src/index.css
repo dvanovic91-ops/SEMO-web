@@ -1,0 +1,47 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 모바일에서 가로 스크롤 방지, 텍스트 한 화면 안에 */
+html, body {
+  @apply bg-white text-slate-900 font-sans antialiased;
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
+::selection {
+  background-color: #e6542733;
+}
+
+/* 스크롤 유도용 커서 깜빡임 */
+@keyframes cursor-blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0;
+  }
+}
+.animate-cursor-blink {
+  animation: cursor-blink 1s step-end infinite;
+}
+
+/* 역삼각형 반짝임 */
+@keyframes shine {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.animate-shine {
+  animation: shine 1.5s ease-in-out infinite;
+}
+
+/* 모바일 터치 시 버튼 호버 스타일 유지 방지 */
+@media (hover: none) {
+  .touch-no-hover:hover {
+    background-color: inherit;
+    border-color: inherit;
+    color: inherit;
+  }
+}
