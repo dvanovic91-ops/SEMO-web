@@ -1,24 +1,13 @@
 import React from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { USE_MOCK_ORDERS, mockOrders } from '../../data/mocks';
 
 /**
- * 주문 내역 — 향후 주문 목록·배송 추적 API 연동용 구조.
- * 타입: Order, OrderItem, ShipmentTracking 등 확장 가능.
+ * 주문 내역 — 타입은 mocks와 동일하게 유지. API 연동 시 Order[]만 교체.
  */
-export interface OrderItem {
-  id: string;
-  name: string;
-  quantity: number;
-  price: number;
-}
-
-export interface ShipmentTracking {
-  status: string;
-  message: string;
-  date?: string;
-}
-
+export type OrderItem = { id: string; name: string; quantity: number; price: number };
+export type ShipmentTracking = { status: string; message: string; date?: string };
 export interface Order {
   id: string;
   date: string;
@@ -27,28 +16,6 @@ export interface Order {
   items: OrderItem[];
   tracking?: ShipmentTracking[];
 }
-
-const MOCK_ORDERS: Order[] = [
-  {
-    id: 'ORD-2026-001',
-    date: '2026-02-25',
-    total: 15900,
-    status: 'shipped',
-    items: [{ id: 'i1', name: 'Beauty Box — Весна 2026', quantity: 1, price: 15900 }],
-    tracking: [
-      { status: 'shipped', message: 'Отправлено', date: '2026-02-26' },
-      { status: 'in_transit', message: 'В пути', date: '2026-02-27' },
-    ],
-  },
-  {
-    id: 'ORD-2026-002',
-    date: '2026-01-10',
-    total: 8900,
-    status: 'delivered',
-    items: [{ id: 'i2', name: 'Сыворотка для лица', quantity: 1, price: 8900 }],
-    tracking: [{ status: 'delivered', message: 'Доставлено', date: '2026-01-15' }],
-  },
-];
 
 const statusLabel: Record<Order['status'], string> = {
   pending: 'Ожидает оплаты',
@@ -78,7 +45,7 @@ export const ProfileOrders: React.FC = () => {
       </header>
 
       <ul className="space-y-4">
-        {MOCK_ORDERS.map((order) => (
+        {(USE_MOCK_ORDERS ? mockOrders : []).map((order) => (
           <li key={order.id} className="rounded-xl border border-slate-100 bg-white p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="font-medium text-slate-800">{order.id}</p>

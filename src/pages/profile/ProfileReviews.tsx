@@ -1,17 +1,14 @@
 import React from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-
-/** 내가 남긴 리뷰 목록 (향후 API 연동) */
-const MOCK_REVIEWS: { id: string; product: string; text: string; date: string; rating: number }[] = [
-  { id: '1', product: 'Beauty Box — Весна 2026', text: 'Очень понравился набор, крем идеально подошёл.', date: '2026-02-20', rating: 5 },
-  { id: '2', product: 'Сыворотка для лица', text: 'Быстрая доставка, качество отличное.', date: '2026-01-08', rating: 4 },
-];
+import { USE_MOCK_REVIEWS, mockReviews } from '../../data/mocks';
 
 export const ProfileReviews: React.FC = () => {
   const { isLoggedIn, initialized } = useAuth();
   if (!initialized) return null;
   if (!isLoggedIn) return <Navigate to="/login" replace />;
+
+  const list = USE_MOCK_REVIEWS ? mockReviews : [];
 
   return (
     <main className="mx-auto max-w-xl px-4 py-6 sm:px-6 sm:py-10 md:py-14">
@@ -27,13 +24,13 @@ export const ProfileReviews: React.FC = () => {
         </p>
       </header>
 
-      {MOCK_REVIEWS.length === 0 ? (
+      {list.length === 0 ? (
         <p className="rounded-xl border border-slate-100 bg-slate-50/50 px-4 py-8 text-center text-slate-500">
           Пока нет отзывов. Оформите заказ и оставьте отзыв — вам начислят баллы.
         </p>
       ) : (
         <ul className="space-y-4">
-          {MOCK_REVIEWS.map((r) => (
+          {list.map((r) => (
             <li key={r.id} className="rounded-xl border border-slate-100 bg-white p-4">
               <p className="text-sm font-medium text-slate-800">{r.product}</p>
               <p className="mt-1 text-sm text-slate-600">{r.text}</p>

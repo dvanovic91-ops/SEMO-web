@@ -1,16 +1,14 @@
 import React from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-
-const MOCK_RESULTS = [
-  { id: '1', type: 'Комбинированная', date: '2026-02-28' },
-  { id: '2', type: 'Нормальная', date: '2026-01-15' },
-];
+import { USE_MOCK_TEST_RESULTS, mockTestResults } from '../../data/mocks';
 
 export const ProfileTestResults: React.FC = () => {
   const { isLoggedIn, initialized } = useAuth();
   if (!initialized) return null;
   if (!isLoggedIn) return <Navigate to="/login" replace />;
+
+  const list = USE_MOCK_TEST_RESULTS ? mockTestResults : [];
 
   return (
     <main className="mx-auto max-w-xl px-4 py-6 sm:px-6 sm:py-10 md:py-14">
@@ -24,7 +22,7 @@ export const ProfileTestResults: React.FC = () => {
         <p className="mt-1 text-sm text-slate-500">Последние результаты теста типа кожи</p>
       </header>
       <ul className="space-y-3">
-        {MOCK_RESULTS.map((r) => (
+        {list.map((r) => (
           <li key={r.id} className="flex items-center justify-between rounded-xl border border-slate-100 bg-white px-4 py-4">
             <div>
               <p className="font-medium text-slate-800">{r.type}</p>

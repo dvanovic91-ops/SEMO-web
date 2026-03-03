@@ -1,14 +1,31 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
+import { supabase } from '../lib/supabase';
 
-/** 뷰티박스 상품 — 타입 1~4(주황 박스), Family care(연하늘 박스), 장바구니 연동 */
-const BEAUTY_BOX_PRODUCTS = [
-  { id: 'beauty-box-type-1', name: 'Тип 1', price: 11000, originalPrice: 12000, imageLabel: 'Тип 1', isFamily: false },
-  { id: 'beauty-box-type-2', name: 'Тип 2', price: 11000, originalPrice: 12000, imageLabel: 'Тип 2', isFamily: false },
-  { id: 'beauty-box-type-3', name: 'Тип 3', price: 11000, originalPrice: 12000, imageLabel: 'Тип 3', isFamily: false },
-  { id: 'beauty-box-type-4', name: 'Тип 4', price: 11000, originalPrice: 12000, imageLabel: 'Тип 4', isFamily: false },
-  { id: 'beauty-box-family', name: 'Family care', price: 13000, originalPrice: 14000, imageLabel: 'Family care', isFamily: true },
+/** 슬롯 또는 폴백 상품 타입 */
+type ShopItem = {
+  id: string;
+  name: string;
+  price: number;
+  originalPrice: number | null;
+  imageUrl: string | null;
+  productId: string | null;
+  linkUrl: string | null;
+  isFamily?: boolean;
+};
+
+/** 폴백: DB 슬롯 없을 때 사용 */
+const FALLBACK_ITEMS: ShopItem[] = [
+  { id: 'type-1', name: 'Тип 1', price: 11000, originalPrice: 12000, imageUrl: null, productId: null, linkUrl: null, isFamily: false },
+  { id: 'type-2', name: 'Тип 2', price: 11000, originalPrice: 12000, imageUrl: null, productId: null, linkUrl: null, isFamily: false },
+  { id: 'type-3', name: 'Тип 3', price: 11000, originalPrice: 12000, imageUrl: null, productId: null, linkUrl: null, isFamily: false },
+  { id: 'type-4', name: 'Тип 4', price: 11000, originalPrice: 12000, imageUrl: null, productId: null, linkUrl: null, isFamily: false },
+  { id: 'family', name: 'Family care', price: 13000, originalPrice: 14000, imageUrl: null, productId: null, linkUrl: null, isFamily: true },
 ];
+
+const VISIBLE = 3;
+const itemWidthPercent = 100 / VISIBLE;
 
 function formatPrice(price: number): string {
   return `${price.toLocaleString('ru-RU')} руб.`;
@@ -17,6 +34,52 @@ function formatPrice(price: number): string {
 export const Shop: React.FC = () => {
   const { addItem } = useCart();
   const [showAddedToast, setShowAddedToast] = useState(false);
+  const [items, setItems] = useState<ShopItem[]>(FALLBACK_ITEMS);
+  const [carouselIndex, setCarouselIndex] = useState(0);
+  const touchStartX = useRef(0);
+
+  useEffect(() => {
+    if (!supabase) return;
+    (async () => {
+      const { data: slotData } = await supabase
+        .from('main_layout_slots')
+        .select('slot_index, title, description, image_url, product_id, link_url')
+        .order('slot_index');
+      if (!slotData?.length) return;
+
+      const productIds = [...new Set((slotData as { product_id: string | null }[]).map((s) => s.product_id).filter(Boolean))] as string[];
+      let productsMap: Record<string, { prp_price: number | null; rrp_price: number | null }> = {};
+      if (productIds.length > 0) {
+        const { data: prodData } = await supabase
+          .from('products')
+          .select('id, rrp_price, prp_price')
+          .in('id', productIds);
+        (prodData ?? []).forEach((p: { id: string; rrp_price: number | null; prp_price: number | null }) => {
+          productsMap[p.id] = { rrp_price: p.rrp_price, prp_price: p.prp_price };
+        });
+      }
+
+      const list: ShopItem[] = slotData.map((s: { slot_index: number; title: string | null; image_url: string | null; product_id: string | null; link_url: string | null }) => {
+        const productId = s.product_id ?? null;
+        const prices = productId ? productsMap[productId] : null;
+        const prp = prices?.prp_price != null ? Number(prices.prp_price) : null;
+        const rrp = prices?.rrp_price != null ? Number(prices.rrp_price) : null;
+        const price = prp ?? rrp ?? 0;
+        const originalPrice = prp != null && rrp != null ? rrp : null;
+        return {
+          id: productId ?? `slot-${s.slot_index}`,
+          name: s.title ?? `Слот ${s.slot_index + 1}`,
+          price,
+          originalPrice,
+          imageUrl: s.image_url ?? null,
+          productId,
+          linkUrl: s.link_url ?? null,
+          isFamily: s.slot_index >= 4,
+        };
+      });
+      if (list.length >= 3) setItems(list);
+    })();
+  }, []);
 
   useEffect(() => {
     if (!showAddedToast) return;
@@ -24,83 +87,155 @@ export const Shop: React.FC = () => {
     return () => clearTimeout(t);
   }, [showAddedToast]);
 
-  const handleAddToCart = (product: (typeof BEAUTY_BOX_PRODUCTS)[0]) => {
-    addItem({ id: product.id, name: product.name, price: product.price });
+  const maxIndex = Math.max(0, items.length - VISIBLE);
+  const goPrev = () => setCarouselIndex((i) => Math.max(0, i - 1));
+  const goNext = () => setCarouselIndex((i) => Math.min(maxIndex, i + 1));
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+  };
+  const onTouchEnd = (e: React.TouchEvent) => {
+    const dx = e.changedTouches[0].clientX - touchStartX.current;
+    if (dx > 50) goPrev();
+    else if (dx < -50) goNext();
+  };
+
+  const handleAddToCart = (item: ShopItem) => {
+    addItem({ id: item.id, name: item.name, price: item.price });
     setShowAddedToast(true);
   };
 
+  const cardTop = (item: ShopItem) => (
+    <>
+      <p className={item.isFamily ? 'text-sm font-medium tracking-wide text-sky-700' : 'text-sm font-medium tracking-wide text-brand'}>
+        {item.name}
+      </p>
+      <div
+        className="mt-4 flex aspect-square w-full items-center justify-center overflow-hidden rounded-lg border border-slate-200/80 bg-white/80"
+        style={{ minHeight: '180px' }}
+      >
+        {item.imageUrl ? (
+          <img src={item.imageUrl} alt={item.name} className="h-full w-full object-cover" />
+        ) : (
+          <span className={item.isFamily ? 'text-base font-medium text-sky-600' : 'text-base font-medium text-brand'}>{item.name}</span>
+        )}
+      </div>
+      <div className="mt-4 flex items-baseline gap-2">
+        {item.originalPrice != null && (
+          <span className="text-sm text-slate-500 line-through">{formatPrice(item.originalPrice)}</span>
+        )}
+        <span className="text-base font-semibold text-slate-900">{formatPrice(item.price)}</span>
+      </div>
+    </>
+  );
+
   return (
     <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-14">
-      {/* 상단: 2026 봄/여름 큐레이션 */}
-      <header className="mb-10">
-        <p className="text-sm font-medium tracking-wide text-brand">
-          Beauty Box
-        </p>
+      <header className="mb-8">
+        <p className="text-sm font-medium tracking-wide text-brand">Beauty Box</p>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
           Курация весна/лето 2026
         </h1>
       </header>
 
-      {/* Тип 1, 2, 3, 4 + Family care — 결과지 SEMO 박스 스타일(주황) / 패밀리만 연하늘 */}
-      <section className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        {BEAUTY_BOX_PRODUCTS.map((product) => (
-          <article
-            key={product.id}
-            className={
-              product.isFamily
-                ? 'rounded-xl border border-sky-200 bg-sky-50/60 py-6 px-6'
-                : 'rounded-xl border border-brand/20 bg-brand-soft/25 py-6 px-6'
-            }
+      {/* 캐러셀: 한 화면 3개, 모바일 터치 스와이프 / 웹 화살표 */}
+      <section className="relative">
+        <div
+          className="overflow-hidden"
+          onTouchStart={onTouchStart}
+          onTouchEnd={onTouchEnd}
+        >
+          <div
+            className="flex transition-transform duration-300 ease-out"
+            style={{ transform: `translateX(-${carouselIndex * itemWidthPercent}%)` }}
           >
-            <p
-              className={
-                product.isFamily
-                  ? 'text-sm font-medium tracking-wide text-sky-700'
-                  : 'text-sm font-medium tracking-wide text-brand'
-              }
-            >
-              {product.name}
-            </p>
-            {/* 네모 박스 placeholder 이미지 */}
-            <div
-              className="mt-4 aspect-square w-full overflow-hidden rounded-lg bg-white/80 flex items-center justify-center border border-slate-200/80"
-              style={{ minHeight: '180px' }}
-            >
-              <span
-                className={
-                  product.isFamily
-                    ? 'text-base font-medium text-sky-600'
-                    : 'text-base font-medium text-brand'
-                }
+            {items.map((product) => (
+              <div
+                key={product.id}
+                className="flex shrink-0 flex-col px-2 sm:px-3"
+                style={{ width: `${itemWidthPercent}%` }}
               >
-                {product.imageLabel}
-              </span>
-            </div>
-            {/* 단가: 원가 취소선 + 할인가 */}
-            <div className="mt-4 flex items-baseline gap-2">
-              <span className="text-sm text-slate-500 line-through">
-                {formatPrice(product.originalPrice)}
-              </span>
-              <span className="text-base font-semibold text-slate-900">
-                {formatPrice(product.price)}
-              </span>
-            </div>
+                <article
+                  className={
+                    product.isFamily
+                      ? 'flex h-full flex-col rounded-xl border border-sky-200 bg-sky-50/60 px-4 py-6 sm:px-6'
+                      : 'flex h-full flex-col rounded-xl border border-brand/20 bg-brand-soft/25 px-4 py-6 sm:px-6'
+                  }
+                >
+                  {product.productId ? (
+                    <Link to={`/product/${product.productId}`} className="flex flex-1 flex-col">
+                      {cardTop(product)}
+                    </Link>
+                  ) : product.linkUrl ? (
+                    <a href={product.linkUrl} className="flex flex-1 flex-col">
+                      {cardTop(product)}
+                    </a>
+                  ) : (
+                    <div className="flex flex-1 flex-col">
+                      {cardTop(product)}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleAddToCart(product)}
+                    className={
+                      product.isFamily
+                        ? 'mt-4 w-full rounded-full bg-sky-600 py-3 text-sm font-semibold text-white transition hover:bg-sky-700'
+                        : 'mt-4 w-full rounded-full bg-brand py-3 text-sm font-semibold text-white transition hover:bg-brand/90'
+                    }
+                  >
+                    В корзину
+                  </button>
+                </article>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {items.length > VISIBLE && (
+          <>
             <button
               type="button"
-              onClick={() => handleAddToCart(product)}
-              className={
-                product.isFamily
-                  ? 'mt-4 w-full rounded-full bg-sky-600 py-3 text-sm font-semibold text-white transition hover:bg-sky-700'
-                  : 'mt-4 w-full rounded-full bg-brand py-3 text-sm font-semibold text-white transition hover:bg-brand/90'
-              }
+              onClick={goPrev}
+              disabled={carouselIndex === 0}
+              className="absolute left-0 top-1/2 hidden h-10 w-10 -translate-y-1/2 rounded-full border border-slate-200 bg-white shadow-md transition hover:bg-slate-50 disabled:opacity-30 md:flex md:items-center md:justify-center"
+              aria-label="Предыдущие"
             >
-              В корзину
+              <svg className="h-5 w-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
             </button>
-          </article>
-        ))}
+            <button
+              type="button"
+              onClick={goNext}
+              disabled={carouselIndex >= maxIndex}
+              className="absolute right-0 top-1/2 hidden h-10 w-10 -translate-y-1/2 rounded-full border border-slate-200 bg-white shadow-md transition hover:bg-slate-50 disabled:opacity-30 md:flex md:items-center md:justify-center"
+              aria-label="Следующие"
+            >
+              <svg className="h-5 w-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          </>
+        )}
+
+        {items.length > VISIBLE && (
+          <div className="mt-4 flex justify-center gap-2">
+            {Array.from({ length: maxIndex + 1 }).map((_, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => setCarouselIndex(i)}
+                className={`h-2 rounded-full transition ${
+                  i === carouselIndex ? 'w-6 bg-brand' : 'w-2 bg-slate-200'
+                }`}
+                aria-label={`Слайд ${i + 1}`}
+              />
+            ))}
+          </div>
+        )}
       </section>
 
-      {/* 장바구니 추가 시 안내 — 모바일에서는 하단 바 위에 표시 */}
       {showAddedToast && (
         <div
           className="fixed bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-slate-800 px-5 py-2.5 text-sm font-medium text-white shadow-lg md:bottom-6"

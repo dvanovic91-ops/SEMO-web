@@ -190,6 +190,7 @@ begin
   set telegram_id = p_telegram_id,
       points = greatest(coalesce(points, 0), coalesce(v_telegram_points, 0))
           + case when not v_reward_given then 200 else 0 end,
+      phone_verified = true,
       telegram_reward_given = (v_reward_given or true),
       updated_at = now()
   where id = v_user_id;
@@ -280,7 +281,5 @@ begin
 end;
 $$;
 
--- =============================================================================
--- 관리자 지정: 아래에서 이메일을 원하는 계정으로 바꾼 뒤 실행
--- =============================================================================
--- update public.profiles set is_admin = true where email in ('support@semo-beautybox.ru', 'dvanovic91@gmail.com');
+-- 관리자: update public.profiles set is_admin = true where email = '본인이메일';
+-- 그다음 docs/SUPABASE_SCHEMA_DASHBOARD_PRODUCT_REVIEWS.sql 실행 후, Storage에 버킷 review-photos (public) 생성.

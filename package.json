@@ -7,13 +7,15 @@
     "build": "vite build",
     "preview": "vite preview",
     "share": "vite build && vite preview",
-    "lint": "eslint src --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
+    "lint": "eslint src --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "ship": "node scripts/bump-and-push.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.47.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
-    "react-router-dom": "^7.0.0"
+    "react-router-dom": "^7.0.0",
+    "recharts": "^3.7.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.0",

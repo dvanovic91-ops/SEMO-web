@@ -12,7 +12,6 @@ export const Profile: React.FC = () => {
   const { userEmail, userId, setUserEmail, isLoggedIn, initialized } = useAuth();
   const [gradeTooltipOpen, setGradeTooltipOpen] = useState(false);
   const [dbProfile, setDbProfile] = useState<{ name: string | null; grade: string; points: number; telegram_id: string | null } | null>(null);
-  const [linkToken, setLinkToken] = useState<string | null>(null);
 
   const localProfile = useMemo(() => (userEmail ? getProfile(userEmail) : null), [userEmail]);
 
@@ -61,14 +60,6 @@ export const Profile: React.FC = () => {
   useEffect(() => {
     refreshProfile();
   }, [refreshProfile]);
-
-  const handleTelegramLink = async () => {
-    if (!supabase || !userId) return;
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-    const { data, error } = await supabase.from('link_tokens').insert({ user_id: userId, expires_at: expiresAt }).select('token').single();
-    if (error || !data) return;
-    setLinkToken(data.token);
-  };
 
   const profile = dbProfile ?? localProfile;
 
@@ -156,35 +147,28 @@ export const Profile: React.FC = () => {
             <p className="text-sm font-medium text-slate-800">Telegram‑бот</p>
           </div>
           {dbProfile?.telegram_id ? (
-            <p className="mt-2 text-xs text-slate-600">
-              Аккаунт привязан. Заказы, баллы и рекомендации доступны и в боте.
-            </p>
-          ) : linkToken ? (
             <div className="mt-2 space-y-2">
               <p className="text-xs text-slate-600">
-                Нажмите ссылку и откройте в Telegram — бот привяжет аккаунт. Затем обновите страницу.
+                Аккаунт привязан. Заказы, баллы и рекомендации доступны и в боте.
               </p>
-              <a
-                href={`https://t.me/My_SEMO_Beautybot?start=link_${linkToken}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-block rounded-lg bg-[#0088cc] px-4 py-2 text-sm font-medium text-white hover:bg-[#0077b5]"
+              <Link
+                to="/profile/edit?focus=phone"
+                className="inline-block text-xs font-medium text-sky-700 underline hover:text-sky-800"
               >
-                Открыть в Telegram
-              </a>
+                Изменить номер телефона
+              </Link>
             </div>
           ) : (
-            <div className="mt-2 flex flex-wrap items-center gap-2 gap-y-1">
+            <div className="mt-2 space-y-2">
               <p className="text-xs text-slate-600">
-                Заказы, баллы, поддержка, тесты и уход — всё в одном боте. Привяжите аккаунт к Telegram.
+                Чтобы привязать Telegram, подтвердите номер телефона в профиле.
               </p>
-              <button
-                type="button"
-                onClick={handleTelegramLink}
-                className="shrink-0 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+              <Link
+                to="/profile/edit?focus=phone"
+                className="inline-block rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
               >
-                связать
-              </button>
+                Перейти к подтверждению номера
+              </Link>
             </div>
           )}
           {!dbProfile?.telegram_id && (

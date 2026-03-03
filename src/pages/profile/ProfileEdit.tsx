@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Link, Navigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { getProfile, setProfile } from '../../lib/profileStorage';
 import { InnHelpTooltip } from '../../components/InnHelpTooltip';
@@ -46,10 +46,15 @@ function loadSavedProfile(): Record<string, string> {
 }
 
 export const ProfileEdit: React.FC = () => {
+  const [searchParams] = useSearchParams();
+  const focusPhone = searchParams.get('focus') === 'phone';
+  const phoneInputRef = useRef<HTMLInputElement>(null);
+
   const { userEmail, userId, isLoggedIn, initialized } = useAuth();
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
   const [initialForm, setInitialForm] = useState<Record<string, string> | null>(null);
+  const [telegramLinked, setTelegramLinked] = useState(false);
 
   const [passwordSection, setPasswordSection] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -67,23 +72,55 @@ export const ProfileEdit: React.FC = () => {
   if (!initialized) return null;
   if (!isLoggedIn || !userEmail) return <Navigate to="/login" replace />;
 
+  // DB에서 name, phone, telegram_id 로드 (연동 여부·휴대폰 표시용)
   useEffect(() => {
-    setForm({
-      name: profile?.name ?? (userEmail ? userEmail.split('@')[0] : ''),
+    if (!supabase || !userId) return;
+    supabase
+      .from('profiles')
+      .select('name, phone, telegram_id')
+      .eq('id', userId)
+      .single()
+      .then(({ data }) => {
+        if (data) {
+          setTelegramLinked(!!data.telegram_id);
+          setForm((prev) => ({
+            ...prev,
+            name: data.name ?? prev.name ?? (userEmail ? userEmail.split('@')[0] : ''),
+            phone: data.phone ?? prev.phone ?? '',
+          }));
+        }
+      })
+      .catch(() => {});
+  }, [userId, userEmail]);
+
+  // 로컬 프로필·이메일 기준 초기 폼
+  useEffect(() => {
+    setForm((prev) => ({
+      ...prev,
+      name: prev.name || (profile?.name ?? (userEmail ? userEmail.split('@')[0] : '')),
       email: userEmail ?? '',
-      fioLast: '',
-      fioFirst: '',
-      fioMiddle: '',
-      cityRegion: '',
-      streetHouse: '',
-      apartmentOffice: '',
-      postcode: '',
-      phone: '',
-      inn: '',
-      passportSeries: '',
-      passportNumber: '',
-    });
+      fioLast: prev.fioLast ?? '',
+      fioFirst: prev.fioFirst ?? '',
+      fioMiddle: prev.fioMiddle ?? '',
+      cityRegion: prev.cityRegion ?? '',
+      streetHouse: prev.streetHouse ?? '',
+      apartmentOffice: prev.apartmentOffice ?? '',
+      postcode: prev.postcode ?? '',
+      phone: prev.phone ?? '',
+      inn: prev.inn ?? '',
+      passportSeries: prev.passportSeries ?? '',
+      passportNumber: prev.passportNumber ?? '',
+    }));
   }, [userEmail, profile?.name]);
+
+  // 인증 배너에서 넘어온 경우: 편집 모드 켜고 휴대폰 필드에 포커스
+  useEffect(() => {
+    if (!focusPhone || !form.email) return;
+    setEditing(true);
+    setInitialForm((prev) => prev ?? { ...form });
+    const t = setTimeout(() => phoneInputRef.current?.focus(), 150);
+    return () => clearTimeout(t);
+  }, [focusPhone, form.email]);
 
   const isDirty = editing && initialForm !== null && JSON.stringify(form) !== JSON.stringify(initialForm);
 
@@ -105,8 +142,11 @@ export const ProfileEdit: React.FC = () => {
       if (form.name && profile) {
         setProfile(userEmail, { ...profile, name: form.name, grade: profile.grade, points: profile.points });
       }
-      if (supabase && userId && form.name) {
-        await supabase.from('profiles').update({ name: form.name }).eq('id', userId);
+      if (supabase && userId) {
+        await supabase
+          .from('profiles')
+          .update({ name: form.name ?? undefined, phone: form.phone || null })
+          .eq('id', userId);
       }
       setEditing(false);
       setSaved(true);
@@ -140,6 +180,24 @@ export const ProfileEdit: React.FC = () => {
       window.open(url, '_blank');
     } catch {
       setPhoneError('Не удалось подтвердить номер. Попробуйте позже.');
+    }
+  };
+
+  // 연동된 상태에서 휴대폰 번호 변경 시: 연동 해제 후 새 번호 입력·재연동
+  const handleUnlinkToChangePhone = async () => {
+    if (!supabase || !userId) return;
+    setPhoneError('');
+    try {
+      await supabase
+        .from('profiles')
+        .update({ telegram_id: null, phone_verified: false })
+        .eq('id', userId);
+      setTelegramLinked(false);
+      setEditing(true);
+      setInitialForm((prev) => prev ?? { ...form });
+      setTimeout(() => phoneInputRef.current?.focus(), 100);
+    } catch {
+      setPhoneError('Не удалось отвязать. Попробуйте позже.');
     }
   };
 
@@ -389,22 +447,38 @@ export const ProfileEdit: React.FC = () => {
                 </label>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <input
+                    ref={phoneInputRef}
                     id="pe-phone"
                     type="tel"
                     placeholder="+7 999 999 9999"
-                    className={`${inputClass} sm:flex-1`}
+                    className={`${inputClass} sm:flex-1 ${telegramLinked ? 'cursor-default bg-slate-50' : ''}`}
                     value={form.phone ?? ''}
-                    onChange={editing ? handlePhoneChange : undefined}
-                    readOnly={!editing}
+                    onChange={editing && !telegramLinked ? handlePhoneChange : undefined}
+                    readOnly={!editing || telegramLinked}
                   />
-                  <button
-                    type="button"
-                    onClick={handleTelegramVerify}
-                    disabled={!editing}
-                    className="shrink-0 rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-xs font-medium text-sky-700 transition hover:bg-sky-100 disabled:opacity-60"
-                  >
-                    Подтвердить в Telegram
-                  </button>
+                  {telegramLinked ? (
+                    <div className="flex shrink-0 flex-wrap items-center gap-2">
+                      <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-medium text-emerald-700">
+                        Telegram привязан
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleUnlinkToChangePhone}
+                        className="text-xs font-medium text-sky-600 underline hover:text-sky-800"
+                      >
+                        Изменить номер
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleTelegramVerify}
+                      disabled={!editing}
+                      className="shrink-0 rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-xs font-medium text-sky-700 transition hover:bg-sky-100 disabled:opacity-60"
+                    >
+                      Подтвердить в Telegram
+                    </button>
+                  )}
                 </div>
                 <p className="mt-1 text-[11px] text-slate-500">
                   * Телефон подтверждается через Telegram, за подтверждение +200 баллов.

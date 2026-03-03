@@ -20,6 +20,7 @@ import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 import { RegisterShipping } from './pages/RegisterShipping';
 import { Shop } from './pages/Shop';
+import { ProductDetail } from './pages/ProductDetail';
 import { SkinTest } from './pages/SkinTest';
 import { Profile } from './pages/Profile';
 import { ProfileEdit } from './pages/profile/ProfileEdit';
@@ -45,6 +46,7 @@ const App: React.FC = () => {
               <Route path="/about" element={<About />} />
               <Route path="/skin-test" element={<SkinTest />} />
               <Route path="/shop" element={<Shop />} />
+              <Route path="/product/:id" element={<ProductDetail />} />
               <Route path="/cart" element={<Cart />} />
               <Route path="/support" element={<Support />} />
               <Route path="/profile" element={<Profile />} />
