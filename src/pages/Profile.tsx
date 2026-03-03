@@ -183,8 +183,6 @@ export const Profile: React.FC = () => {
           )}
         </div>
       )}
-        </div>
-      )}
 
       {/* 그래픽/아이콘 메뉴: 프로필 수정, 테스트 결과, 리뷰, 주문 내역 — 한 줄 4개, 아이콘 위·텍스트 아래 */}
       <nav className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-label="Profile menu">

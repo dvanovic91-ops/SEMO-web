@@ -101,7 +101,6 @@ export const Navbar: React.FC = () => {
                 <path d="M6 19.5c1.4-2.3 3.3-3.5 6-3.5s4.6 1.2 6 3.5" />
               </svg>
             </Link>
-          </div>
         </div>
       </header>
 
