@@ -1,13 +1,10 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, TEST_ADMIN_EMAIL } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 
 const inputClass =
   'w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand';
-
-/** 테스트용 관리자 이메일 — 이 계정으로 로그인 시 개인정보 화면 확인 가능 */
-const TEST_ADMIN_EMAIL = 'admin@semo-beautybox.com';
 
 /**
  * 로그인 — 이메일/비밀번호 + 구글/얀덱스 OAuth 연동.

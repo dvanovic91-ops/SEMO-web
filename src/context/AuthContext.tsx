@@ -3,6 +3,10 @@ import { supabase } from '../lib/supabase';
 
 const STORAGE_KEY = 'userEmail';
 
+/** 테스트용 관리자 이메일 — 이 계정으로 로그인 시 Profile 진입용 dummy userId 사용 */
+export const TEST_ADMIN_EMAIL = 'admin@semo-beautybox.com';
+export const ADMIN_DUMMY_USER_ID = '00000000-0000-0000-0000-000000000001';
+
 interface AuthContextValue {
   userEmail: string | null;
   userId: string | null;
@@ -27,7 +31,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // ignore
       }
       setUserEmailState(email);
-      setUserId(null);
+      setUserId(email === TEST_ADMIN_EMAIL ? ADMIN_DUMMY_USER_ID : null);
     } else {
       try {
         localStorage.removeItem(STORAGE_KEY);
