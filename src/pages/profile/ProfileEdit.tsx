@@ -14,8 +14,11 @@ const labelClass = 'mb-1 block text-sm font-medium text-slate-700';
 const hintClass = 'text-xs text-slate-500 font-normal';
 
 function formatPhone(value: string): string {
-  const digits = value.replace(/\D/g, '').slice(0, 11);
+  // 회원가입/배송 입력과 동일한 형식: +7 999 999 9999
+  let digits = value.replace(/\D/g, '').slice(0, 11);
   if (digits.length === 0) return '';
+  if (digits.startsWith('8')) digits = '7' + digits.slice(1);
+  else if (!digits.startsWith('7')) digits = '7' + digits;
   const a = digits.slice(0, 1);
   const b = digits.slice(1, 4);
   const c = digits.slice(4, 7);
@@ -37,7 +40,7 @@ function loadSavedProfile(): Record<string, string> {
 }
 
 export const ProfileEdit: React.FC = () => {
-  const { userEmail, isLoggedIn, initialized } = useAuth();
+  const { userEmail, userId, isLoggedIn, initialized } = useAuth();
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
   const [initialForm, setInitialForm] = useState<Record<string, string> | null>(null);
@@ -83,10 +86,16 @@ export const ProfileEdit: React.FC = () => {
     handleChange('phone', formatPhone(e.target.value));
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     try {
       localStorage.setItem('profileEdit', JSON.stringify(form));
-      if (form.name) setProfile({ ...profile!, name: form.name, grade: profile!.grade, points: profile!.points });
+      if (form.name && profile) {
+        setProfile({ ...profile, name: form.name, grade: profile.grade, points: profile.points });
+      }
+      if (supabase && userId && form.name) {
+        // Supabase profiles 테이블에도 이름 반영 (인사 문구와 일치)
+        await supabase.from('profiles').update({ name: form.name }).eq('id', userId);
+      }
       setEditing(false);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -120,7 +129,13 @@ export const ProfileEdit: React.FC = () => {
           <div className="space-y-4">
             <div>
               <label htmlFor="pe-name" className={labelClass}>Имя</label>
-              <input id="pe-name" type="text" className={inputClass} {...inputProps('name')} />
+              <input
+                id="pe-name"
+                type="text"
+                placeholder="Имя для обращения"
+                className={inputClass}
+                {...inputProps('name')}
+              />
             </div>
             <div>
               <label htmlFor="pe-email" className={labelClass}>Email</label>
@@ -237,15 +252,33 @@ export const ProfileEdit: React.FC = () => {
             <div className="grid gap-3 sm:grid-cols-3">
               <div>
                 <label htmlFor="pe-fio-last" className={labelClass}>Фамилия</label>
-                <input id="pe-fio-last" type="text" className={inputClass} {...inputProps('fioLast')} />
+                <input
+                  id="pe-fio-last"
+                  type="text"
+                  placeholder="Ivanov"
+                  className={inputClass}
+                  {...inputProps('fioLast')}
+                />
               </div>
               <div>
                 <label htmlFor="pe-fio-first" className={labelClass}>Имя</label>
-                <input id="pe-fio-first" type="text" className={inputClass} {...inputProps('fioFirst')} />
+                <input
+                  id="pe-fio-first"
+                  type="text"
+                  placeholder="Ivan"
+                  className={inputClass}
+                  {...inputProps('fioFirst')}
+                />
               </div>
               <div>
                 <label htmlFor="pe-fio-middle" className={labelClass}>Отчество <span className={hintClass}>(если есть)</span></label>
-                <input id="pe-fio-middle" type="text" className={inputClass} {...inputProps('fioMiddle')} />
+                <input
+                  id="pe-fio-middle"
+                  type="text"
+                  placeholder="Ivanovich"
+                  className={inputClass}
+                  {...inputProps('fioMiddle')}
+                />
               </div>
             </div>
             <p className={hintClass}>
@@ -253,23 +286,45 @@ export const ProfileEdit: React.FC = () => {
             </p>
             <div>
               <label htmlFor="pe-city" className={labelClass}>Город / Регион</label>
-              <input id="pe-city" type="text" placeholder="Москва" className={inputClass} {...inputProps('cityRegion')} />
+              <input
+                id="pe-city"
+                type="text"
+                placeholder="Москва, Санкт-Петербург"
+                className={inputClass}
+                {...inputProps('cityRegion')}
+              />
             </div>
             <div>
               <label htmlFor="pe-street" className={labelClass}>Улица, Дом, Корпус</label>
-              <input id="pe-street" type="text" placeholder="ул. Арбат, д. 15" className={inputClass} {...inputProps('streetHouse')} />
+              <input
+                id="pe-street"
+                type="text"
+                placeholder="ул. Арбат, д. 15, корп. 2"
+                className={inputClass}
+                {...inputProps('streetHouse')}
+              />
             </div>
             <div>
               <label htmlFor="pe-apt" className={labelClass}>Кв. / Офис</label>
               <input id="pe-apt" type="text" placeholder="кв. 104" className={inputClass} {...inputProps('apartmentOffice')} />
             </div>
             <div>
-              <label htmlFor="pe-postcode" className={labelClass}>Postcode <span className={hintClass}>(6 цифр)</span></label>
+              <label htmlFor="pe-postcode" className={labelClass}>
+                Postcode <span className={hintClass}>(индекс, 6 цифр)</span>
+              </label>
               <input id="pe-postcode" type="text" placeholder="123456" maxLength={6} className={inputClass} {...inputProps('postcode')} />
             </div>
             <div>
               <label htmlFor="pe-phone" className={labelClass}>Телефон</label>
-              <input id="pe-phone" type="tel" className={inputClass} value={form.phone ?? ''} onChange={editing ? handlePhoneChange : undefined} readOnly={!editing} />
+              <input
+                id="pe-phone"
+                type="tel"
+                placeholder="+7 999 999 9999"
+                className={inputClass}
+                value={form.phone ?? ''}
+                onChange={editing ? handlePhoneChange : undefined}
+                readOnly={!editing}
+              />
             </div>
             <div>
               <label htmlFor="pe-inn" className={`${labelClass} inline-flex items-center gap-1`}>INN <span className={hintClass}>(12 цифр)</span> <InnHelpTooltip /></label>
@@ -278,11 +333,25 @@ export const ProfileEdit: React.FC = () => {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label htmlFor="pe-ps" className={labelClass}>Серия паспорта</label>
-                <input id="pe-ps" type="text" maxLength={4} className={inputClass} {...inputProps('passportSeries')} />
+                <input
+                  id="pe-ps"
+                  type="text"
+                  placeholder="1234"
+                  maxLength={4}
+                  className={inputClass}
+                  {...inputProps('passportSeries')}
+                />
               </div>
               <div>
                 <label htmlFor="pe-pn" className={labelClass}>Номер паспорта</label>
-                <input id="pe-pn" type="text" maxLength={6} className={inputClass} {...inputProps('passportNumber')} />
+                <input
+                  id="pe-pn"
+                  type="text"
+                  placeholder="567890"
+                  maxLength={6}
+                  className={inputClass}
+                  {...inputProps('passportNumber')}
+                />
               </div>
             </div>
           </div>

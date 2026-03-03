@@ -75,10 +75,17 @@ export const Profile: React.FC = () => {
   if (!initialized) return null;
   if (!isLoggedIn || !userEmail) return <Navigate to="/login" replace />;
 
-  const handleLogout = () => {
-    navigate('/login', { replace: true });
+  const handleLogout = async () => {
     setUserEmail(null);
-    if (supabase) supabase.auth.signOut().catch(() => {});
+    if (supabase) {
+      try {
+        await supabase.auth.signOut();
+      } catch {
+        // ignore
+      }
+    }
+    // 완전히 새로고침하여 세션·상태를 초기화
+    window.location.href = '/login';
   };
 
   const gradeTooltipText = 'Обычный участник, Премиум участник';

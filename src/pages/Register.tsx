@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { InnHelpTooltip } from '../components/InnHelpTooltip';
+import { supabase } from '../lib/supabase';
 
 /**
  * 회원가입 — 기본인적 / 배송(주소 세분화). 이메일 인증 구조, 전화 포맷, INN/우편 제한.
@@ -29,11 +30,18 @@ function formatPhone(value: string): string {
 }
 
 export const Register: React.FC = () => {
+  const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [emailError, setEmailError] = useState(false);
   const [codeSent, setCodeSent] = useState(false);
   const [verificationCode, setVerificationCode] = useState('');
   const [phoneValue, setPhoneValue] = useState('');
+  const [password, setPassword] = useState('');
+  const [passwordError, setPasswordError] = useState(false);
+  const [nickname, setNickname] = useState('');
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const handleEmailBlur = () => {
     if (!email) {
@@ -57,18 +65,62 @@ export const Register: React.FC = () => {
     setPhoneValue(formatPhone(e.target.value));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitError(null);
+    setSubmitSuccess(null);
+
+    let hasError = false;
     if (email && !emailRegex.test(email)) {
       setEmailError(true);
+      hasError = true;
+    }
+    if (!email) {
+      setEmailError(true);
+      hasError = true;
+    }
+    if (!password || password.length < 6) {
+      setPasswordError(true);
+      hasError = true;
+    }
+    if (!nickname.trim()) {
+      hasError = true;
+      setSubmitError('Укажите имя для обращения.');
+    }
+    if (hasError) return;
+
+    if (!supabase) {
+      setSubmitError('Сервис регистрации временно недоступен.');
       return;
     }
-    if (email) {
+
+    setSubmitting(true);
+    try {
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            nickname,
+          },
+        },
+      });
+      if (error) {
+        setSubmitError(error.message || 'Не удалось завершить регистрацию.');
+        return;
+      }
+      setSubmitSuccess('Регистрация прошла. Теперь войдите с email и паролем.');
+      // 이메일을 로컬에 저장해 다음에 자동 완성
       try {
         localStorage.setItem('userEmail', email);
-      } catch (_) {}
+      } catch {
+        // ignore
+      }
+      // 로그인 화면으로 보내기
+      setTimeout(() => navigate('/login'), 1500);
+    } finally {
+      setSubmitting(false);
     }
-    // TODO: submit to backend
   };
 
   return (
@@ -82,7 +134,7 @@ export const Register: React.FC = () => {
       <form className="space-y-6" onSubmit={handleSubmit}>
         <section>
           <h2 className="mb-4 text-lg font-semibold text-slate-900">
-            Basic information
+            Основные данные
           </h2>
           <div className="space-y-4">
             {/* 이메일 + 인증코드 구조: 형식 검사, 인증 통과 전 다음 단계 막기 */}
@@ -137,66 +189,37 @@ export const Register: React.FC = () => {
             </div>
             <div>
               <label htmlFor="password" className={labelClass}>
-                Password <span className={hintClass}>(пароль)</span>{' '}
+                Пароль
                 <span className="text-brand">*</span>
               </label>
               <input
                 id="password"
                 type="password"
                 placeholder="••••••••"
-                className={inputClass}
+                className={`${inputClass} ${passwordError ? 'border-red-400' : ''}`}
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (passwordError) setPasswordError(false);
+                }}
                 required
               />
             </div>
-            {/* 성·이름·부칭 — 모바일에서 세로 배치, 라벨 줄바꿈 허용 */}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-3 sm:items-end">
-              <div className="flex flex-col">
-                <label htmlFor="lastName" className={`${labelClass} flex flex-wrap items-center gap-x-1`}>
-                  Last name <span className={hintClass}>(фамилия)</span>{' '}
-                  <span className="text-brand">*</span>
-                </label>
-                <input
-                  id="lastName"
-                  type="text"
-                  placeholder="Ivanov"
-                  className={inputClass}
-                  pattern="[A-Za-z\s\-']+"
-                  title="Only Latin letters"
-                  required
-                />
-              </div>
-              <div className="flex flex-col">
-                <label htmlFor="firstName" className={`${labelClass} flex flex-wrap items-center gap-x-1`}>
-                  First name <span className={hintClass}>(имя)</span>{' '}
-                  <span className="text-brand">*</span>
-                </label>
-                <input
-                  id="firstName"
-                  type="text"
-                  placeholder="Ivan"
-                  className={inputClass}
-                  pattern="[A-Za-z\s\-']+"
-                  title="Only Latin letters"
-                  required
-                />
-              </div>
-              <div className="flex flex-col">
-                <label htmlFor="patronymic" className={`${labelClass} flex flex-wrap items-center gap-x-1`}>
-                  Patronymic <span className={hintClass}>(отчество)</span>
-                </label>
-                <input
-                  id="patronymic"
-                  type="text"
-                  placeholder="Ivanovich"
-                  className={inputClass}
-                  pattern="[A-Za-z\s\-']+"
-                  title="Only Latin letters"
-                />
-              </div>
+            {/* 닉네임 — 서비스에서 불러줄 이름 */}
+            <div>
+              <label htmlFor="nickname" className={labelClass}>
+                Имя для обращения <span className="text-brand">*</span>
+              </label>
+              <input
+                id="nickname"
+                type="text"
+                placeholder="Например, Анна"
+                className={inputClass}
+                value={nickname}
+                onChange={(e) => setNickname(e.target.value)}
+                required
+              />
             </div>
-            <p className="text-xs text-slate-500">
-              Укажите как в паспорте.
-            </p>
             <div>
               <p className={`${labelClass} mb-2`}>
                 Gender <span className={hintClass}>(пол)</span>
@@ -334,6 +357,48 @@ export const Register: React.FC = () => {
                 />
               </div>
             </div>
+            {/* ФИО для доставки — 참고용, 필수 아님 */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-3 sm:items-end">
+              <div className="flex flex-col">
+                <label htmlFor="lastName" className={`${labelClass} flex flex-wrap items-center gap-x-1`}>
+                  Last name <span className={hintClass}>(фамилия)</span>
+                </label>
+                <input
+                  id="lastName"
+                  type="text"
+                  placeholder="Ivanov"
+                  className={inputClass}
+                  pattern="[A-Za-z\s\-']+"
+                  title="Only Latin letters"
+                />
+              </div>
+              <div className="flex flex-col">
+                <label htmlFor="firstName" className={`${labelClass} flex flex-wrap items-center gap-x-1`}>
+                  First name <span className={hintClass}>(имя)</span>
+                </label>
+                <input
+                  id="firstName"
+                  type="text"
+                  placeholder="Ivan"
+                  className={inputClass}
+                  pattern="[A-Za-z\s\-']+"
+                  title="Only Latin letters"
+                />
+              </div>
+              <div className="flex flex-col">
+                <label htmlFor="patronymic" className={`${labelClass} flex flex-wrap items-center gap-x-1`}>
+                  Patronymic <span className={hintClass}>(отчество)</span>
+                </label>
+                <input
+                  id="patronymic"
+                  type="text"
+                  placeholder="Ivanovich"
+                  className={inputClass}
+                  pattern="[A-Za-z\s\-']+"
+                  title="Only Latin letters"
+                />
+              </div>
+            </div>
           </div>
           <p className="mt-3 text-sm text-slate-500">
             Обязательно при оформлении заказа.
@@ -342,10 +407,21 @@ export const Register: React.FC = () => {
 
         <button
           type="submit"
-          className="w-full rounded-full bg-brand py-3.5 text-base font-semibold text-white transition hover:bg-brand/90"
+          disabled={submitting}
+          className="w-full rounded-full bg-brand py-3.5 text-base font-semibold text-white transition hover:bg-brand/90 disabled:opacity-60"
         >
-          Зарегистрироваться
+          {submitting ? 'Регистрация…' : 'Зарегистрироваться'}
         </button>
+        {submitError && (
+          <p className="mt-2 text-sm text-red-500">
+            {submitError}
+          </p>
+        )}
+        {submitSuccess && (
+          <p className="mt-2 text-sm text-emerald-600">
+            {submitSuccess}
+          </p>
+        )}
       </form>
 
       <p className="mt-6 text-center">

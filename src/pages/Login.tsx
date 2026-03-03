@@ -18,9 +18,15 @@ const POPUP_HEIGHT = 600;
 export const Login: React.FC = () => {
   const navigate = useNavigate();
   const { isLoggedIn, initialized } = useAuth();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [rememberMe, setRememberMeChecked] = useState(true);
   const [popupBlocked, setPopupBlocked] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<'google' | 'yandex' | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [loginLoading, setLoginLoading] = useState(false);
 
   useEffect(() => {
     if (!supabase) return;
@@ -81,6 +87,40 @@ export const Login: React.FC = () => {
   const handleGoogleLogin = () => openOAuthPopup('google');
   const handleYandexLogin = () => openOAuthPopup('yandex');
 
+  const handleEmailLogin = async () => {
+    setEmailError(null);
+    setPasswordError(null);
+    setLoginError(null);
+
+    let hasError = false;
+    if (!email) {
+      setEmailError('Введите email.');
+      hasError = true;
+    }
+    if (!password) {
+      setPasswordError('Введите пароль.');
+      hasError = true;
+    }
+    if (hasError) return;
+    if (!supabase) {
+      setLoginError('Сервис входа временно недоступен.');
+      return;
+    }
+
+    setRememberMe(rememberMe);
+    setLoginLoading(true);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        setPasswordError('Неверный email или пароль.');
+        return;
+      }
+      navigate('/', { replace: true });
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
   return (
     <main className="mx-auto max-w-md px-4 py-12 sm:px-6 sm:py-16">
       <header className="mb-10 text-center">
@@ -99,8 +139,16 @@ export const Login: React.FC = () => {
             id="email"
             type="email"
             placeholder="example@mail.ru"
-            className={inputClass}
+            className={`${inputClass} ${emailError ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : ''}`}
+            value={email}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              if (emailError) setEmailError(null);
+            }}
           />
+          {emailError && (
+            <p className="mt-1 text-xs text-red-500">{emailError}</p>
+          )}
         </div>
         <div>
           <label htmlFor="password" className="mb-1 block text-sm font-medium text-slate-700">
@@ -110,15 +158,28 @@ export const Login: React.FC = () => {
             id="password"
             type="password"
             placeholder="••••••••"
-            className={inputClass}
+            className={`${inputClass} ${passwordError ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : ''}`}
+            value={password}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              if (passwordError) setPasswordError(null);
+            }}
           />
+          {passwordError && (
+            <p className="mt-1 text-xs text-red-500">{passwordError}</p>
+          )}
         </div>
         <button
           type="button"
-          className="w-full rounded-full bg-brand py-3.5 text-base font-semibold text-white transition hover:bg-brand/90"
+          onClick={handleEmailLogin}
+          disabled={loginLoading}
+          className="w-full rounded-full bg-brand py-3.5 text-base font-semibold text-white transition hover:bg-brand/90 disabled:opacity-60"
         >
-          Войти
+          {loginLoading ? 'Вход…' : 'Войти'}
         </button>
+        {loginError && (
+          <p className="text-sm text-red-500">{loginError}</p>
+        )}
       </section>
 
       <label className="mt-6 flex cursor-pointer items-center gap-2">
