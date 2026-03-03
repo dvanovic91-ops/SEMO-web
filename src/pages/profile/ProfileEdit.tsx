@@ -62,26 +62,25 @@ export const ProfileEdit: React.FC = () => {
   const [addressSearch, setAddressSearch] = useState('');
 
   const profile = userEmail ? getProfile(userEmail) : null;
-  const savedData = loadSavedProfile();
 
   if (!initialized) return null;
   if (!isLoggedIn || !userEmail) return <Navigate to="/login" replace />;
 
   useEffect(() => {
     setForm({
-      name: profile?.name ?? savedData.name ?? (userEmail ? userEmail.split('@')[0] : ''),
-      email: userEmail ?? savedData.email ?? '',
-      fioLast: savedData.fioLast ?? '',
-      fioFirst: savedData.fioFirst ?? '',
-      fioMiddle: savedData.fioMiddle ?? '',
-      cityRegion: savedData.cityRegion ?? '',
-      streetHouse: savedData.streetHouse ?? '',
-      apartmentOffice: savedData.apartmentOffice ?? '',
-      postcode: savedData.postcode ?? '',
-      phone: savedData.phone ?? '',
-      inn: savedData.inn ?? '',
-      passportSeries: savedData.passportSeries ?? '',
-      passportNumber: savedData.passportNumber ?? '',
+      name: profile?.name ?? (userEmail ? userEmail.split('@')[0] : ''),
+      email: userEmail ?? '',
+      fioLast: '',
+      fioFirst: '',
+      fioMiddle: '',
+      cityRegion: '',
+      streetHouse: '',
+      apartmentOffice: '',
+      postcode: '',
+      phone: '',
+      inn: '',
+      passportSeries: '',
+      passportNumber: '',
     });
   }, [userEmail, profile?.name]);
 
@@ -101,9 +100,8 @@ export const ProfileEdit: React.FC = () => {
 
   const handleSave = async () => {
     try {
-      localStorage.setItem('profileEdit', JSON.stringify(form));
       if (form.name && profile) {
-        setProfile({ ...profile, name: form.name, grade: profile.grade, points: profile.points });
+        setProfile(userEmail, { ...profile, name: form.name, grade: profile.grade, points: profile.points });
       }
       if (supabase && userId && form.name) {
         await supabase.from('profiles').update({ name: form.name }).eq('id', userId);

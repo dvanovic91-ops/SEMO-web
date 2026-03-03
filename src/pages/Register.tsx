@@ -446,9 +446,7 @@ export const Register: React.FC = () => {
             </p>
             </div>
           </div>
-          <p className="mt-3 text-sm text-slate-500">
-            Обязательно при оформлении заказа.
-          </p>
+          {/* 하단 안내 문구는 제거 — 화면을 더 간결하게 유지 */}
         </section>
 
         <button
