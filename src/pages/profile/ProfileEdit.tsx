@@ -10,7 +10,7 @@ import { supabase } from '../../lib/supabase';
  * 프로필 수정 — 기본 인적/배송 정보 보기·수정, 수정하기 버튼으로 편집 모드, 비밀번호 변경.
  */
 const inputClass =
-  'w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand';
+  'w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 placeholder:text-xs placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand';
 const labelClass = 'mb-1 block text-sm font-medium text-slate-700';
 const hintClass = 'text-xs text-slate-500 font-normal';
 
@@ -261,7 +261,17 @@ export const ProfileEdit: React.FC = () => {
           <h2 className="mb-4 text-lg font-semibold text-slate-900">Доставка</h2>
           <div className="space-y-4">
             <AddressSuggest
-              label="Адрес (поиск по базе)"
+              label={
+                <span className="inline-flex items-center gap-2">
+                  Адрес (поиск по базе)
+                  <span
+                    className="flex h-4 w-4 items-center justify-center rounded-full border border-brand text-[10px] text-brand"
+                    title="При вводе адреса нижние поля заполнятся автоматически."
+                  >
+                    ?
+                  </span>
+                </span>
+              }
               placeholder="Начните вводить адрес, затем выберите вариант из списка"
               value={addressSearch}
               onChange={setAddressSearch}
@@ -272,111 +282,112 @@ export const ProfileEdit: React.FC = () => {
                 if (postcode !== undefined) handleChange('postcode', postcode);
               }}
             />
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div className="space-y-4 rounded-xl border border-brand/20 bg-brand-soft/10 px-4 py-4">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div>
+                  <label htmlFor="pe-fio-last" className={labelClass}>Фамилия</label>
+                  <input
+                    id="pe-fio-last"
+                    type="text"
+                    placeholder="Ivanov"
+                    className={inputClass}
+                    {...inputProps('fioLast')}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="pe-fio-first" className={labelClass}>Имя</label>
+                  <input
+                    id="pe-fio-first"
+                    type="text"
+                    placeholder="Ivan"
+                    className={inputClass}
+                    {...inputProps('fioFirst')}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="pe-fio-middle" className={labelClass}>Отчество <span className={hintClass}>(если есть)</span></label>
+                  <input
+                    id="pe-fio-middle"
+                    type="text"
+                    placeholder="Ivanovich"
+                    className={inputClass}
+                    {...inputProps('fioMiddle')}
+                  />
+                </div>
+              </div>
+              <p className={hintClass}>
+                ФИО как в паспорте (латинскими буквами).
+              </p>
               <div>
-                <label htmlFor="pe-fio-last" className={labelClass}>Фамилия</label>
+                <label htmlFor="pe-city" className={labelClass}>Город / Регион</label>
                 <input
-                  id="pe-fio-last"
+                  id="pe-city"
                   type="text"
-                  placeholder="Ivanov"
+                  placeholder="Москва, Санкт-Петербург"
                   className={inputClass}
-                  {...inputProps('fioLast')}
+                  {...inputProps('cityRegion')}
                 />
               </div>
               <div>
-                <label htmlFor="pe-fio-first" className={labelClass}>Имя</label>
+                <label htmlFor="pe-street" className={labelClass}>Улица, Дом, Корпус</label>
                 <input
-                  id="pe-fio-first"
+                  id="pe-street"
                   type="text"
-                  placeholder="Ivan"
+                  placeholder="ул. Арбат, д. 15, корп. 2"
                   className={inputClass}
-                  {...inputProps('fioFirst')}
+                  {...inputProps('streetHouse')}
                 />
               </div>
               <div>
-                <label htmlFor="pe-fio-middle" className={labelClass}>Отчество <span className={hintClass}>(если есть)</span></label>
-                <input
-                  id="pe-fio-middle"
-                  type="text"
-                  placeholder="Ivanovich"
-                  className={inputClass}
-                  {...inputProps('fioMiddle')}
-                />
+                <label htmlFor="pe-apt" className={labelClass}>Кв. / Офис</label>
+                <input id="pe-apt" type="text" placeholder="кв. 104" className={inputClass} {...inputProps('apartmentOffice')} />
               </div>
-            </div>
-            <p className={hintClass}>
-              Пожалуйста, укажите ФИО как в паспорте (латинскими буквами).
-            </p>
-            <div>
-              <label htmlFor="pe-city" className={labelClass}>Город / Регион</label>
-              <input
-                id="pe-city"
-                type="text"
-                placeholder="Москва, Санкт-Петербург"
-                className={inputClass}
-                {...inputProps('cityRegion')}
-              />
-            </div>
-            <div>
-              <label htmlFor="pe-street" className={labelClass}>Улица, Дом, Корпус</label>
-              <input
-                id="pe-street"
-                type="text"
-                placeholder="ул. Арбат, д. 15, корп. 2"
-                className={inputClass}
-                {...inputProps('streetHouse')}
-              />
-            </div>
-            <div>
-              <label htmlFor="pe-apt" className={labelClass}>Кв. / Офис</label>
-              <input id="pe-apt" type="text" placeholder="кв. 104" className={inputClass} {...inputProps('apartmentOffice')} />
-            </div>
-            <div>
-              <label htmlFor="pe-postcode" className={labelClass}>
-                Postcode <span className={hintClass}>(индекс, 6 цифр)</span>
-              </label>
-              <input id="pe-postcode" type="text" placeholder="123456" maxLength={6} className={inputClass} {...inputProps('postcode')} />
-            </div>
-            <div>
-              <label htmlFor="pe-phone" className={labelClass}>Телефон</label>
-              <input
-                id="pe-phone"
-                type="tel"
-                placeholder="+7 999 999 9999"
-                className={inputClass}
-                value={form.phone ?? ''}
-                onChange={editing ? handlePhoneChange : undefined}
-                readOnly={!editing}
-              />
-            </div>
-            <div>
-              <label htmlFor="pe-inn" className={`${labelClass} inline-flex items-center gap-1`}>INN <span className={hintClass}>(12 цифр)</span> <InnHelpTooltip /></label>
-              <input id="pe-inn" type="text" placeholder="12 цифр" maxLength={12} className={inputClass} {...inputProps('inn')} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
               <div>
-                <label htmlFor="pe-ps" className={labelClass}>Серия паспорта</label>
+                <label htmlFor="pe-postcode" className={labelClass}>
+                  Postcode <span className={hintClass}>(индекс, 6 цифр)</span>
+                </label>
+                <input id="pe-postcode" type="text" placeholder="123456" maxLength={6} className={inputClass} {...inputProps('postcode')} />
+              </div>
+              <div>
+                <label htmlFor="pe-phone" className={labelClass}>Телефон</label>
                 <input
-                  id="pe-ps"
-                  type="text"
-                  placeholder="1234"
-                  maxLength={4}
+                  id="pe-phone"
+                  type="tel"
+                  placeholder="+7 999 999 9999"
                   className={inputClass}
-                  {...inputProps('passportSeries')}
+                  value={form.phone ?? ''}
+                  onChange={editing ? handlePhoneChange : undefined}
+                  readOnly={!editing}
                 />
               </div>
               <div>
-                <label htmlFor="pe-pn" className={labelClass}>Номер паспорта</label>
-                <input
-                  id="pe-pn"
-                  type="text"
-                  placeholder="567890"
-                  maxLength={6}
-                  className={inputClass}
-                  {...inputProps('passportNumber')}
-                />
+                <label htmlFor="pe-inn" className={`${labelClass} inline-flex items-center gap-1`}>INN <span className={hintClass}>(12 цифр)</span> <InnHelpTooltip /></label>
+                <input id="pe-inn" type="text" placeholder="12 цифр" maxLength={12} className={inputClass} {...inputProps('inn')} />
               </div>
-            </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="pe-ps" className={labelClass}>Серия паспорта</label>
+                  <input
+                    id="pe-ps"
+                    type="text"
+                    placeholder="1234"
+                    maxLength={4}
+                    className={inputClass}
+                    {...inputProps('passportSeries')}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="pe-pn" className={labelClass}>Номер паспорта</label>
+                  <input
+                    id="pe-pn"
+                    type="text"
+                    placeholder="567890"
+                    maxLength={6}
+                    className={inputClass}
+                    {...inputProps('passportNumber')}
+                  />
+                </div>
+              </div>
           </div>
         </section>
 

@@ -18,7 +18,7 @@ type DadataAddressSuggestion = {
 };
 
 interface AddressSuggestProps {
-  label: string;
+  label: React.ReactNode;
   placeholder?: string;
   value: string;
   onChange: (value: string) => void;
@@ -127,7 +127,7 @@ export const AddressSuggest: React.FC<AddressSuggestProps> = ({
         </label>
         <input
           type="text"
-          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 placeholder:text-xs placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
           placeholder={placeholder}
           value={value}
           onChange={(e) => onChange(e.target.value)}
@@ -143,7 +143,7 @@ export const AddressSuggest: React.FC<AddressSuggestProps> = ({
       </label>
       <input
         type="text"
-        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 placeholder:text-xs placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
         placeholder={placeholder}
         value={query}
         onChange={(e) => setQuery(e.target.value)}

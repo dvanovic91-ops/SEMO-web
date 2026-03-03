@@ -8,7 +8,7 @@ import { AddressSuggest } from '../components/AddressSuggest';
  * 회원가입 — 기본인적 / 배송(주소 세분화). 이메일 인증 구조, 전화 포맷, INN/우편 제한.
  */
 const inputClass =
-  'w-full rounded-xl border border-slate-200 bg-white px-4 py-3.5 text-base text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand';
+  'w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 placeholder:text-xs placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand';
 const labelClass = 'mb-1 block text-sm font-medium text-slate-700';
 const hintClass = 'text-xs text-slate-500 font-normal';
 
@@ -281,7 +281,17 @@ export const Register: React.FC = () => {
           </h2>
           <div className="space-y-4">
             <AddressSuggest
-              label="Адрес (поиск по базе)"
+              label={
+                <span className="inline-flex items-center gap-2">
+                  Адрес (поиск по базе)
+                  <span
+                    className="flex h-4 w-4 items-center justify-center rounded-full border border-brand text-[10px] text-brand"
+                    title="При вводе адреса нижние поля заполнятся автоматически."
+                  >
+                    ?
+                  </span>
+                </span>
+              }
               placeholder="Начните вводить адрес, затем выберите вариант из списка"
               value={addressSearch}
               onChange={setAddressSearch}
@@ -296,6 +306,7 @@ export const Register: React.FC = () => {
                 if (postcode !== undefined && postEl) postEl.value = postcode;
               }}
             />
+            <div className="space-y-4 rounded-xl border border-brand/20 bg-brand-soft/10 px-4 py-4">
             <div>
               <label htmlFor="cityRegion" className={labelClass}>
                 Город / Регион
@@ -431,8 +442,9 @@ export const Register: React.FC = () => {
               </div>
             </div>
             <p className="mt-2 text-xs text-slate-500">
-              Пожалуйста, укажите ФИО как в паспорте (латинскими буквами).
+              ФИО как в паспорте (латинскими буквами).
             </p>
+            </div>
           </div>
           <p className="mt-3 text-sm text-slate-500">
             Обязательно при оформлении заказа.
