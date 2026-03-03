@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { redirectToGoogle, redirectToYandex } from '../lib/auth';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 
 const inputClass =
   'w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand';
@@ -18,11 +18,22 @@ export const Login: React.FC = () => {
   const { setUserEmail } = useAuth();
   const navigate = useNavigate();
 
-  const handleGoogleLogin = () => {
-    redirectToGoogle();
+  /** Supabase Auth로 구글 로그인 (리다이렉트는 Supabase → 구글 → Supabase → 우리 사이트) */
+  const handleGoogleLogin = async () => {
+    if (!supabase) return;
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: `${window.location.origin}/` },
+    });
+    if (error) console.error(error);
   };
-  const handleYandexLogin = () => {
-    redirectToYandex();
+  const handleYandexLogin = async () => {
+    if (!supabase) return;
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'yandex',
+      options: { redirectTo: `${window.location.origin}/` },
+    });
+    if (error) console.error(error);
   };
 
   /** 테스트용: 관리자 이메일로 로그인 처리 후 개인정보 페이지로 이동 */
