@@ -40,6 +40,7 @@ export const ProfileEdit: React.FC = () => {
   const { userEmail, isLoggedIn, initialized } = useAuth();
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
+  const [initialForm, setInitialForm] = useState<Record<string, string> | null>(null);
   const [passwordSection, setPasswordSection] = useState(false);
   const [saved, setSaved] = useState(false);
   const [pwCurrent, setPwCurrent] = useState('');
@@ -72,8 +73,7 @@ export const ProfileEdit: React.FC = () => {
     });
   }, [userEmail, profile?.name]);
 
-  const initialForm = { ...form };
-  const isDirty = editing && JSON.stringify(form) !== JSON.stringify(initialForm);
+  const isDirty = editing && initialForm !== null && JSON.stringify(form) !== JSON.stringify(initialForm);
 
   const handleChange = (key: string, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -125,6 +125,108 @@ export const ProfileEdit: React.FC = () => {
             <div>
               <label htmlFor="pe-email" className={labelClass}>Email</label>
               <input id="pe-email" type="email" className={`${inputClass} cursor-default bg-slate-50`} value={form.email ?? ''} readOnly />
+            </div>
+            {/* 비밀번호 변경 - 기본 인적 사항 아래에 배치 */}
+            <div className="mt-6 border-t border-slate-100 pt-4">
+              <h3 className="mb-3 text-sm font-semibold text-slate-900">Сменить пароль</h3>
+              {!passwordSection ? (
+                <button
+                  type="button"
+                  onClick={() => setPasswordSection(true)}
+                  className="rounded-full border border-slate-200 py-2.5 px-4 text-sm font-medium text-slate-700 hover:border-brand hover:text-brand"
+                >
+                  Изменить пароль
+                </button>
+              ) : (
+                <div className="space-y-4 rounded-xl border border-slate-100 bg-slate-50/50 p-4">
+                  <div>
+                    <label htmlFor="pw-current" className={labelClass}>Текущий пароль</label>
+                    <input
+                      id="pw-current"
+                      type="password"
+                      className={inputClass}
+                      placeholder="••••••••"
+                      value={pwCurrent}
+                      onChange={(e) => { setPwCurrent(e.target.value); setPwError(''); }}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="pw-new" className={labelClass}>Новый пароль</label>
+                    <input
+                      id="pw-new"
+                      type="password"
+                      className={inputClass}
+                      placeholder="••••••••"
+                      value={pwNew}
+                      onChange={(e) => { setPwNew(e.target.value); setPwError(''); }}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="pw-confirm" className={labelClass}>Повторите новый пароль</label>
+                    <input
+                      id="pw-confirm"
+                      type="password"
+                      className={inputClass}
+                      placeholder="••••••••"
+                      value={pwConfirm}
+                      onChange={(e) => { setPwConfirm(e.target.value); setPwError(''); }}
+                    />
+                  </div>
+                  {pwError && <p className="text-sm text-red-600">{pwError}</p>}
+                  {pwSuccess && <p className="text-sm text-green-600">Пароль успешно изменён.</p>}
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setPwError('');
+                        setPwSuccess(false);
+                        if (!pwNew || pwNew.length < 6) {
+                          setPwError('Новый пароль не менее 6 символов.');
+                          return;
+                        }
+                        if (pwNew !== pwConfirm) {
+                          setPwError('Пароли не совпадают.');
+                          return;
+                        }
+                        if (!supabase) {
+                          setPwError('Сервис недоступен.');
+                          return;
+                        }
+                        const { error } = await supabase.auth.updateUser({ password: pwNew });
+                        if (error) {
+                          setPwError(
+                            error.message === 'New password should be different from the old password.'
+                              ? 'Новый пароль должен отличаться.'
+                              : error.message
+                          );
+                          return;
+                        }
+                        setPwSuccess(true);
+                        setPwCurrent('');
+                        setPwNew('');
+                        setPwConfirm('');
+                      }}
+                      className="rounded-full bg-brand px-4 py-2.5 text-sm font-medium text-white hover:bg-brand/90"
+                    >
+                      Сменить пароль
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPasswordSection(false);
+                        setPwCurrent('');
+                        setPwNew('');
+                        setPwConfirm('');
+                        setPwError('');
+                        setPwSuccess(false);
+                      }}
+                      className="text-sm text-slate-500 hover:text-slate-700"
+                    >
+                      Отмена
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -189,7 +291,10 @@ export const ProfileEdit: React.FC = () => {
         {!editing ? (
           <button
             type="button"
-            onClick={() => setEditing(true)}
+            onClick={() => {
+              setInitialForm(form);
+              setEditing(true);
+            }}
             className="w-full rounded-full border border-slate-200 py-3.5 text-base font-medium text-slate-700 transition hover:border-brand hover:bg-brand-soft/10"
           >
             Редактировать
@@ -206,105 +311,6 @@ export const ProfileEdit: React.FC = () => {
           )
         )}
       </form>
-
-      {/* 비밀번호 변경 */}
-      <section className="mt-10 border-t border-slate-100 pt-8">
-        <h2 className="mb-4 text-lg font-semibold text-slate-900">Сменить пароль</h2>
-        {!passwordSection ? (
-          <button
-            type="button"
-            onClick={() => setPasswordSection(true)}
-            className="rounded-full border border-slate-200 py-2.5 px-4 text-sm font-medium text-slate-700 hover:border-brand hover:text-brand"
-          >
-            Изменить пароль
-          </button>
-        ) : (
-          <div className="space-y-4 rounded-xl border border-slate-100 bg-slate-50/50 p-4">
-            <div>
-              <label htmlFor="pw-current" className={labelClass}>Текущий пароль</label>
-              <input
-                id="pw-current"
-                type="password"
-                className={inputClass}
-                placeholder="••••••••"
-                value={pwCurrent}
-                onChange={(e) => { setPwCurrent(e.target.value); setPwError(''); }}
-              />
-            </div>
-            <div>
-              <label htmlFor="pw-new" className={labelClass}>Новый пароль</label>
-              <input
-                id="pw-new"
-                type="password"
-                className={inputClass}
-                placeholder="••••••••"
-                value={pwNew}
-                onChange={(e) => { setPwNew(e.target.value); setPwError(''); }}
-              />
-            </div>
-            <div>
-              <label htmlFor="pw-confirm" className={labelClass}>Повторите новый пароль</label>
-              <input
-                id="pw-confirm"
-                type="password"
-                className={inputClass}
-                placeholder="••••••••"
-                value={pwConfirm}
-                onChange={(e) => { setPwConfirm(e.target.value); setPwError(''); }}
-              />
-            </div>
-            {pwError && <p className="text-sm text-red-600">{pwError}</p>}
-            {pwSuccess && <p className="text-sm text-green-600">Пароль успешно изменён.</p>}
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={async () => {
-                  setPwError('');
-                  setPwSuccess(false);
-                  if (!pwNew || pwNew.length < 6) {
-                    setPwError('Новый пароль не менее 6 символов.');
-                    return;
-                  }
-                  if (pwNew !== pwConfirm) {
-                    setPwError('Пароли не совпадают.');
-                    return;
-                  }
-                  if (!supabase) {
-                    setPwError('Сервис недоступен.');
-                    return;
-                  }
-                  const { error } = await supabase.auth.updateUser({ password: pwNew });
-                  if (error) {
-                    setPwError(error.message === 'New password should be different from the old password.' ? 'Новый пароль должен отличаться.' : error.message);
-                    return;
-                  }
-                  setPwSuccess(true);
-                  setPwCurrent('');
-                  setPwNew('');
-                  setPwConfirm('');
-                }}
-                className="rounded-full bg-brand px-4 py-2.5 text-sm font-medium text-white hover:bg-brand/90"
-              >
-                Сменить пароль
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setPasswordSection(false);
-                  setPwCurrent('');
-                  setPwNew('');
-                  setPwConfirm('');
-                  setPwError('');
-                  setPwSuccess(false);
-                }}
-                className="text-sm text-slate-500 hover:text-slate-700"
-              >
-                Отмена
-              </button>
-            </div>
-          </div>
-        )}
-      </section>
 
       <p className="mt-8 text-center">
         <Link to="/profile" className="text-sm text-slate-500 hover:text-slate-700">← Profile</Link>

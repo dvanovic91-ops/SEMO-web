@@ -36,7 +36,13 @@ export const Login: React.FC = () => {
     return () => window.removeEventListener('message', onMessage);
   }, [navigate]);
 
-  if (!initialized) return null;
+  if (!initialized) {
+    return (
+      <main className="flex min-h-[60vh] items-center justify-center">
+        <p className="text-sm text-slate-500">Загрузка…</p>
+      </main>
+    );
+  }
   if (isLoggedIn) return <Navigate to="/" replace />;
 
   const callbackUrl = `${window.location.origin}/auth/callback`;
@@ -51,10 +57,8 @@ export const Login: React.FC = () => {
         options: {
           skipBrowserRedirect: true,
           redirectTo: callbackUrl,
-          // 구글: 계정 선택 창 생략 — 이미 로그인된 구글 계정으로 바로 진행
-          ...(provider === 'google' && {
-            queryParams: { prompt: 'none' },
-          }),
+          // 흰 화면 이슈 방지: prompt 생략 시 구글이 기본 동작(이미 로그인된 계정 우선 사용 가능)
+          // 계정 선택 창을 강제로 띄우려면: queryParams: { prompt: 'select_account' }
         },
       });
       if (error) {
