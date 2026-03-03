@@ -13,6 +13,7 @@ interface AuthContextValue {
   setUserEmail: (email: string | null) => void;
   isLoggedIn: boolean;
   initialized: boolean;
+  isAdmin: boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -22,6 +23,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [userEmail, setUserEmailState] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const setUserEmail = useCallback((email: string | null) => {
     if (email) {
@@ -41,15 +43,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (supabase) supabase.auth.signOut().catch(() => {});
       setUserEmailState(null);
       setUserId(null);
+      setIsAdmin(false);
     }
   }, []);
 
   useEffect(() => {
     if (supabase) {
-      const applySession = (session: { user: { email?: string | null; id: string } } | null) => {
+      const applySession = async (session: { user: { email?: string | null; id: string } } | null) => {
         if (session?.user) {
           setUserEmailState(session.user.email ?? null);
           setUserId(session.user.id);
+          try {
+            const { data } = await supabase
+              .from('profiles')
+              .select('is_admin')
+              .eq('id', session.user.id)
+              .single();
+            setIsAdmin(!!data?.is_admin);
+          } catch {
+            setIsAdmin(false);
+          }
           try {
             const raw = localStorage.getItem('semo_anon_result');
             if (raw) {
@@ -74,17 +87,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (session?.user) {
-          applySession(session);
+          void applySession(session);
           return;
         }
         supabase.auth.refreshSession().then(({ data: { session: refreshed } }) => {
-          applySession(refreshed ?? null);
+          void applySession(refreshed ?? null);
         }).catch(() => {
-          applySession(null);
+          void applySession(null);
         });
       }).catch(() => {
         setUserEmailState(null);
         setUserId(null);
+        setIsAdmin(false);
         setInitialized(true);
       });
       const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -112,6 +126,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } else {
           setUserEmailState(null);
           setUserId(null);
+          setIsAdmin(false);
         }
       });
       return () => subscription.unsubscribe();
@@ -128,6 +143,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUserEmail,
     isLoggedIn: !!userEmail,
     initialized,
+    isAdmin,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

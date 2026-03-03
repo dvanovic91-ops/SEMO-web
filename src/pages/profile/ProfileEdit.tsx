@@ -60,6 +60,7 @@ export const ProfileEdit: React.FC = () => {
   const [pwSuccess, setPwSuccess] = useState(false);
 
   const [addressSearch, setAddressSearch] = useState('');
+  const [phoneError, setPhoneError] = useState('');
 
   const profile = userEmail ? getProfile(userEmail) : null;
 
@@ -95,6 +96,7 @@ export const ProfileEdit: React.FC = () => {
   };
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setPhoneError('');
     handleChange('phone', formatPhone(e.target.value));
   };
 
@@ -111,6 +113,33 @@ export const ProfileEdit: React.FC = () => {
       setTimeout(() => setSaved(false), 2000);
     } catch {
       // ignore
+    }
+  };
+  const handleTelegramVerify = async () => {
+    setPhoneError('');
+    if (!form.phone) {
+      setPhoneError('Укажите номер телефона.');
+      return;
+    }
+    if (!supabase || !userId) return;
+    try {
+      // 프로필에 전화번호 저장
+      await supabase.from('profiles').update({ phone: form.phone }).eq('id', userId);
+      // 기존 Telegram 연동과 같은 토큰 방식 사용
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+      const { data, error } = await supabase
+        .from('link_tokens')
+        .insert({ user_id: userId, expires_at: expiresAt })
+        .select('token')
+        .single();
+      if (error || !data?.token) {
+        setPhoneError('Не удалось создать ссылку для Telegram.');
+        return;
+      }
+      const url = `https://t.me/My_SEMO_Beautybot?start=link_${data.token}`;
+      window.open(url, '_blank');
+    } catch {
+      setPhoneError('Не удалось подтвердить номер. Попробуйте позже.');
     }
   };
 
@@ -312,6 +341,9 @@ export const ProfileEdit: React.FC = () => {
                 if (postcode !== undefined) handleChange('postcode', postcode);
               }}
             />
+            <p className="text-xs text-slate-500">
+              При вводе адреса нижние поля заполнятся автоматически.
+            </p>
 
             <div className="space-y-4 rounded-xl border border-brand/20 bg-brand-soft/10 px-4 py-4">
               <div className="grid gap-3 sm:grid-cols-3">
@@ -353,6 +385,35 @@ export const ProfileEdit: React.FC = () => {
                 </div>
               </div>
               <p className={hintClass}>ФИО как в паспорте (латинскими буквами).</p>
+
+              <div>
+                <label htmlFor="pe-phone" className={labelClass}>
+                  Номер телефона
+                </label>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <input
+                    id="pe-phone"
+                    type="tel"
+                    placeholder="+7 999 999 9999"
+                    className={`${inputClass} sm:flex-1`}
+                    value={form.phone ?? ''}
+                    onChange={editing ? handlePhoneChange : undefined}
+                    readOnly={!editing}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleTelegramVerify}
+                    disabled={!editing}
+                    className="shrink-0 rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-medium text-slate-700 transition hover:border-brand hover:text-brand disabled:opacity-60"
+                  >
+                    Подтвердить в Telegram
+                  </button>
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  Для безопасности доставки обязательна проверка номера телефона. При подтверждении через Telegram начислим 200 баллов.
+                </p>
+                {phoneError && <p className="mt-1 text-xs text-red-500">{phoneError}</p>}
+              </div>
 
               <div>
                 <label htmlFor="pe-city" className={labelClass}>
@@ -401,20 +462,6 @@ export const ProfileEdit: React.FC = () => {
                   maxLength={6}
                   className={inputClass}
                   {...inputProps('postcode')}
-                />
-              </div>
-              <div>
-                <label htmlFor="pe-phone" className={labelClass}>
-                  Телефон
-                </label>
-                <input
-                  id="pe-phone"
-                  type="tel"
-                  placeholder="+7 999 999 9999"
-                  className={inputClass}
-                  value={form.phone ?? ''}
-                  onChange={editing ? handlePhoneChange : undefined}
-                  readOnly={!editing}
                 />
               </div>
               <div>

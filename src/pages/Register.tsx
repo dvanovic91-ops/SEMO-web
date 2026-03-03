@@ -306,6 +306,9 @@ export const Register: React.FC = () => {
                 if (postcode !== undefined && postEl) postEl.value = postcode;
               }}
             />
+            <p className="text-xs text-slate-500">
+              При вводе адреса нижние поля заполнятся автоматически.
+            </p>
             <div className="space-y-4 rounded-xl border border-brand/20 bg-brand-soft/10 px-4 py-4">
             <div>
               <label htmlFor="cityRegion" className={labelClass}>
