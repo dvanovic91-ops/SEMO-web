@@ -3,6 +3,7 @@ import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { getProfile, setProfile } from '../../lib/profileStorage';
 import { InnHelpTooltip } from '../../components/InnHelpTooltip';
+import { supabase } from '../../lib/supabase';
 
 /**
  * 프로필 수정 — 기본 인적/배송 정보 보기·수정, 수정하기 버튼으로 편집 모드, 비밀번호 변경.
@@ -41,6 +42,11 @@ export const ProfileEdit: React.FC = () => {
   const [form, setForm] = useState<Record<string, string>>({});
   const [passwordSection, setPasswordSection] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [pwCurrent, setPwCurrent] = useState('');
+  const [pwNew, setPwNew] = useState('');
+  const [pwConfirm, setPwConfirm] = useState('');
+  const [pwError, setPwError] = useState('');
+  const [pwSuccess, setPwSuccess] = useState(false);
 
   const profile = userEmail ? getProfile(userEmail) : null;
   const savedData = loadSavedProfile();
@@ -52,6 +58,9 @@ export const ProfileEdit: React.FC = () => {
     setForm({
       name: profile?.name ?? savedData.name ?? (userEmail ? userEmail.split('@')[0] : ''),
       email: userEmail ?? savedData.email ?? '',
+      fioLast: savedData.fioLast ?? '',
+      fioFirst: savedData.fioFirst ?? '',
+      fioMiddle: savedData.fioMiddle ?? '',
       cityRegion: savedData.cityRegion ?? '',
       streetHouse: savedData.streetHouse ?? '',
       apartmentOffice: savedData.apartmentOffice ?? '',
@@ -123,6 +132,23 @@ export const ProfileEdit: React.FC = () => {
         <section>
           <h2 className="mb-4 text-lg font-semibold text-slate-900">Доставка</h2>
           <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div>
+                <label htmlFor="pe-fio-last" className={labelClass}>Фамилия</label>
+                <input id="pe-fio-last" type="text" className={inputClass} {...inputProps('fioLast')} />
+              </div>
+              <div>
+                <label htmlFor="pe-fio-first" className={labelClass}>Имя</label>
+                <input id="pe-fio-first" type="text" className={inputClass} {...inputProps('fioFirst')} />
+              </div>
+              <div>
+                <label htmlFor="pe-fio-middle" className={labelClass}>Отчество <span className={hintClass}>(если есть)</span></label>
+                <input id="pe-fio-middle" type="text" className={inputClass} {...inputProps('fioMiddle')} />
+              </div>
+            </div>
+            <p className={hintClass}>
+              Пожалуйста, укажите ФИО как в паспорте — эти данные используются для доставки.
+            </p>
             <div>
               <label htmlFor="pe-city" className={labelClass}>Город / Регион</label>
               <input id="pe-city" type="text" placeholder="Москва" className={inputClass} {...inputProps('cityRegion')} />
@@ -196,24 +222,86 @@ export const ProfileEdit: React.FC = () => {
           <div className="space-y-4 rounded-xl border border-slate-100 bg-slate-50/50 p-4">
             <div>
               <label htmlFor="pw-current" className={labelClass}>Текущий пароль</label>
-              <input id="pw-current" type="password" className={inputClass} placeholder="••••••••" />
+              <input
+                id="pw-current"
+                type="password"
+                className={inputClass}
+                placeholder="••••••••"
+                value={pwCurrent}
+                onChange={(e) => { setPwCurrent(e.target.value); setPwError(''); }}
+              />
             </div>
             <div>
               <label htmlFor="pw-new" className={labelClass}>Новый пароль</label>
-              <input id="pw-new" type="password" className={inputClass} placeholder="••••••••" />
+              <input
+                id="pw-new"
+                type="password"
+                className={inputClass}
+                placeholder="••••••••"
+                value={pwNew}
+                onChange={(e) => { setPwNew(e.target.value); setPwError(''); }}
+              />
             </div>
             <div>
               <label htmlFor="pw-confirm" className={labelClass}>Повторите новый пароль</label>
-              <input id="pw-confirm" type="password" className={inputClass} placeholder="••••••••" />
+              <input
+                id="pw-confirm"
+                type="password"
+                className={inputClass}
+                placeholder="••••••••"
+                value={pwConfirm}
+                onChange={(e) => { setPwConfirm(e.target.value); setPwError(''); }}
+              />
             </div>
-            <p className="text-xs text-slate-500">После подключения API смена пароля будет отправлена на сервер.</p>
-            <button
-              type="button"
-              onClick={() => setPasswordSection(false)}
-              className="text-sm text-slate-500 hover:text-slate-700"
-            >
-              Отмена
-            </button>
+            {pwError && <p className="text-sm text-red-600">{pwError}</p>}
+            {pwSuccess && <p className="text-sm text-green-600">Пароль успешно изменён.</p>}
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  setPwError('');
+                  setPwSuccess(false);
+                  if (!pwNew || pwNew.length < 6) {
+                    setPwError('Новый пароль не менее 6 символов.');
+                    return;
+                  }
+                  if (pwNew !== pwConfirm) {
+                    setPwError('Пароли не совпадают.');
+                    return;
+                  }
+                  if (!supabase) {
+                    setPwError('Сервис недоступен.');
+                    return;
+                  }
+                  const { error } = await supabase.auth.updateUser({ password: pwNew });
+                  if (error) {
+                    setPwError(error.message === 'New password should be different from the old password.' ? 'Новый пароль должен отличаться.' : error.message);
+                    return;
+                  }
+                  setPwSuccess(true);
+                  setPwCurrent('');
+                  setPwNew('');
+                  setPwConfirm('');
+                }}
+                className="rounded-full bg-brand px-4 py-2.5 text-sm font-medium text-white hover:bg-brand/90"
+              >
+                Сменить пароль
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPasswordSection(false);
+                  setPwCurrent('');
+                  setPwNew('');
+                  setPwConfirm('');
+                  setPwError('');
+                  setPwSuccess(false);
+                }}
+                className="text-sm text-slate-500 hover:text-slate-700"
+              >
+                Отмена
+              </button>
+            </div>
           </div>
         )}
       </section>

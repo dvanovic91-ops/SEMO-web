@@ -1,11 +1,11 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { Link, Navigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { getProfile } from '../lib/profileStorage';
 import { supabase } from '../lib/supabase';
 
 /**
- * 로그인된 사용자 개인화면 — 인사/등급/포인트 박스. Supabase 로그인 시 DB 포인트(테스트 완료 시 500) 표시.
+ * 로그인된 사용자 개인화면 — 인사/등급/포인트 박스. Supabase 로그인 시 DB 포인트(테스트 완료 300p 등 이벤트별) 표시.
  */
 export const Profile: React.FC = () => {
   const { userEmail, userId, setUserEmail, isLoggedIn, initialized } = useAuth();
@@ -18,6 +18,11 @@ export const Profile: React.FC = () => {
   const refreshProfile = useCallback(() => {
     if (!supabase || !userId) {
       setDbProfile(null);
+      try {
+        localStorage.removeItem('telegram_linked');
+      } catch {
+        // ignore
+      }
       return;
     }
     supabase
@@ -25,7 +30,7 @@ export const Profile: React.FC = () => {
       .select('name, grade, points, telegram_id')
       .eq('id', userId)
       .single()
-      .then(({ data }) =>
+      .then(({ data }) => {
         setDbProfile(
           data
             ? {
@@ -35,9 +40,21 @@ export const Profile: React.FC = () => {
                 telegram_id: data.telegram_id ?? null,
               }
             : null
-        )
-      )
-      .catch(() => setDbProfile(null));
+        );
+        try {
+          localStorage.setItem('telegram_linked', data?.telegram_id ? '1' : '0');
+        } catch {
+          // ignore
+        }
+      })
+      .catch(() => {
+        setDbProfile(null);
+        try {
+          localStorage.removeItem('telegram_linked');
+        } catch {
+          // ignore
+        }
+      });
   }, [userId]);
 
   useEffect(() => {
@@ -57,7 +74,12 @@ export const Profile: React.FC = () => {
   if (!initialized) return null;
   if (!isLoggedIn || !userEmail) return <Navigate to="/login" replace />;
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      if (supabase) await supabase.auth.signOut();
+    } catch {
+      // ignore
+    }
     setUserEmail(null);
     window.location.href = '/login';
   };
@@ -77,7 +99,7 @@ export const Profile: React.FC = () => {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-base font-medium text-slate-800 sm:text-lg">
-              Здравствуйте, {profile?.name ?? 'Гость'}!
+              Здравствуйте, {profile?.name || (userEmail ? userEmail.split('@')[0] : 'SEMO клиент')}!
             </p>
             <div className="relative mt-1">
               <button
@@ -104,20 +126,33 @@ export const Profile: React.FC = () => {
             className="flex shrink-0 items-center gap-1.5 rounded-lg border border-brand/30 bg-white px-4 py-2.5 text-sm font-medium text-slate-800 transition hover:bg-brand-soft/20"
           >
             <span className="tabular-nums">{profile?.points ?? 0}</span>
-            <span className="text-amber-500" aria-hidden>★</span>
+            <span className="text-amber-500" aria-hidden>
+              ★
+            </span>
           </Link>
         </div>
       </div>
 
       {/* Telegram 연동: 봇에서 테스트한 포인트를 웹에서 그대로 사용 */}
       {userId && (
-        <div className="mt-6 rounded-xl border border-slate-100 bg-slate-50/50 px-4 py-4">
-          <p className="text-sm font-medium text-slate-800">Telegram</p>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Рекомендуем привязать Telegram после регистрации — заказы и баллы будут видны и в боте.
-          </p>
+        <div className="mt-6 rounded-xl border border-sky-100 bg-sky-50 px-4 py-4">
+          <div className="flex items-center gap-2">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-sky-100 text-[#0088cc]">
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+                <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
+              </svg>
+            </span>
+            <p className="text-sm font-medium text-slate-800">Telegram‑бот</p>
+          </div>
+          {!dbProfile?.telegram_id && (
+            <p className="mt-1 text-xs text-slate-600">
+              Заказы, баллы, поддержка, тесты и уход — всё в одном боте. Привяжите аккаунт к Telegram.
+            </p>
+          )}
           {dbProfile?.telegram_id ? (
-            <p className="mt-1 text-xs text-slate-600">Связано с Telegram. Баллы из бота отображаются здесь.</p>
+            <p className="mt-2 text-xs text-slate-600">
+              Аккаунт привязан. Заказы, баллы и рекомендации доступны и в боте.
+            </p>
           ) : linkToken ? (
             <div className="mt-2 space-y-2">
               <p className="text-xs text-slate-600">
@@ -141,6 +176,13 @@ export const Profile: React.FC = () => {
               Связать с Telegram
             </button>
           )}
+          {!dbProfile?.telegram_id && (
+            <p className="mt-2 text-xs font-medium text-sky-700">
+              За привязку начисляется 200 баллов.
+            </p>
+          )}
+        </div>
+      )}
         </div>
       )}
 

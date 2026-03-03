@@ -1,9 +1,9 @@
 -- Supabase 대시보드 → SQL Editor 에서 이 전체 블록 실행.
--- 1) profiles: auth.users 와 1:1, 이름/등급/포인트 (기본 0점, 테스트 완료 시 500점)
--- 2) skin_test_results: 테스트 완료 시 500점 지급 트리거
+-- 1) profiles: auth.users 와 1:1, 이름/등급/포인트 (기본 0점, 테스트 완료 시 300점 등 이벤트별 지급)
+-- 2) skin_test_results: 테스트 완료 시 300점 지급 트리거
 -- 3) shipping_addresses, orders + RLS
 
--- profiles (가입 시 0점, 테스트 완료한 사람만 500점; telegram_id로 봇 유저와 연동)
+-- profiles (가입 시 0점; 테스트 완료 300p, 연동 200p, 추천 200p, 리뷰 300p 등 이벤트별 지급)
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text,
@@ -11,6 +11,8 @@ create table if not exists public.profiles (
   grade text default 'Обычный участник',
   points int default 0,
   telegram_id text unique,
+  telegram_reward_given boolean default false,
+  referred_by uuid references public.profiles(id) on delete set null,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
@@ -41,7 +43,7 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
 
--- skin_test_results: 테스트 완료 시 500점 지급 (테스트 한 사람만 500점)
+-- skin_test_results: 테스트 완료 시 300점 지급 (테스트 완료 후 가입 300p)
 create table if not exists public.skin_test_results (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
@@ -56,11 +58,11 @@ create policy "본인 테스트 결과만 조회"
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
--- 테스트 결과 저장 시 해당 유저에게 500점 지급
+-- 테스트 결과 저장 시 해당 유저에게 300점 지급
 create or replace function public.grant_points_on_test_complete()
 returns trigger as $$
 begin
-  update public.profiles set points = 500, updated_at = now() where id = new.user_id;
+  update public.profiles set points = coalesce(points, 0) + 300, updated_at = now() where id = new.user_id;
   return new;
 end;
 $$ language plpgsql security definer;
@@ -94,7 +96,7 @@ create policy "본인 배송지만 조회/수정"
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
--- orders (향후 확장용)
+-- orders (status: pending, paid, shipped, delivered, confirmed — confirmed = 구매 확정)
 create table if not exists public.orders (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
@@ -141,7 +143,7 @@ create policy "본인 링크 토큰만 삽입/조회"
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
--- 봇이 호출: 토큰 + telegram_id 로 웹 프로필과 텔레그램 연동, 포인트 병합
+-- 봇이 호출: 토큰 + telegram_id 로 웹 프로필과 텔레그램 연동, 포인트 병합 + 연동 200p (재연동 시 중복 지급 없음)
 create or replace function public.link_telegram(p_token uuid, p_telegram_id text)
 returns jsonb
 language plpgsql
@@ -151,19 +153,23 @@ as $$
 declare
   v_user_id uuid;
   v_telegram_points int;
+  v_reward_given boolean;
 begin
   select user_id into v_user_id from link_tokens where token = p_token and expires_at > now();
   if v_user_id is null then
     return jsonb_build_object('ok', false, 'error', 'invalid_or_expired_token');
   end if;
   select coalesce(points, 0) into v_telegram_points from telegram_users where telegram_id = p_telegram_id;
+  select coalesce(telegram_reward_given, false) into v_reward_given from profiles where id = v_user_id;
   update profiles
   set telegram_id = p_telegram_id,
-      points = greatest(coalesce(points, 0), coalesce(v_telegram_points, 0)),
+      points = greatest(coalesce(points, 0), coalesce(v_telegram_points, 0))
+          + case when not v_reward_given then 200 else 0 end,
+      telegram_reward_given = (v_reward_given or true),
       updated_at = now()
   where id = v_user_id;
   delete from link_tokens where token = p_token;
-  return jsonb_build_object('ok', true);
+  return jsonb_build_object('ok', true, 'points_added_200', not v_reward_given);
 end;
 $$;
 
@@ -174,4 +180,126 @@ $$;
 
 -- 이미 profiles 테이블이 있는데 telegram_id가 없다면, 아래만 실행 (Telegram 연동용).
 -- alter table public.profiles add column if not exists telegram_id text unique;
--- 그 다음 telegram_users, link_tokens 테이블과 link_telegram 함수는 위 블록에서 해당 부분만 복사해 실행.
+-- 포인트 정책 반영 시 기존 profiles에 컬럼 추가:
+-- alter table public.profiles add column if not exists telegram_reward_given boolean default false;
+-- alter table public.profiles add column if not exists referred_by uuid references public.profiles(id) on delete set null;
+
+-- 포인트 소멸 예정일 (Edge Function cron-point-expiry-notify 에서 사용)
+-- alter table public.profiles add column if not exists points_expires_at timestamptz;
+
+-- 피부 타입별 추천 상품 (테스트 결과 → 추천 매칭용)
+-- create table if not exists public.skin_type_products (
+--   skin_type text not null,
+--   product_id text not null,
+--   sort_order int default 0,
+--   primary key (skin_type, product_id)
+-- );
+-- alter table public.skin_type_products enable row level security;
+-- create policy "추천 상품 읽기" on public.skin_type_products for select using (true);
+
+-- ========== 포인트 정책: 추천 200p, 리뷰 300p (이벤트별 지급 규칙은 docs/POINTS_POLICY.md 참고) ==========
+
+-- 추천인 코드 (유저별 고유 코드로 친구 초대 링크 생성)
+create table if not exists public.referral_codes (
+  user_id uuid primary key references public.profiles(id) on delete cascade,
+  code text not null unique,
+  created_at timestamptz default now()
+);
+
+alter table public.referral_codes enable row level security;
+create policy "본인 추천 코드만 조회" on public.referral_codes for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- 추천 보상 지급 이력 (추천인별·피추천인별 1회만 200p)
+create table if not exists public.referral_rewards (
+  referrer_id uuid not null references public.profiles(id) on delete cascade,
+  referred_id uuid not null references public.profiles(id) on delete cascade,
+  created_at timestamptz default now(),
+  primary key (referrer_id, referred_id),
+  constraint no_self_referral check (referrer_id != referred_id)
+);
+
+alter table public.referral_rewards enable row level security;
+create policy "referral_rewards 서버 전용" on public.referral_rewards for select using (false);
+
+-- 피추천인이 가입 완료 후 호출: 추천인에게 200p 지급 (계정별 1회). 프론트에서 ?ref=CODE 로 들어온 유저가 가입 후 이 RPC 호출.
+create or replace function public.set_referral(p_code text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_referrer_id uuid;
+  v_referred_id uuid;
+begin
+  v_referred_id := auth.uid();
+  if v_referred_id is null then
+    return jsonb_build_object('ok', false, 'error', 'not_authenticated');
+  end if;
+  select user_id into v_referrer_id from referral_codes where code = p_code;
+  if v_referrer_id is null then
+    return jsonb_build_object('ok', false, 'error', 'invalid_code');
+  end if;
+  if v_referrer_id = v_referred_id then
+    return jsonb_build_object('ok', false, 'error', 'cannot_refer_self');
+  end if;
+  update profiles set referred_by = v_referrer_id, updated_at = now() where id = v_referred_id;
+  insert into referral_rewards (referrer_id, referred_id) values (v_referrer_id, v_referred_id)
+  on conflict (referrer_id, referred_id) do nothing;
+  if FOUND then
+    update profiles set points = coalesce(points, 0) + 200, updated_at = now() where id = v_referrer_id;
+  end if;
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+-- 리뷰 (구매 확정된 주문에 대해 작성 가능, 작성 시 300p 1회 지급)
+create table if not exists public.reviews (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  order_id uuid not null references public.orders(id) on delete cascade,
+  rating int not null check (rating >= 1 and rating <= 5),
+  body text,
+  created_at timestamptz default now(),
+  unique(user_id, order_id)
+);
+
+alter table public.reviews enable row level security;
+create policy "본인 리뷰만 조회/삽입" on public.reviews for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- 리뷰 보상 1회만 (user_id, order_id 당 300p 1회)
+create table if not exists public.review_rewards (
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  order_id uuid not null references public.orders(id) on delete cascade,
+  created_at timestamptz default now(),
+  primary key (user_id, order_id)
+);
+
+alter table public.review_rewards enable row level security;
+create policy "review_rewards 서버 전용" on public.review_rewards for select using (false);
+
+-- 리뷰 삽입 시: 구매 확정된 본인 주문만 허용, 300p 1회 지급
+create or replace function public.grant_points_on_review()
+returns trigger as $$
+declare
+  v_order_ok boolean;
+begin
+  select exists(
+    select 1 from orders o where o.id = new.order_id and o.user_id = new.user_id and o.status = 'confirmed'
+  ) into v_order_ok;
+  if not v_order_ok then
+    raise exception 'review_only_confirmed_order';
+  end if;
+  insert into review_rewards (user_id, order_id) values (new.user_id, new.order_id)
+  on conflict (user_id, order_id) do nothing;
+  if FOUND then
+    update public.profiles set points = coalesce(points, 0) + 300, updated_at = now() where id = new.user_id;
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists on_review_created on public.reviews;
+create trigger on_review_created
+  after insert on public.reviews
+  for each row execute procedure public.grant_points_on_review();

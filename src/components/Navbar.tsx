@@ -1,5 +1,5 @@
 import { Link, NavLink } from 'react-router-dom';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 
@@ -23,6 +23,19 @@ export const Navbar: React.FC = () => {
   const { totalCount } = useCart();
   const { isLoggedIn } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [telegramLinked, setTelegramLinked] = useState(false);
+
+  useEffect(() => {
+    if (!isLoggedIn) {
+      setTelegramLinked(false);
+      return;
+    }
+    try {
+      setTelegramLinked(localStorage.getItem('telegram_linked') === '1');
+    } catch {
+      setTelegramLinked(false);
+    }
+  }, [isLoggedIn]);
 
   return (
     <>
@@ -49,14 +62,6 @@ export const Navbar: React.FC = () => {
             ))}
           </nav>
 
-          {/* 데스크톱 우측: Login/Профиль · 장바구니 · 텔레그램 · 유저 — 모바일에선 숨김(하단바로 이동) */}
-          <div className="hidden shrink-0 items-center gap-2 self-end pb-1 sm:gap-3 md:flex">
-            <Link
-              to={isLoggedIn ? '/profile' : '/login'}
-              className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium tracking-wide text-slate-700 transition hover:border-brand hover:text-brand"
-            >
-              {isLoggedIn ? 'Profile' : 'Login'}
-            </Link>
             <Link
               to="/cart"
               aria-label="Корзина"
@@ -78,7 +83,9 @@ export const Navbar: React.FC = () => {
               target="_blank"
               rel="noopener noreferrer"
               aria-label="Telegram: поддержка"
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:border-[#0088cc] hover:text-[#0088cc]"
+              className={`flex h-9 w-9 items-center justify-center rounded-full border bg-white transition ${
+                telegramLinked ? 'border-[#0088cc] text-[#0088cc]' : 'border-slate-200 text-slate-600 hover:border-[#0088cc] hover:text-[#0088cc]'
+              }`}
             >
               <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
                 <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
@@ -140,7 +147,9 @@ export const Navbar: React.FC = () => {
           target="_blank"
           rel="noopener noreferrer"
           aria-label="Support via Telegram"
-          className="flex h-10 items-center justify-center px-3 text-slate-600 transition hover:text-[#0088cc]"
+          className={`flex h-10 items-center justify-center px-3 transition ${
+            telegramLinked ? 'text-[#0088cc]' : 'text-slate-600 hover:text-[#0088cc]'
+          }`}
         >
           <svg viewBox="0 0 24 24" className="h-6 w-6 shrink-0" fill="currentColor">
             <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
