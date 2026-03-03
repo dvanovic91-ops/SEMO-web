@@ -415,14 +415,14 @@ export const Register: React.FC = () => {
                 />
                 <button
                   type="button"
-                  disabled
-                  className="shrink-0 rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-xs font-medium text-sky-700 opacity-70"
+                  disabled={phoneValue.replace(/\D/g, '').length < 10}
+                  className="shrink-0 rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-xs font-medium text-sky-700 transition hover:bg-sky-100 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   Подтвердить в Telegram
                 </button>
               </div>
-              <p className="mt-1 text-[11px] text-slate-500">
-                * Телефон подтверждается через Telegram, за подтверждение +200 баллов.
+              <p className="mt-1 text-[11px] text-slate-500 whitespace-nowrap">
+                * Подтверждается через Telegram, за подтверждение +200 баллов.
               </p>
             </div>
             </div>

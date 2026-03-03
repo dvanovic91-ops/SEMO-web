@@ -15,8 +15,8 @@ const REQUEST_TYPES = [
 ] as const;
 
 const inputClass =
-  'w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand';
-const labelClass = 'mb-1.5 block text-sm font-medium text-slate-700';
+  'w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand';
+const labelClass = 'mb-1 block text-xs font-medium text-slate-700';
 
 export const Support: React.FC = () => {
   const { userEmail, initialized } = useAuth();
@@ -35,27 +35,27 @@ export const Support: React.FC = () => {
   };
 
   return (
-    <main className="mx-auto max-w-xl px-4 py-6 sm:px-6 sm:py-10 md:py-14">
-      <header className="mb-6 sm:mb-8">
-        <p className="text-sm font-medium tracking-wide text-brand">Поддержка</p>
-        <h1 className="mt-1 text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
+    <main className="mx-auto max-w-xl px-4 py-4 sm:px-6 sm:py-6">
+      <header className="mb-4">
+        <p className="text-xs font-medium tracking-wide text-brand">Поддержка</p>
+        <h1 className="mt-0.5 text-lg font-semibold tracking-tight text-slate-900 sm:text-xl">
           Написать в поддержку
         </h1>
-        <p className="mt-2 text-sm text-slate-600">
+        <p className="mt-1 text-xs text-slate-600">
           Заполните форму — мы ответим на указанный при регистрации email.
         </p>
-        <p className="mt-1 text-xs text-slate-500 sm:text-sm">
-          Для быстрой консультации свяжитесь с нами через Telegram.
+        <p className="mt-0.5 text-[11px] text-slate-500">
+          Для быстрой консультации — Telegram.
         </p>
       </header>
 
       {sent ? (
-        <div className="rounded-xl border border-brand/20 bg-brand-soft/20 px-4 py-6 text-center text-slate-700">
-          <p className="font-medium">Сообщение отправлено.</p>
-          <p className="mt-1 text-sm">Мы ответим на {userEmail} в ближайшее время.</p>
+        <div className="rounded-xl border border-brand/20 bg-brand-soft/20 px-4 py-4 text-center text-slate-700">
+          <p className="text-sm font-medium">Сообщение отправлено.</p>
+          <p className="mt-1 text-xs">Мы ответим на {userEmail} в ближайшее время.</p>
         </div>
       ) : (
-        <form className="space-y-4 sm:space-y-5" onSubmit={handleSubmit}>
+        <form className="space-y-3" onSubmit={handleSubmit}>
           <div>
             <label htmlFor="support-from" className={labelClass}>
               Отправитель
@@ -120,17 +120,17 @@ export const Support: React.FC = () => {
             </label>
             <textarea
               id="support-message"
-              rows={5}
+              rows={3}
               placeholder="Опишите ваш вопрос или проблему"
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              className={`${inputClass} min-h-[120px] resize-y sm:min-h-[160px]`}
+              className={`${inputClass} min-h-[80px] resize-y sm:min-h-[96px]`}
             />
           </div>
 
           <button
             type="submit"
-            className="w-full rounded-full bg-brand py-3.5 text-base font-semibold text-white transition hover:bg-brand/90 sm:py-4"
+            className="w-full rounded-full bg-brand py-2.5 text-sm font-semibold text-white transition hover:bg-brand/90"
           >
             Отправить
           </button>

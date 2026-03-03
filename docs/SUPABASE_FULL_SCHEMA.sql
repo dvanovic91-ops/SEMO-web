@@ -283,3 +283,8 @@ $$;
 
 -- 관리자: update public.profiles set is_admin = true where email = '본인이메일';
 -- 그다음 docs/SUPABASE_SCHEMA_DASHBOARD_PRODUCT_REVIEWS.sql 실행 후, Storage에 버킷 review-photos (public) 생성.
+
+-- ---------- 포인트 중복 방지: 이미 연동된 계정은 재연동 시 200p 다시 주지 않음 ----------
+-- link_telegram 함수는 telegram_reward_given 이 false일 때만 200p 지급. 이미 연동된 프로필은 플래그만 맞춰 두기.
+-- (한 번만 실행) 이미 telegram_id 가 있는데 telegram_reward_given 이 null/false 인 경우 true 로 통일:
+-- update public.profiles set telegram_reward_given = true where telegram_id is not null and coalesce(telegram_reward_given, false) = false;

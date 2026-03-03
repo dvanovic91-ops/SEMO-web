@@ -61,6 +61,15 @@ export const Profile: React.FC = () => {
     refreshProfile();
   }, [refreshProfile]);
 
+  // 다른 탭에서 Telegram 연동 후 돌아오면 프로필(연동 여부·포인트) 다시 불러오기
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') refreshProfile();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [refreshProfile]);
+
   const profile = dbProfile ?? localProfile;
 
   if (!initialized) return null;
@@ -135,47 +144,38 @@ export const Profile: React.FC = () => {
         </div>
       </div>
 
-      {/* Telegram 연동: 설명과 버튼 한 줄, 버튼은 «связать»만 작게 (테스트 어드민은 미표시) */}
+      {/* Telegram 연동: 한 줄 — 왼쪽 제목·설명, 오른쪽 연결 버튼만 (테스트 어드민은 미표시) */}
       {userId && userId !== ADMIN_DUMMY_USER_ID && (
-        <div className="mt-6 rounded-xl border border-sky-100 bg-sky-50 px-4 py-4">
-          <div className="flex items-center gap-2">
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-sky-100 text-[#0088cc]">
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
-              </svg>
-            </span>
-            <p className="text-sm font-medium text-slate-800">Telegram‑бот</p>
-          </div>
-          {dbProfile?.telegram_id ? (
-            <div className="mt-2 space-y-2">
-              <p className="text-xs text-slate-600">
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-sky-100 bg-sky-50 px-4 py-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-100 text-[#0088cc]">
+                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="currentColor">
+                  <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
+                </svg>
+              </span>
+              <p className="text-sm font-medium text-slate-800">Telegram‑бот</p>
+            </div>
+            {dbProfile?.telegram_id ? (
+              <p className="mt-1 text-xs text-slate-600">
                 Аккаунт привязан. Заказы, баллы и рекомендации доступны и в боте.
               </p>
-              <Link
-                to="/profile/edit?focus=phone"
-                className="inline-block text-xs font-medium text-sky-700 underline hover:text-sky-800"
-              >
-                Изменить номер телефона
-              </Link>
-            </div>
-          ) : (
-            <div className="mt-2 space-y-2">
-              <p className="text-xs text-slate-600">
-                Чтобы привязать Telegram, подтвердите номер телефона в профиле.
+            ) : (
+              <p className="mt-1 text-xs text-slate-600">
+                Чтобы привязать Telegram, подтвердите номер в профиле. За привязку 200 баллов.
               </p>
+            )}
+          </div>
+          <div className="shrink-0">
+            {!dbProfile?.telegram_id && (
               <Link
                 to="/profile/edit?focus=phone"
-                className="inline-block rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                className="inline-block rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
               >
-                Перейти к подтверждению номера
+                Привязать
               </Link>
-            </div>
-          )}
-          {!dbProfile?.telegram_id && (
-            <p className="mt-2 text-xs font-medium text-sky-700">
-              За привязку начисляется 200 баллов.
-            </p>
-          )}
+            )}
+          </div>
         </div>
       )}
 

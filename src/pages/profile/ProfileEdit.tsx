@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { getProfile, setProfile } from '../../lib/profileStorage';
@@ -69,11 +69,8 @@ export const ProfileEdit: React.FC = () => {
 
   const profile = userEmail ? getProfile(userEmail) : null;
 
-  if (!initialized) return null;
-  if (!isLoggedIn || !userEmail) return <Navigate to="/login" replace />;
-
-  // DB에서 name, phone, telegram_id 로드 (연동 여부·휴대폰 표시용)
-  useEffect(() => {
+  // DB에서 프로필 로드 (개인정보 새로고침 버튼에서도 호출)
+  const loadProfileFromDb = useCallback(() => {
     if (!supabase || !userId) return;
     supabase
       .from('profiles')
@@ -93,12 +90,34 @@ export const ProfileEdit: React.FC = () => {
       .catch(() => {});
   }, [userId, userEmail]);
 
-  // 로컬 프로필·이메일 기준 초기 폼
+  useEffect(() => {
+    loadProfileFromDb();
+  }, [loadProfileFromDb]);
+
+  // Telegram 연동 후 다른 탭에서 돌아오면 DB에서 다시 불러와 연동 상태 반영
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') loadProfileFromDb();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [loadProfileFromDb]);
+
+  if (!initialized) {
+    return (
+      <main className="mx-auto max-w-xl px-4 py-8">
+        <p className="text-center text-sm text-slate-500">Загрузка…</p>
+      </main>
+    );
+  }
+  if (!isLoggedIn || !userEmail) return <Navigate to="/login" replace />;
+
+  // 이메일·로컬 기본값만 채움. phone/연동 여부는 DB(loadProfileFromDb) 결과로만 덮어쓰도록 함.
   useEffect(() => {
     setForm((prev) => ({
       ...prev,
+      email: userEmail ?? prev.email ?? '',
       name: prev.name || (profile?.name ?? (userEmail ? userEmail.split('@')[0] : '')),
-      email: userEmail ?? '',
       fioLast: prev.fioLast ?? '',
       fioFirst: prev.fioFirst ?? '',
       fioMiddle: prev.fioMiddle ?? '',
@@ -106,7 +125,6 @@ export const ProfileEdit: React.FC = () => {
       streetHouse: prev.streetHouse ?? '',
       apartmentOffice: prev.apartmentOffice ?? '',
       postcode: prev.postcode ?? '',
-      phone: prev.phone ?? '',
       inn: prev.inn ?? '',
       passportSeries: prev.passportSeries ?? '',
       passportNumber: prev.passportNumber ?? '',
@@ -221,6 +239,13 @@ export const ProfileEdit: React.FC = () => {
         <p className="mt-1 text-sm text-slate-500">
           Основные данные и адрес доставки. Ниже — смена пароля.
         </p>
+        <button
+          type="button"
+          onClick={loadProfileFromDb}
+          className="mt-2 text-xs text-slate-500 underline hover:text-slate-700"
+        >
+          Обновить данные
+        </button>
       </header>
 
       <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
@@ -451,24 +476,15 @@ export const ProfileEdit: React.FC = () => {
                     id="pe-phone"
                     type="tel"
                     placeholder="+7 999 999 9999"
-                    className={`${inputClass} sm:flex-1 ${telegramLinked ? 'cursor-default bg-slate-50' : ''}`}
+                    className={`${inputClass} sm:flex-1 ${telegramLinked ? 'cursor-default bg-slate-100 text-slate-500' : ''}`}
                     value={form.phone ?? ''}
                     onChange={editing && !telegramLinked ? handlePhoneChange : undefined}
                     readOnly={!editing || telegramLinked}
                   />
                   {telegramLinked ? (
-                    <div className="flex shrink-0 flex-wrap items-center gap-2">
-                      <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-medium text-emerald-700">
-                        Telegram привязан
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handleUnlinkToChangePhone}
-                        className="text-xs font-medium text-sky-600 underline hover:text-sky-800"
-                      >
-                        Изменить номер
-                      </button>
-                    </div>
+                    <span className="inline-flex shrink-0 items-center rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-xs font-medium text-sky-700">
+                      Telegram привязан
+                    </span>
                   ) : (
                     <button
                       type="button"

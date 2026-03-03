@@ -1,7 +1,8 @@
 import { Link, NavLink } from 'react-router-dom';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
+import { supabase } from '../lib/supabase';
 
 const navLinkBase =
   'text-sm tracking-wide transition-colors border-b-2 border-transparent pb-1';
@@ -21,21 +22,44 @@ const NAV_LINKS = [
 
 export const Navbar: React.FC = () => {
   const { totalCount } = useCart();
-  const { isLoggedIn } = useAuth();
+  const { isLoggedIn, userId } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [telegramLinked, setTelegramLinked] = useState(false);
 
-  useEffect(() => {
-    if (!isLoggedIn) {
+  const fetchTelegramLinked = useCallback(() => {
+    if (!isLoggedIn || !userId || !supabase) {
       setTelegramLinked(false);
       return;
     }
-    try {
-      setTelegramLinked(localStorage.getItem('telegram_linked') === '1');
-    } catch {
-      setTelegramLinked(false);
-    }
-  }, [isLoggedIn]);
+    supabase
+      .from('profiles')
+      .select('telegram_id')
+      .eq('id', userId)
+      .single()
+      .then(({ data }) => {
+        const linked = !!data?.telegram_id;
+        setTelegramLinked(linked);
+        try {
+          localStorage.setItem('telegram_linked', linked ? '1' : '0');
+        } catch {
+          // ignore
+        }
+      })
+      .catch(() => setTelegramLinked(false));
+  }, [isLoggedIn, userId]);
+
+  useEffect(() => {
+    fetchTelegramLinked();
+  }, [fetchTelegramLinked]);
+
+  // 탭 복귀 시(예: Telegram 연동 후) 연동 여부 다시 조회 → 아이콘 연하늘색 반영
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') fetchTelegramLinked();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [fetchTelegramLinked]);
 
   return (
     <>

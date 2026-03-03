@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import {
-  CartesianGrid,
   LabelList,
   Line,
   LineChart,
@@ -22,6 +21,11 @@ import { supabase } from '../../lib/supabase';
 const inputClass =
   'w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand';
 const labelClass = 'mb-1 block text-sm font-medium text-slate-700';
+
+/** 천 단위 콤마 (1,000 형식) */
+function formatNumber(n: number): string {
+  return n.toLocaleString('en-US', { maximumFractionDigits: 0 });
+}
 
 type Product = {
   id: string;
@@ -136,7 +140,7 @@ export const Admin: React.FC = () => {
           setSlots(filled);
         }
       } catch (e) {
-        setError('Не удалось загрузить данные администратора.');
+        setError('관리자 데이터를 불러오지 못했습니다.');
         console.error(e);
       }
     };
@@ -272,7 +276,7 @@ export const Admin: React.FC = () => {
       if (compData) setComponents(compData as ProductComponent[]);
     } catch (e) {
       console.error(e);
-      setError('Не удалось сохранить товар.');
+      setError('상품 저장에 실패했습니다.');
     } finally {
       setSavingProduct(false);
     }
@@ -341,7 +345,7 @@ export const Admin: React.FC = () => {
       if (upErr) throw upErr;
     } catch (e) {
       console.error(e);
-      setError('Не удалось сохранить макет главной страницы.');
+      setError('메인 페이지 레이아웃 저장에 실패했습니다.');
     } finally {
       setSavingSlots(false);
     }
@@ -351,7 +355,7 @@ export const Admin: React.FC = () => {
     <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10">
       <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
-          Админ-панель
+          관리자
         </h1>
         <nav className="flex gap-2 rounded-full bg-slate-100 p-1 text-sm">
           <button
@@ -361,7 +365,7 @@ export const Admin: React.FC = () => {
               tab === 'dashboard' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
             }`}
           >
-            Обзор
+            대시보드
           </button>
           <button
             type="button"
@@ -370,7 +374,7 @@ export const Admin: React.FC = () => {
               tab === 'products' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
             }`}
           >
-            Товары
+            상품
           </button>
           <button
             type="button"
@@ -379,7 +383,7 @@ export const Admin: React.FC = () => {
               tab === 'layout' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
             }`}
           >
-            Главная страница
+            메인 편집
           </button>
         </nav>
       </header>
@@ -389,36 +393,36 @@ export const Admin: React.FC = () => {
       {tab === 'dashboard' && (
         <section className="space-y-6">
           <p className="text-sm text-slate-600">
-            Ключевые показатели: продажи по периодам, остатки и просмотры товаров.
+            기간별 매출, 재고, 상품별 조회수
           </p>
 
           {/* KPI 카드: 매출 합계·주문 수 (실제 데이터 또는 목업 합계) */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Выручка</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">매출</p>
               <p className="mt-1 text-2xl font-semibold text-slate-900">
                 {USE_MOCK_DASHBOARD
-                  ? revenueChartData.reduce((s, d) => s + d.revenue, 0).toLocaleString('ru-RU') + ' ₽'
-                  : (dashboardKpi?.totalRevenueCents ?? 0) / 100 + ' ₽'}
+                  ? formatNumber(revenueChartData.reduce((s, d) => s + d.revenue, 0)) + ' ₽'
+                  : formatNumber((dashboardKpi?.totalRevenueCents ?? 0) / 100) + ' ₽'}
               </p>
               <p className="mt-0.5 text-xs text-slate-500">
-                {USE_MOCK_DASHBOARD ? 'Сумма по графику (макет)' : 'Сумма заказов (total_cents)'}
+                {USE_MOCK_DASHBOARD ? '그래프 합계 (목업)' : '주문 합계'}
               </p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Заказы</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">주문 수</p>
               <p className="mt-1 text-2xl font-semibold text-slate-900">{dashboardKpi?.orderCount ?? 0}</p>
-              <p className="mt-0.5 text-xs text-slate-500">Всего заказов</p>
+              <p className="mt-0.5 text-xs text-slate-500">전체 주문</p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:col-span-2 lg:col-span-1">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Товары и просмотры</p>
-              <p className="mt-1 text-sm text-slate-600">Ниже — остатки и просмотры по каждому товару.</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">상품·조회</p>
+              <p className="mt-1 text-sm text-slate-600">아래 테이블: 재고·조회수</p>
             </div>
           </div>
 
           {/* 매출 꺾은선 그래프: 기간 선택 + 차트 (목업 시에만 데이터 표시) */}
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h3 className="mb-3 text-sm font-semibold text-slate-900">Выручка по периодам</h3>
+            <h3 className="mb-3 text-sm font-semibold text-slate-900">기간별 매출</h3>
             <div className="mb-4 flex flex-wrap items-center gap-2">
               {(['day', 'week', 'month', 'range'] as const).map((p) => (
                 <button
@@ -429,10 +433,10 @@ export const Admin: React.FC = () => {
                     dashboardPeriod === p ? 'bg-brand text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
-                  {p === 'day' && 'По дням'}
-                  {p === 'week' && 'По неделям'}
-                  {p === 'month' && 'По месяцам'}
-                  {p === 'range' && 'Период'}
+                  {p === 'day' && '일별'}
+                  {p === 'week' && '주별'}
+                  {p === 'month' && '월별'}
+                  {p === 'range' && '기간 선택'}
                 </button>
               ))}
               {dashboardPeriod === 'range' && (
@@ -457,11 +461,10 @@ export const Admin: React.FC = () => {
               <div className="h-[320px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={revenueChartData} margin={{ top: 20, right: 20, left: 10, bottom: 20 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                     <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="#64748b" />
-                    <YAxis tick={{ fontSize: 11 }} stroke="#64748b" tickFormatter={(v) => v + ' ₽'} />
+                    <YAxis tick={{ fontSize: 11 }} stroke="#64748b" tickFormatter={(v) => formatNumber(v) + ' ₽'} />
                     <Tooltip
-                      formatter={(value: number) => [value.toLocaleString('ru-RU') + ' ₽', 'Выручка']}
+                      formatter={(value: number) => [formatNumber(value) + ' ₽', '매출']}
                       labelFormatter={(label) => label}
                       contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0' }}
                     />
@@ -471,12 +474,12 @@ export const Admin: React.FC = () => {
                       stroke="var(--color-brand, #0d9488)"
                       strokeWidth={2}
                       dot={{ r: 4, fill: 'var(--color-brand, #0d9488)' }}
-                      name="Выручка"
+                      name="매출"
                     >
                       <LabelList
                         dataKey="revenue"
                         position="top"
-                        formatter={(v: number) => v.toLocaleString('ru-RU')}
+                        formatter={(v: number) => formatNumber(v)}
                         className="fill-slate-600"
                         style={{ fontSize: 11 }}
                       />
@@ -485,7 +488,7 @@ export const Admin: React.FC = () => {
                 </ResponsiveContainer>
               </div>
             ) : (
-              <p className="py-8 text-center text-slate-400">Нет данных за выбранный период.</p>
+              <p className="py-8 text-center text-slate-400">선택한 기간에 데이터가 없습니다.</p>
             )}
           </div>
 
@@ -493,22 +496,22 @@ export const Admin: React.FC = () => {
           {USE_MOCK_DASHBOARD && mockProductBreakdown.length > 0 && (
             <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
               <h3 className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-900">
-                Выручка по товарам (макет)
+                상품별 매출 (목업)
               </h3>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-slate-100 bg-slate-50/80">
-                      <th className="px-4 py-2 text-left font-medium text-slate-700">Товар</th>
-                      <th className="px-4 py-2 text-right font-medium text-slate-700">Выручка</th>
-                      <th className="px-4 py-2 text-right font-medium text-slate-700">Заказов</th>
+                      <th className="px-4 py-2 text-left font-medium text-slate-700">상품</th>
+                      <th className="px-4 py-2 text-right font-medium text-slate-700">매출</th>
+                      <th className="px-4 py-2 text-right font-medium text-slate-700">주문 수</th>
                     </tr>
                   </thead>
                   <tbody>
                     {mockProductBreakdown.map((row, i) => (
                       <tr key={i} className="border-b border-slate-50">
                         <td className="px-4 py-2 text-slate-800">{row.productName}</td>
-                        <td className="px-4 py-2 text-right tabular-nums">{row.revenue.toLocaleString('ru-RU')} ₽</td>
+                        <td className="px-4 py-2 text-right tabular-nums">{formatNumber(row.revenue)} ₽</td>
                         <td className="px-4 py-2 text-right tabular-nums">{row.orderCount}</td>
                       </tr>
                     ))}
@@ -521,15 +524,15 @@ export const Admin: React.FC = () => {
           {/* 기존: 재고·조회수 테이블 (실제 DB) */}
           <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
             <h3 className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-900">
-              Остатки и просмотры по товарам
+              상품별 재고·조회수
             </h3>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50/80">
-                    <th className="px-4 py-2 text-left font-medium text-slate-700">Товар</th>
-                    <th className="px-4 py-2 text-right font-medium text-slate-700">Остаток</th>
-                    <th className="px-4 py-2 text-right font-medium text-slate-700">Просмотры</th>
+                    <th className="px-4 py-2 text-left font-medium text-slate-700">상품</th>
+                    <th className="px-4 py-2 text-right font-medium text-slate-700">재고</th>
+                    <th className="px-4 py-2 text-right font-medium text-slate-700">조회수</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -542,7 +545,7 @@ export const Admin: React.FC = () => {
                   ))}
                   {(!dashboardKpi?.products?.length) && (
                     <tr>
-                      <td colSpan={3} className="px-4 py-6 text-center text-slate-400">Нет данных</td>
+                      <td colSpan={3} className="px-4 py-6 text-center text-slate-400">데이터 없음</td>
                     </tr>
                   )}
                 </tbody>
@@ -556,7 +559,7 @@ export const Admin: React.FC = () => {
         <section className="mt-4 grid gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-900">Товары</h2>
+              <h2 className="text-sm font-semibold text-slate-900">상품 목록</h2>
               <button
                 type="button"
                 onClick={() =>
@@ -575,7 +578,7 @@ export const Admin: React.FC = () => {
                 }
                 className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 hover:border-brand hover:text-brand"
               >
-                Новый товар
+                새 상품
               </button>
             </div>
             <ul className="divide-y divide-slate-100 text-sm">
@@ -590,13 +593,13 @@ export const Admin: React.FC = () => {
                     {p.prp_price != null ? (
                       <span className="shrink-0 text-xs text-slate-700">
                         <span className="mr-1 line-through text-slate-400">
-                          {p.rrp_price?.toFixed(0)} ₽
+                          {formatNumber(Number(p.rrp_price ?? 0))} ₽
                         </span>
-                        <span>{p.prp_price.toFixed(0)} ₽</span>
+                        <span>{formatNumber(p.prp_price)} ₽</span>
                       </span>
                     ) : (
                       <span className="shrink-0 text-xs text-slate-700">
-                        {p.rrp_price?.toFixed(0)} ₽
+                        {formatNumber(Number(p.rrp_price ?? 0))} ₽
                       </span>
                     )}
                   </div>
@@ -608,19 +611,19 @@ export const Admin: React.FC = () => {
                 </li>
               ))}
               {products.length === 0 && (
-                <li className="px-2 py-4 text-xs text-slate-400">Товары пока не добавлены.</li>
+                <li className="px-2 py-4 text-xs text-slate-400">등록된 상품이 없습니다.</li>
               )}
             </ul>
           </div>
 
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <h2 className="mb-3 text-sm font-semibold text-slate-900">
-              {selectedProduct ? 'Редактировать товар' : 'Выберите товар или создайте новый'}
+              {selectedProduct ? '상품 수정' : '상품을 선택하거나 새로 추가하세요'}
             </h2>
             {selectedProduct && (
               <div className="space-y-4 text-sm">
                 <div>
-                  <label className={labelClass}>Название</label>
+                  <label className={labelClass}>상품명</label>
                   <input
                     type="text"
                     className={inputClass}
@@ -629,7 +632,7 @@ export const Admin: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className={labelClass}>Категория</label>
+                  <label className={labelClass}>카테고리</label>
                   <input
                     type="text"
                     className={inputClass}
@@ -638,7 +641,7 @@ export const Admin: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className={labelClass}>Описание</label>
+                  <label className={labelClass}>설명</label>
                   <textarea
                     className={`${inputClass} min-h-[72px]`}
                     value={selectedProduct.description ?? ''}
@@ -647,7 +650,7 @@ export const Admin: React.FC = () => {
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
-                    <label className={labelClass}>Обычная цена (RRP), ₽</label>
+                    <label className={labelClass}>정가 (RRP), ₽</label>
                     <input
                       type="number"
                       className={inputClass}
@@ -656,7 +659,7 @@ export const Admin: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className={labelClass}>Цена со скидкой (PRP), ₽</label>
+                    <label className={labelClass}>할인가 (PRP), ₽</label>
                     <input
                       type="number"
                       className={inputClass}
@@ -666,7 +669,7 @@ export const Admin: React.FC = () => {
                   </div>
                 </div>
                 <div>
-                  <label className={labelClass}>Остаток (склад)</label>
+                  <label className={labelClass}>재고</label>
                   <input
                     type="number"
                     min={0}
@@ -676,64 +679,64 @@ export const Admin: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className={labelClass}>Подробное описание (страница товара)</label>
+                  <label className={labelClass}>상품 상세 설명</label>
                   <textarea
                     className={`${inputClass} min-h-[100px]`}
                     value={selectedProduct.detail_description ?? ''}
                     onChange={(e) => handleProductField('detail_description', e.target.value)}
-                    placeholder="Полное описание на странице товара"
+                    placeholder="상품 페이지에 표시되는 본문"
                   />
                 </div>
                 <div>
                   <div className="mb-2 flex items-center justify-between">
-                    <label className={labelClass}>Состав набора (1, 2, 3…)</label>
+                    <label className={labelClass}>구성품 (1, 2, 3…)</label>
                     <button
                       type="button"
                       onClick={handleComponentAdd}
                       className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 hover:border-brand hover:text-brand"
                     >
-                      + Элемент
+                      + 항목
                     </button>
                   </div>
                   <div className="space-y-3 rounded-lg border border-slate-100 bg-slate-50/50 p-3">
                     {components.map((comp, idx) => (
                       <div key={comp.id} className="rounded-lg border border-slate-200 bg-white p-3">
                         <div className="mb-2 flex items-center justify-between">
-                          <span className="text-xs font-semibold text-slate-500">Элемент {idx + 1}</span>
+                          <span className="text-xs font-semibold text-slate-500">항목 {idx + 1}</span>
                           <button
                             type="button"
                             onClick={() => handleComponentRemove(idx)}
                             className="text-xs text-red-600 hover:underline"
                           >
-                            Удалить
+                            삭제
                           </button>
                         </div>
                         <div className="grid gap-2 sm:grid-cols-2">
                           <input
                             type="text"
                             className={inputClass}
-                            placeholder="Название"
+                            placeholder="이름"
                             value={comp.name ?? ''}
                             onChange={(e) => handleComponentChange(idx, { name: e.target.value })}
                           />
                           <input
                             type="text"
                             className={inputClass}
-                            placeholder="URL изображения"
+                            placeholder="이미지 URL"
                             value={comp.image_url ?? ''}
                             onChange={(e) => handleComponentChange(idx, { image_url: e.target.value || null })}
                           />
                         </div>
                         <textarea
                           className={`${inputClass} mt-2 min-h-[60px]`}
-                          placeholder="Описание элемента"
+                          placeholder="설명"
                           value={comp.description ?? ''}
                           onChange={(e) => handleComponentChange(idx, { description: e.target.value || null })}
                         />
                       </div>
                     ))}
                     {components.length === 0 && (
-                      <p className="py-2 text-center text-xs text-slate-400">Добавьте элементы набора.</p>
+                      <p className="py-2 text-center text-xs text-slate-400">구성품을 추가하세요.</p>
                     )}
                   </div>
                 </div>
@@ -743,7 +746,7 @@ export const Admin: React.FC = () => {
                   disabled={savingProduct}
                   className="mt-2 w-full rounded-full bg-brand py-2.5 text-sm font-semibold text-white hover:bg-brand/90 disabled:opacity-60"
                 >
-                  {savingProduct ? 'Сохранение…' : 'Сохранить'}
+                  {savingProduct ? '저장 중…' : '저장'}
                 </button>
               </div>
             )}
@@ -754,7 +757,7 @@ export const Admin: React.FC = () => {
       {tab === 'layout' && (
         <section className="mt-4 space-y-4">
           <p className="text-xs text-slate-500">
-            5 слотов главной страницы. Перетащите карточки, чтобы изменить порядок.
+            메인 페이지 슬롯 5개. 드래그해서 순서를 바꿀 수 있습니다.
           </p>
           <div className="grid gap-4 md:grid-cols-2">
             {slots.map((slot) => (
@@ -770,11 +773,11 @@ export const Admin: React.FC = () => {
                 className="cursor-move rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm"
               >
                 <p className="mb-2 text-xs font-semibold uppercase text-slate-400">
-                  Слот {slot.slot_index + 1}
+                  슬롯 {slot.slot_index + 1}
                 </p>
                 <div className="space-y-3">
                   <div>
-                    <label className={labelClass}>Заголовок</label>
+                    <label className={labelClass}>제목</label>
                     <input
                       type="text"
                       className={inputClass}
@@ -783,7 +786,7 @@ export const Admin: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className={labelClass}>Описание</label>
+                    <label className={labelClass}>설명</label>
                     <textarea
                       className={`${inputClass} min-h-[64px]`}
                       value={slot.description}
@@ -793,7 +796,7 @@ export const Admin: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className={labelClass}>ID товара (опционально)</label>
+                    <label className={labelClass}>상품 ID (선택)</label>
                     <input
                       type="text"
                       className={inputClass}
@@ -804,7 +807,7 @@ export const Admin: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className={labelClass}>Ссылка (если не выбираете товар)</label>
+                    <label className={labelClass}>링크 (상품 없을 때)</label>
                     <input
                       type="text"
                       className={inputClass}
@@ -822,7 +825,7 @@ export const Admin: React.FC = () => {
             disabled={savingSlots}
             className="mt-2 w-full rounded-full bg-brand py-2.5 text-sm font-semibold text-white hover:bg-brand/90 disabled:opacity-60 md:w-auto md:px-6"
           >
-            {savingSlots ? 'Сохранение…' : 'Сохранить макет'}
+            {savingSlots ? '저장 중…' : '레이아웃 저장'}
           </button>
         </section>
       )}

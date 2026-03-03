@@ -138,15 +138,15 @@ export const Shop: React.FC = () => {
         </h1>
       </header>
 
-      {/* 캐러셀: 한 화면 3개, 모바일 터치 스와이프 / 웹 화살표 */}
-      <section className="relative">
+      {/* 캐러셀: 한 화면 3개, 모바일 터치 스와이프 / 웹 화살표 — 좌우 여백으로 화살표가 카드와 겹치지 않음 */}
+      <section className="relative px-12 md:px-16">
         <div
           className="overflow-hidden"
           onTouchStart={onTouchStart}
           onTouchEnd={onTouchEnd}
         >
           <div
-            className="flex transition-transform duration-300 ease-out"
+            className="flex transition-[transform] duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1)]"
             style={{ transform: `translateX(-${carouselIndex * itemWidthPercent}%)` }}
           >
             {items.map((product) => (
@@ -198,7 +198,7 @@ export const Shop: React.FC = () => {
               type="button"
               onClick={goPrev}
               disabled={carouselIndex === 0}
-              className="absolute left-0 top-1/2 hidden h-10 w-10 -translate-y-1/2 rounded-full border border-slate-200 bg-white shadow-md transition hover:bg-slate-50 disabled:opacity-30 md:flex md:items-center md:justify-center"
+              className="absolute left-0 top-1/2 z-10 hidden h-10 w-10 -translate-y-1/2 rounded-full border border-slate-200 bg-white shadow-md transition hover:bg-slate-50 disabled:opacity-30 md:flex md:items-center md:justify-center"
               aria-label="Предыдущие"
             >
               <svg className="h-5 w-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -209,7 +209,7 @@ export const Shop: React.FC = () => {
               type="button"
               onClick={goNext}
               disabled={carouselIndex >= maxIndex}
-              className="absolute right-0 top-1/2 hidden h-10 w-10 -translate-y-1/2 rounded-full border border-slate-200 bg-white shadow-md transition hover:bg-slate-50 disabled:opacity-30 md:flex md:items-center md:justify-center"
+              className="absolute right-0 top-1/2 z-10 hidden h-10 w-10 -translate-y-1/2 rounded-full border border-slate-200 bg-white shadow-md transition hover:bg-slate-50 disabled:opacity-30 md:flex md:items-center md:justify-center"
               aria-label="Следующие"
             >
               <svg className="h-5 w-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
