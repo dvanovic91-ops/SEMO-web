@@ -3,6 +3,7 @@ import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { getProfile, setProfile } from '../../lib/profileStorage';
 import { InnHelpTooltip } from '../../components/InnHelpTooltip';
+import { AddressSuggest } from '../../components/AddressSuggest';
 import { supabase } from '../../lib/supabase';
 
 /**
@@ -29,6 +30,11 @@ function formatPhone(value: string): string {
   return `+${a}`;
 }
 
+function normalizeLatin(value: string): string {
+  // 여권용 FIO: 라틴 문자, пробел, -, ' 만 허용
+  return value.replace(/[^A-Za-z\s-']/g, '');
+}
+
 function loadSavedProfile(): Record<string, string> {
   try {
     const raw = localStorage.getItem('profileEdit');
@@ -51,6 +57,7 @@ export const ProfileEdit: React.FC = () => {
   const [pwConfirm, setPwConfirm] = useState('');
   const [pwError, setPwError] = useState('');
   const [pwSuccess, setPwSuccess] = useState(false);
+  const [addressSearch, setAddressSearch] = useState('');
 
   const profile = userEmail ? getProfile(userEmail) : null;
   const savedData = loadSavedProfile();
@@ -79,7 +86,11 @@ export const ProfileEdit: React.FC = () => {
   const isDirty = editing && initialForm !== null && JSON.stringify(form) !== JSON.stringify(initialForm);
 
   const handleChange = (key: string, value: string) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
+    let next = value;
+    if (key === 'fioLast' || key === 'fioFirst' || key === 'fioMiddle') {
+      next = normalizeLatin(next);
+    }
+    setForm((prev) => ({ ...prev, [key]: next }));
   };
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -249,7 +260,19 @@ export const ProfileEdit: React.FC = () => {
         <section>
           <h2 className="mb-4 text-lg font-semibold text-slate-900">Доставка</h2>
           <div className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-3">
+            <AddressSuggest
+              label="Адрес (поиск по базе)"
+              placeholder="Начните вводить адрес, затем выберите вариант из списка"
+              value={addressSearch}
+              onChange={setAddressSearch}
+              onPartsChange={({ cityRegion, streetHouse, apartmentOffice, postcode }) => {
+                if (cityRegion !== undefined) handleChange('cityRegion', cityRegion);
+                if (streetHouse !== undefined) handleChange('streetHouse', streetHouse);
+                if (apartmentOffice !== undefined) handleChange('apartmentOffice', apartmentOffice);
+                if (postcode !== undefined) handleChange('postcode', postcode);
+              }}
+            />
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
               <div>
                 <label htmlFor="pe-fio-last" className={labelClass}>Фамилия</label>
                 <input
@@ -282,7 +305,7 @@ export const ProfileEdit: React.FC = () => {
               </div>
             </div>
             <p className={hintClass}>
-              Пожалуйста, укажите ФИО как в паспорте — эти данные используются для доставки.
+              Пожалуйста, укажите ФИО как в паспорте (латинскими буквами).
             </p>
             <div>
               <label htmlFor="pe-city" className={labelClass}>Город / Регион</label>

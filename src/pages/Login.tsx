@@ -1,19 +1,15 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { supabase, setRememberMe } from '../lib/supabase';
-import { AUTH_MESSAGE_TYPE } from './AuthCallback';
 
 const inputClass =
   'w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand';
 
 /**
  * 로그인 — 이메일/비밀번호 + 구글/얀덱스 OAuth 연동.
- * OAuth 가입 시 백엔드에서 신규 사용자를 /register/shipping으로 보내면 배송 정보만 입력.
- * "Войти как администратор" 클릭 시 테스트 계정으로 로그인되어 개인정보(Profile) 화면으로 이동.
+ * OAuth: 팝업 없이 현재 탭 전체를 리다이렉트.
  */
-const POPUP_WIDTH = 500;
-const POPUP_HEIGHT = 600;
 
 export const Login: React.FC = () => {
   const navigate = useNavigate();
@@ -21,26 +17,11 @@ export const Login: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMeChecked] = useState(true);
-  const [popupBlocked, setPopupBlocked] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<'google' | 'yandex' | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginLoading, setLoginLoading] = useState(false);
-
-  useEffect(() => {
-    if (!supabase) return;
-    const onMessage = (e: MessageEvent) => {
-      if (e.origin !== window.location.origin || e.data?.type !== AUTH_MESSAGE_TYPE) return;
-      const { access_token, refresh_token } = e.data;
-      if (!access_token || !refresh_token) return;
-      supabase.auth.setSession({ access_token, refresh_token }).then(() => {
-        navigate('/', { replace: true });
-      }).catch(() => {});
-    };
-    window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
-  }, [navigate]);
 
   if (!initialized) {
     return (
@@ -51,41 +32,26 @@ export const Login: React.FC = () => {
   }
   if (isLoggedIn) return <Navigate to="/" replace />;
 
-  const callbackUrl = `${window.location.origin}/auth/callback`;
-
-  const openOAuthPopup = useCallback(async (provider: 'google' | 'yandex') => {
+  const openOAuthRedirect = async (provider: 'google' | 'yandex') => {
     if (!supabase) return;
     setRememberMe(rememberMe);
     setOauthLoading(provider);
     try {
-      const { data, error } = await supabase.auth.signInWithOAuth({
+      const { error } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
-          skipBrowserRedirect: true,
-          redirectTo: callbackUrl,
-          // 흰 화면 이슈 방지: prompt 생략 시 구글이 기본 동작(이미 로그인된 계정 우선 사용 가능)
-          // 계정 선택 창을 강제로 띄우려면: queryParams: { prompt: 'select_account' }
+          // 로그인 후 항상 홈으로 돌아오도록 설정
+          redirectTo: `${window.location.origin}/`,
         },
       });
-      if (error) {
-        console.error(error);
-        return;
-      }
-      if (!data?.url) return;
-      const left = Math.round((window.screen.width - POPUP_WIDTH) / 2);
-      const top = Math.round((window.screen.height - POPUP_HEIGHT) / 2);
-      const popup = window.open(data.url, 'semo_oauth', `width=${POPUP_WIDTH},height=${POPUP_HEIGHT},left=${left},top=${top},scrollbars=yes`);
-      if (!popup) {
-        setPopupBlocked(true);
-        window.location.href = data.url;
-      }
+      if (error) console.error(error);
     } finally {
       setOauthLoading(null);
     }
-  }, [rememberMe, callbackUrl]);
+  };
 
-  const handleGoogleLogin = () => openOAuthPopup('google');
-  const handleYandexLogin = () => openOAuthPopup('yandex');
+  const handleGoogleLogin = () => openOAuthRedirect('google');
+  const handleYandexLogin = () => openOAuthRedirect('yandex');
 
   const handleEmailLogin = async () => {
     setEmailError(null);
@@ -191,12 +157,6 @@ export const Login: React.FC = () => {
         />
         <span className="text-sm text-slate-700">Оставаться в системе</span>
       </label>
-
-      {popupBlocked && (
-        <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50/50 px-3 py-2 text-center text-xs text-amber-800">
-          Включите всплывающие окна для входа в отдельном окне или используйте открывшуюся вкладку.
-        </p>
-      )}
 
       <div className="mt-6 flex flex-col items-center gap-4">
         <p className="text-sm text-slate-500">или</p>

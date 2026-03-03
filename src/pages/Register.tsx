@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { InnHelpTooltip } from '../components/InnHelpTooltip';
 import { supabase } from '../lib/supabase';
+import { AddressSuggest } from '../components/AddressSuggest';
 
 /**
  * 회원가입 — 기본인적 / 배송(주소 세분화). 이메일 인증 구조, 전화 포맷, INN/우편 제한.
@@ -12,6 +13,11 @@ const labelClass = 'mb-1 block text-sm font-medium text-slate-700';
 const hintClass = 'text-xs text-slate-500 font-normal';
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function normalizeLatin(value: string): string {
+  // 여권용 FIO: 라틴 문자, пробел, -, ' 만 허용
+  return value.replace(/[^A-Za-z\s-']/g, '');
+}
 
 /** 전화 입력: 숫자만 추출 후 +7 999 999 9999 형식으로 포맷 */
 function formatPhone(value: string): string {
@@ -42,6 +48,10 @@ export const Register: React.FC = () => {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [fioLast, setFioLast] = useState('');
+  const [fioFirst, setFioFirst] = useState('');
+  const [fioMiddle, setFioMiddle] = useState('');
+  const [addressSearch, setAddressSearch] = useState('');
 
   const handleEmailBlur = () => {
     if (!email) {
@@ -222,7 +232,7 @@ export const Register: React.FC = () => {
             </div>
             <div>
               <p className={`${labelClass} mb-2`}>
-                Gender <span className={hintClass}>(пол)</span>
+                Пол
               </p>
               <div className="flex gap-6">
                 <label className="flex cursor-pointer items-center gap-2">
@@ -238,7 +248,7 @@ export const Register: React.FC = () => {
             {/* 휴대폰: +7 999 999 9999, 숫자만 */}
             <div>
               <label htmlFor="phone" className={labelClass}>
-                Phone number <span className={hintClass}>(телефон)</span>
+                Номер телефона
               </label>
               <input
                 id="phone"
@@ -252,9 +262,14 @@ export const Register: React.FC = () => {
             </div>
             <div>
               <label htmlFor="referrer" className={labelClass}>
-                Referrer ID <span className={hintClass}>(код рекомендателя, необязательно)</span>
+                Email рекомендателя <span className={hintClass}>(электронная почта человека, который порекомендовал вас)</span>
               </label>
-              <input id="referrer" type="text" placeholder="Email или ID" className={inputClass} />
+              <input
+                id="referrer"
+                type="email"
+                placeholder="recommender@mail.ru"
+                className={inputClass}
+              />
             </div>
           </div>
         </section>
@@ -262,9 +277,25 @@ export const Register: React.FC = () => {
         {/* 배송 — 주소 세분화: Город/Регион, Улица/Дом/Корпус, Кв/Офис */}
         <section>
           <h2 className="mb-4 text-lg font-semibold text-slate-900">
-            Shipping <span className={hintClass}>(при заказе — обязательно)</span>
+            Доставка <span className={hintClass}>(при заказе — обязательно)</span>
           </h2>
           <div className="space-y-4">
+            <AddressSuggest
+              label="Адрес (поиск по базе)"
+              placeholder="Начните вводить адрес, затем выберите вариант из списка"
+              value={addressSearch}
+              onChange={setAddressSearch}
+              onPartsChange={({ cityRegion, streetHouse, apartmentOffice, postcode }) => {
+                const cityEl = document.getElementById('cityRegion') as HTMLInputElement | null;
+                const streetEl = document.getElementById('streetHouse') as HTMLInputElement | null;
+                const aptEl = document.getElementById('apartmentOffice') as HTMLInputElement | null;
+                const postEl = document.getElementById('postcode') as HTMLInputElement | null;
+                if (cityRegion !== undefined && cityEl) cityEl.value = cityRegion;
+                if (streetHouse !== undefined && streetEl) streetEl.value = streetHouse;
+                if (apartmentOffice !== undefined && aptEl) aptEl.value = apartmentOffice;
+                if (postcode !== undefined && postEl) postEl.value = postcode;
+              }}
+            />
             <div>
               <label htmlFor="cityRegion" className={labelClass}>
                 Город / Регион
@@ -331,7 +362,7 @@ export const Register: React.FC = () => {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label htmlFor="passportSeries" className={labelClass}>Series</label>
+                <label htmlFor="passportSeries" className={labelClass}>Серия паспорта</label>
                 <input
                   id="passportSeries"
                   type="text"
@@ -344,7 +375,7 @@ export const Register: React.FC = () => {
                 />
               </div>
               <div>
-                <label htmlFor="passportNumber" className={labelClass}>Number</label>
+                <label htmlFor="passportNumber" className={labelClass}>Номер паспорта</label>
                 <input
                   id="passportNumber"
                   type="text"
@@ -361,44 +392,47 @@ export const Register: React.FC = () => {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-3 sm:items-end">
               <div className="flex flex-col">
                 <label htmlFor="lastName" className={`${labelClass} flex flex-wrap items-center gap-x-1`}>
-                  Last name <span className={hintClass}>(фамилия)</span>
+                  Фамилия
                 </label>
                 <input
                   id="lastName"
                   type="text"
                   placeholder="Ivanov"
                   className={inputClass}
-                  pattern="[A-Za-z\s\-']+"
-                  title="Only Latin letters"
+                  value={fioLast}
+                  onChange={(e) => setFioLast(normalizeLatin(e.target.value))}
                 />
               </div>
               <div className="flex flex-col">
                 <label htmlFor="firstName" className={`${labelClass} flex flex-wrap items-center gap-x-1`}>
-                  First name <span className={hintClass}>(имя)</span>
+                  Имя
                 </label>
                 <input
                   id="firstName"
                   type="text"
                   placeholder="Ivan"
                   className={inputClass}
-                  pattern="[A-Za-z\s\-']+"
-                  title="Only Latin letters"
+                  value={fioFirst}
+                  onChange={(e) => setFioFirst(normalizeLatin(e.target.value))}
                 />
               </div>
               <div className="flex flex-col">
                 <label htmlFor="patronymic" className={`${labelClass} flex flex-wrap items-center gap-x-1`}>
-                  Patronymic <span className={hintClass}>(отчество)</span>
+                  Отчество
                 </label>
                 <input
                   id="patronymic"
                   type="text"
                   placeholder="Ivanovich"
                   className={inputClass}
-                  pattern="[A-Za-z\s\-']+"
-                  title="Only Latin letters"
+                  value={fioMiddle}
+                  onChange={(e) => setFioMiddle(normalizeLatin(e.target.value))}
                 />
               </div>
             </div>
+            <p className="mt-2 text-xs text-slate-500">
+              Пожалуйста, укажите ФИО как в паспорте (латинскими буквами).
+            </p>
           </div>
           <p className="mt-3 text-sm text-slate-500">
             Обязательно при оформлении заказа.
