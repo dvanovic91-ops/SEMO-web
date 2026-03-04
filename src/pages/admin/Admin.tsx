@@ -116,9 +116,11 @@ const emptySlot = (index: number): Slot => ({
 
 export const Admin: React.FC = () => {
   const { isLoggedIn, initialized, isAdmin } = useAuth();
-  const [tab, setTab] = useState<'dashboard' | 'products' | 'layout'>('dashboard');
+  const [tab, setTab] = useState<'dashboard' | 'products'>('dashboard');
 
   const [products, setProducts] = useState<Product[]>([]);
+  /** 상품 목록 표시 순서 (앞에서 5개가 쇼핑 슬롯 1~5). 드래그로 순서 변경 후 저장 시 main_layout_slots에 반영 */
+  const [orderedProductIds, setOrderedProductIds] = useState<string[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [savingProduct, setSavingProduct] = useState(false);
 
@@ -212,7 +214,8 @@ export const Admin: React.FC = () => {
           .from('products')
           .select('id, name, category, description, image_url, image_urls, rrp_price, prp_price, is_active, stock, detail_description')
           .order('name');
-        if (prodData) setProducts(prodData as Product[]);
+        const prodList = (prodData as Product[]) ?? [];
+        setProducts(prodList);
 
         const { data: slotData } = await supabase
           .from('main_layout_slots')
@@ -234,6 +237,11 @@ export const Admin: React.FC = () => {
             };
           });
           setSlots(filled);
+          const slotProductIds = filled.map((s) => s.product_id).filter(Boolean) as string[];
+          const restIds = prodList.map((p) => p.id).filter((id) => !slotProductIds.includes(id));
+          setOrderedProductIds([...slotProductIds, ...restIds]);
+        } else {
+          setOrderedProductIds(prodList.map((p) => p.id));
         }
       } catch (e) {
         setError('관리자 데이터를 불러오지 못했습니다.');
@@ -411,6 +419,7 @@ export const Admin: React.FC = () => {
         if (insErr) throw insErr;
         productId = data.id;
         setSelectedProduct({ ...selectedProduct, id: data.id });
+        setOrderedProductIds((prev) => (prev.includes(productId) ? prev : [...prev, productId]));
       }
       // 구성품 저장: 기존 삭제 후 일괄 삽입
       const compPayload = components.map((c, i) => {
@@ -662,8 +671,8 @@ export const Admin: React.FC = () => {
     });
   };
 
-  /** 메인 편집 저장 — RPC 없이 직접 삭제 후 삽입 (Supabase에 RPC 미생성 시에도 동작) */
-  const handleSaveSlots = async () => {
+  /** 상품 목록 순서(orderedProductIds) 기준으로 슬롯 1~5 저장 — main_layout_slots에 반영 */
+  const handleSaveSlotOrder = async () => {
     if (!supabase) return;
     setSavingSlots(true);
     setError(null);
@@ -673,14 +682,18 @@ export const Admin: React.FC = () => {
         const { error: delErr } = await supabase.from('main_layout_slots').delete().in('id', existing.map((r) => r.id));
         if (delErr) throw delErr;
       }
-      const toInsert = slots.map((s) => ({
-        slot_index: s.slot_index,
-        title: s.title || null,
-        description: s.description || null,
-        image_url: s.image_url || null,
-        product_id: s.product_id || null,
-        link_url: s.link_url || null,
-      }));
+      const toInsert = [0, 1, 2, 3, 4].map((i) => {
+        const productId = orderedProductIds[i] ?? null;
+        const prod = productId ? products.find((p) => p.id === productId) : null;
+        return {
+          slot_index: i,
+          title: prod?.name ?? null,
+          description: null,
+          image_url: null,
+          product_id: productId,
+          link_url: null,
+        };
+      });
       const { error: insErr } = await supabase.from('main_layout_slots').insert(toInsert);
       if (insErr) throw insErr;
       const { data: slotData } = await supabase
@@ -689,23 +702,31 @@ export const Admin: React.FC = () => {
         .order('slot_index');
       if (slotData?.length) {
         setSlots(
-          slotData.map((s) => ({
-            ...s,
-            slot_index: s.slot_index,
-            title: s.title ?? '',
-            description: s.description ?? '',
-            image_url: s.image_url ?? null,
-            product_id: s.product_id ?? null,
-            link_url: s.link_url ?? '',
-          }))
+          [0, 1, 2, 3, 4].map((i) => {
+            const found = slotData.find((s) => s.slot_index === i);
+            if (!found) return emptySlot(i);
+            return {
+              id: found.id,
+              slot_index: found.slot_index,
+              title: found.title ?? '',
+              description: found.description ?? '',
+              image_url: found.image_url ?? null,
+              product_id: found.product_id ?? null,
+              link_url: found.link_url ?? '',
+            };
+          })
         );
+        const slotProductIds = slotData.map((s) => s.product_id).filter(Boolean) as string[];
+        const restIds = products.map((p) => p.id).filter((id) => !slotProductIds.includes(id));
+        setOrderedProductIds([...slotProductIds, ...restIds]);
       }
+      setSaveSuccessAt(Date.now());
     } catch (e) {
       console.error(e);
       const msg =
         e && typeof e === 'object' && 'message' in e && typeof (e as any).message === 'string'
           ? (e as any).message
-          : '메인 페이지 레이아웃 저장에 실패했습니다.';
+          : '슬롯 순서 저장에 실패했습니다.';
       setError(msg);
       window.alert(msg);
     } finally {
@@ -728,15 +749,6 @@ export const Admin: React.FC = () => {
             }`}
           >
             대시보드
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab('layout')}
-            className={`rounded-full px-3 py-1.5 ${
-              tab === 'layout' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
-            }`}
-          >
-            메인 편집
           </button>
           <button
             type="button"
@@ -991,37 +1003,82 @@ export const Admin: React.FC = () => {
               </button>
             </div>
             <p className="mb-2 text-xs text-slate-500">
-              DB에 저장된 상품 전체입니다. 쇼핑 페이지(뷰티박스 메뉴)에 노출하려면 아래에서 상품 저장 후 <strong>메인 편집</strong> 탭에서 슬롯에 이 상품을 연결하세요.
+              드래그해서 순서를 바꾸면 쇼핑 페이지(뷰티박스 메뉴) 노출 순서가 바뀝니다. 위에서 1~5가 슬롯 1~5입니다. 순서 저장 버튼을 눌러 반영하세요.
             </p>
+            <button
+              type="button"
+              onClick={handleSaveSlotOrder}
+              disabled={savingSlots}
+              className="mb-2 w-full rounded-full border border-brand bg-brand-soft/30 py-1.5 text-xs font-medium text-brand hover:bg-brand-soft/50 disabled:opacity-50 sm:w-auto sm:px-4"
+            >
+              {savingSlots ? '저장 중…' : '슬롯 순서 저장'}
+            </button>
             <ul className="divide-y divide-slate-100 text-sm">
-              {products.map((p) => (
-                <li
-                  key={p.id}
-                  className="cursor-pointer px-2 py-2 hover:bg-slate-50"
-                  onClick={() => setSelectedProduct(p)}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate">{p.name}</span>
-                    {p.prp_price != null ? (
-                      <span className="shrink-0 text-xs text-slate-700">
-                        <span className="mr-1 line-through text-slate-400">
-                          {formatNumber(Number(p.rrp_price ?? 0))} ₽
-                        </span>
-                        <span>{formatNumber(p.prp_price)} ₽</span>
-                      </span>
-                    ) : (
-                      <span className="shrink-0 text-xs text-slate-700">
-                        {formatNumber(Number(p.rrp_price ?? 0))} ₽
+              {(orderedProductIds.length ? orderedProductIds : products.map((p) => p.id)).map((productId, index) => {
+                const p = products.find((pr) => pr.id === productId);
+                if (!p) return null;
+                const slotNum = index + 1;
+                const isSlot = slotNum <= 5;
+                return (
+                  <li
+                    key={p.id}
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData('text/plain', String(index));
+                      e.dataTransfer.effectAllowed = 'move';
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const fromIdx = Number(e.dataTransfer.getData('text/plain'));
+                      if (fromIdx === index) return;
+                      setOrderedProductIds((prev) => {
+                        const list = [...prev];
+                        const [moved] = list.splice(fromIdx, 1);
+                        list.splice(index, 0, moved);
+                        return list;
+                      });
+                    }}
+                    className="flex cursor-move items-center gap-2 px-2 py-2 hover:bg-slate-50"
+                    onClick={() => setSelectedProduct(p)}
+                  >
+                    {isSlot && (
+                      <span
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-100 text-sm font-bold text-amber-600"
+                        aria-label={`슬롯 ${slotNum}`}
+                      >
+                        {slotNum}
                       </span>
                     )}
-                  </div>
-                  {p.category && (
-                    <p className="mt-0.5 text-[11px] uppercase tracking-wide text-slate-400">
-                      {p.category}
-                    </p>
-                  )}
-                </li>
-              ))}
+                    {!isSlot && <span className="w-7 shrink-0" />}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate">{p.name}</span>
+                        {p.prp_price != null ? (
+                          <span className="shrink-0 text-xs text-slate-700">
+                            <span className="mr-1 line-through text-slate-400">
+                              {formatNumber(Number(p.rrp_price ?? 0))} ₽
+                            </span>
+                            <span>{formatNumber(p.prp_price)} ₽</span>
+                          </span>
+                        ) : (
+                          <span className="shrink-0 text-xs text-slate-700">
+                            {formatNumber(Number(p.rrp_price ?? 0))} ₽
+                          </span>
+                        )}
+                      </div>
+                      {p.category && (
+                        <p className="mt-0.5 text-[11px] uppercase tracking-wide text-slate-400">
+                          {p.category}
+                        </p>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
               {products.length === 0 && (
                 <li className="px-2 py-4 text-xs text-slate-400">등록된 상품이 없습니다.</li>
               )}
@@ -1471,111 +1528,6 @@ export const Admin: React.FC = () => {
         </section>
       )}
 
-      {tab === 'layout' && (
-        <section className="mt-4 space-y-4">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs text-slate-500">
-              메인 페이지 슬롯 5개. 위에서 아래로 1→5 순서입니다. <strong>쇼핑 페이지(뷰티박스 메뉴)에 보이는 항목은 이 슬롯에 연결된 상품입니다.</strong> 상품 탭에서 등록한 상품을 아래에서 선택해 연결하세요.
-            </p>
-            <button
-              type="button"
-              onClick={handleSaveSlots}
-              disabled={savingSlots}
-              className="w-full rounded-full bg-brand py-2.5 text-sm font-semibold text-white hover:bg-brand/90 disabled:opacity-60 sm:w-auto sm:px-6"
-            >
-              {savingSlots ? '저장 중…' : '레이아웃 저장'}
-            </button>
-          </div>
-          <div className="space-y-3">
-            {slots.map((slot) => (
-              <div
-                key={slot.slot_index}
-                draggable
-                onDragStart={(e) => e.dataTransfer.setData('text/plain', String(slot.slot_index))}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => {
-                  const from = Number(e.dataTransfer.getData('text/plain'));
-                  handleSlotDrag(from, slot.slot_index);
-                }}
-                className="cursor-move rounded-xl border border-slate-200 bg-white text-sm shadow-sm"
-              >
-                <button
-                  type="button"
-                  className="flex w-full items-center justify-between px-4 py-3"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    const body = (e.currentTarget.nextSibling as HTMLDivElement | null);
-                    if (!body) return;
-                    const isHidden = body.classList.contains('hidden');
-                    document
-                      .querySelectorAll<HTMLDivElement>('[data-slot-body]')
-                      .forEach((el) => el !== body && el.classList.add('hidden'));
-                    if (isHidden) body.classList.remove('hidden');
-                    else body.classList.add('hidden');
-                  }}
-                >
-                  <span className="flex items-center gap-2">
-                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-brand-soft/40 text-xs font-semibold text-brand">
-                      {slot.slot_index + 1}
-                    </span>
-                    <span className="text-sm font-medium text-slate-800">
-                      {slot.title || `슬롯 ${slot.slot_index + 1}`}
-                    </span>
-                  </span>
-                  <span className="text-xs text-slate-400">드래그해서 순서 변경</span>
-                </button>
-                <div className="border-t border-slate-100 px-4 py-3 space-y-3" data-slot-body>
-                  <div>
-                    <label className={labelClass}>제목</label>
-                    <input
-                      type="text"
-                      className={inputClass}
-                      value={slot.title}
-                      onChange={(e) => handleSlotChange(slot.slot_index, { title: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>설명</label>
-                    <textarea
-                      className={`${inputClass} min-h-[64px]`}
-                      value={slot.description}
-                      onChange={(e) =>
-                        handleSlotChange(slot.slot_index, { description: e.target.value })
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>연결할 상품 (쇼핑에 노출할 상품)</label>
-                    <select
-                      className={inputClass}
-                      value={slot.product_id ?? ''}
-                      onChange={(e) =>
-                        handleSlotChange(slot.slot_index, { product_id: e.target.value || null })
-                      }
-                    >
-                      <option value="">— 선택 안 함 —</option>
-                      {products.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className={labelClass}>링크 (상품 없을 때)</label>
-                    <input
-                      type="text"
-                      className={inputClass}
-                      value={slot.link_url}
-                      onChange={(e) => handleSlotChange(slot.slot_index, { link_url: e.target.value })}
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
     </main>
   );
 };

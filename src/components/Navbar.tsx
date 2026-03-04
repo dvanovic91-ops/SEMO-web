@@ -27,6 +27,7 @@ export const Navbar: React.FC = () => {
   const [telegramLinked, setTelegramLinked] = useState(false);
   const prevTelegramLinkedRef = useRef<boolean | null>(null);
   const [notificationOpen, setNotificationOpen] = useState(false);
+  const notificationRef = useRef<HTMLDivElement>(null);
 
   const notifications: { id: string; type: 'info' | 'order'; title: string; body: string; date: string }[] = [
     {
@@ -88,6 +89,21 @@ export const Navbar: React.FC = () => {
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, [fetchTelegramLinked]);
 
+  // 알림 열려 있을 때 바깥 영역 클릭하면 닫기 (동일 클릭으로 열린 직후에는 닫히지 않도록 다음 틱에 리스너 등록)
+  useEffect(() => {
+    if (!notificationOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (notificationRef.current && !notificationRef.current.contains(e.target as Node)) {
+        setNotificationOpen(false);
+      }
+    };
+    const t = setTimeout(() => document.addEventListener('click', onDocClick), 0);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener('click', onDocClick);
+    };
+  }, [notificationOpen]);
+
   return (
     <>
       {/* 상단: 데스크톱은 풀 메뉴, 모바일은 로고만 */}
@@ -113,7 +129,7 @@ export const Navbar: React.FC = () => {
             ))}
           </nav>
 
-          <div className="relative flex items-center gap-2">
+          <div ref={notificationRef} className="relative flex items-center gap-2">
             <Link
               to="/cart"
               aria-label="Корзина"
@@ -168,9 +184,19 @@ export const Navbar: React.FC = () => {
             </Link>
 
             {notificationOpen && (
-              <div className="absolute right-0 top-11 z-30 w-80 max-w-[80vw] rounded-xl border border-slate-200 bg-white shadow-xl">
-                <div className="border-b border-slate-100 px-4 py-2">
+              <div className="group absolute right-0 top-11 z-30 w-80 max-w-[80vw] rounded-xl border border-slate-200 bg-white shadow-xl">
+                <div className="relative flex items-center justify-between border-b border-slate-100 px-4 py-2">
                   <p className="text-xs font-semibold text-slate-800">Уведомления</p>
+                  <button
+                    type="button"
+                    onClick={() => setNotificationOpen(false)}
+                    aria-label="Закрыть"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition-opacity hover:bg-slate-100 hover:text-slate-700 md:opacity-0 md:group-hover:opacity-100"
+                  >
+                    <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
                 </div>
                 <div className="max-h-80 overflow-auto px-3 py-2">
                   {notifications.length === 0 && (

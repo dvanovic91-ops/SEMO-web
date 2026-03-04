@@ -84,15 +84,25 @@ export const ProductDetail: React.FC = () => {
   const heroTouchStartX = useRef(0);
 
   const BUCKET_REVIEW_PHOTOS = 'review-photos';
+  const prevIdRef = useRef<string>('');
 
   useEffect(() => {
-    if (!id) return;
+    const currentId = id ?? '';
+    if (!currentId) {
+      setLoading(false);
+      setProduct(null);
+      setComponents([]);
+      setReviews([]);
+      return;
+    }
+    if (prevIdRef.current === currentId) return;
+    prevIdRef.current = currentId;
 
-    setLoading(true);
     let cancelled = false;
+    setLoading(true);
 
-    if (!isUuid(id) && FALLBACK_PRODUCTS[id]) {
-      setProduct(FALLBACK_PRODUCTS[id]);
+    if (!isUuid(currentId) && FALLBACK_PRODUCTS[currentId]) {
+      setProduct(FALLBACK_PRODUCTS[currentId]);
       setComponents([]);
       setReviews([]);
       setLoading(false);
@@ -100,64 +110,99 @@ export const ProductDetail: React.FC = () => {
     }
 
     if (!supabase) {
+      setProduct(null);
       setLoading(false);
       return;
     }
 
     const load = async () => {
-      const currentId = id;
-      const { data: prodData, error: prodErr } = await supabase
-        .from('products')
-        .select('id, name, description, detail_description, image_url, image_urls, rrp_price, prp_price, stock')
-        .eq('id', currentId)
-        .single();
+      try {
+        const { data: prodData, error: prodErr } = await supabase
+          .from('products')
+          .select('id, name, description, detail_description, image_url, image_urls, rrp_price, prp_price, stock')
+          .eq('id', currentId)
+          .single();
 
-      if (cancelled || currentId !== id) return;
-      if (prodErr || !prodData) {
-        const errMsg = prodErr?.message ?? (prodData ? '' : 'Товар не найден');
-        if (errMsg) window.alert(`Ошибка загрузки товара: ${errMsg}`);
-        setLoading(false);
-        return;
+        if (cancelled || currentId !== (id ?? '')) return;
+        if (prodErr || !prodData) {
+          const errMsg = prodErr?.message ?? 'Товар не найден';
+          try { window.alert(`Ошибка загрузки товара: ${errMsg}`); } catch (_) {}
+          setProduct(null);
+          setComponents([]);
+          setReviews([]);
+          setLoading(false);
+          return;
+        }
+        setProduct(prodData as Product);
+
+        try {
+          await supabase.from('product_views').insert({ product_id: currentId });
+        } catch (_) { /* 조회수 실패해도 상세는 표시 */ }
+
+        let compList: Component[] = [];
+        try {
+          const { data: compData, error: compErr } = await supabase
+            .from('product_components')
+            .select('id, sort_order, name, image_url, image_urls, description')
+            .eq('product_id', currentId)
+            .order('sort_order');
+          if (!compErr && compData && Array.isArray(compData)) {
+            compList = compData as Component[];
+          }
+        } catch (e) {
+          console.warn('product_components 로드 실패:', e);
+        }
+        if (cancelled || currentId !== (id ?? '')) return;
+        setComponents(compList ?? []);
+
+        let reviewsList: Review[] = [];
+        try {
+          const { data: reviewData } = await supabase
+            .from('product_reviews')
+            .select('id, user_id, rating, body, created_at, profiles(name, email)')
+            .eq('product_id', currentId)
+            .order('created_at', { ascending: false });
+          reviewsList = (reviewData as Review[]) ?? [];
+        } catch (_) {
+          reviewsList = [];
+        }
+        const reviewIds = reviewsList.map((r) => r.id);
+        let photosMap: Record<string, { image_url: string }[]> = {};
+        if (reviewIds.length > 0) {
+          try {
+            const { data: photoData } = await supabase
+              .from('review_photos')
+              .select('review_id, image_url')
+              .in('review_id', reviewIds);
+            (photoData ?? []).forEach((ph: { review_id: string; image_url: string }) => {
+              if (!photosMap[ph.review_id]) photosMap[ph.review_id] = [];
+              photosMap[ph.review_id].push({ image_url: ph.image_url });
+            });
+          } catch (_) {}
+        }
+        if (cancelled || currentId !== (id ?? '')) return;
+        setReviews(
+          reviewsList.map((r) => ({ ...r, review_photos: photosMap[r.id] ?? [] })),
+        );
+      } catch (e) {
+        if (!cancelled && currentId === (id ?? '')) {
+          try { window.alert(`Ошибка: ${e instanceof Error ? e.message : String(e)}`); } catch (_) {}
+          setProduct(null);
+          setComponents([]);
+          setReviews([]);
+        }
+      } finally {
+        if (!cancelled && currentId === (id ?? '')) {
+          setLoading(false);
+        }
       }
-      setProduct(prodData as Product);
-
-      await supabase.from('product_views').insert({ product_id: currentId });
-
-      const { data: compData } = await supabase
-        .from('product_components')
-        .select('id, sort_order, name, image_url, image_urls, description')
-        .eq('product_id', currentId)
-        .order('sort_order');
-      if (cancelled || currentId !== id) return;
-      setComponents((compData as Component[]) ?? []);
-
-      const { data: reviewData } = await supabase
-        .from('product_reviews')
-        .select('id, user_id, rating, body, created_at, profiles(name, email)')
-        .eq('product_id', currentId)
-        .order('created_at', { ascending: false });
-      const reviewsList = (reviewData as Review[]) ?? [];
-      const reviewIds = reviewsList.map((r) => r.id);
-      let photosMap: Record<string, { image_url: string }[]> = {};
-      if (reviewIds.length > 0) {
-        const { data: photoData } = await supabase
-          .from('review_photos')
-          .select('review_id, image_url')
-          .in('review_id', reviewIds);
-        (photoData ?? []).forEach((ph: { review_id: string; image_url: string }) => {
-          if (!photosMap[ph.review_id]) photosMap[ph.review_id] = [];
-          photosMap[ph.review_id].push({ image_url: ph.image_url });
-        });
-      }
-      if (cancelled || currentId !== id) return;
-      setReviews(
-        reviewsList.map((r) => ({ ...r, review_photos: photosMap[r.id] ?? [] })),
-      );
-      setLoading(false);
     };
 
     void load();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (currentId === (id ?? '')) prevIdRef.current = '';
+    };
   }, [id]);
 
   const handleSubmitReview = async (e: React.FormEvent) => {
@@ -256,15 +301,16 @@ export const ProductDetail: React.FC = () => {
     );
   }
 
-  const price = product.prp_price ?? product.rrp_price;
-  const mainImages =
-    (product.image_urls && Array.isArray(product.image_urls) && product.image_urls.length
-      ? product.image_urls
-      : product.image_url
-      ? [product.image_url]
-      : []) ?? [];
-  const hasDiscount = product.prp_price != null && product.rrp_price != null;
+  const price = product?.prp_price ?? product?.rrp_price ?? null;
+  const mainImages: string[] = (() => {
+    const urls = product?.image_urls;
+    if (urls && Array.isArray(urls) && urls.length > 0) return urls;
+    const single = product?.image_url;
+    return single ? [single] : [];
+  })();
+  const hasDiscount = (product?.prp_price != null) && (product?.rrp_price != null);
   const hasHeroMultiple = mainImages.length > 1;
+  const safeHeroIndex = mainImages.length > 0 ? Math.min(Math.max(0, heroIndex), mainImages.length - 1) : 0;
 
   useEffect(() => {
     return () => {
@@ -275,7 +321,7 @@ export const ProductDetail: React.FC = () => {
   }, []);
 
   const startHeroHover = () => {
-    if (!hasHeroMultiple || heroTimerRef.current != null) return;
+    if (!hasHeroMultiple || mainImages.length === 0 || heroTimerRef.current != null) return;
     heroTimerRef.current = window.setInterval(() => {
       setHeroIndex((prev) => (prev + 1) % mainImages.length);
     }, 1200);
@@ -316,7 +362,7 @@ export const ProductDetail: React.FC = () => {
       <article className="space-y-8">
         <header>
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
-            {product.name}
+            {product?.name ?? '—'}
           </h1>
 
           {/* 썸네일(최대 3장) + 그 밑 상세 설명 한 줄 */}
@@ -330,8 +376,8 @@ export const ProductDetail: React.FC = () => {
             >
               {mainImages.length > 0 ? (
                 <img
-                  src={mainImages[heroIndex]}
-                  alt={product.name}
+                  src={mainImages[safeHeroIndex]}
+                  alt={product?.name ?? ''}
                   className="h-full w-full object-contain p-4 sm:p-6"
                 />
               ) : (
@@ -340,7 +386,7 @@ export const ProductDetail: React.FC = () => {
                 </div>
               )}
             </div>
-            {product.description && (
+            {product?.description && (
               <p className="mt-2 line-clamp-1 text-sm text-slate-600">{product.description}</p>
             )}
           </div>
@@ -348,11 +394,11 @@ export const ProductDetail: React.FC = () => {
           {/* 대표 설명 1~2줄 (관리자 description) + 줄긋는가격 밑 정가, 오른쪽 장바구니 */}
           <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0 flex-1 sm:w-full">
-              {product.description && (
+              {product?.description && (
                 <p className="line-clamp-2 text-sm text-slate-700">{product.description}</p>
               )}
               <div className="mt-2 flex w-full flex-col gap-0.5 sm:items-center">
-                {product.rrp_price != null && (
+                {product?.rrp_price != null && (
                   <span className={hasDiscount ? 'text-sm text-slate-500 line-through' : 'text-sm text-slate-500'}>
                     {formatPrice(Number(product.rrp_price))}
                   </span>
@@ -419,7 +465,7 @@ export const ProductDetail: React.FC = () => {
           </div>
         </header>
 
-        {product.detail_description && (
+        {product?.detail_description && (
           <section id="product-description">
             <h2 className="mb-3 text-lg font-semibold text-slate-900">Описание</h2>
             <div className="whitespace-pre-line rounded-xl border border-slate-100 bg-slate-50/50 p-4 text-slate-700">
