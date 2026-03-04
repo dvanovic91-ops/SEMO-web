@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
 import { supabase } from '../lib/supabase';
+import { ShopCardImage } from './ShopCardImage';
 
 /** 슬롯 또는 폴백 상품 타입 */
 type ShopItem = {
@@ -10,6 +11,7 @@ type ShopItem = {
   price: number;
   originalPrice: number | null;
   imageUrl: string | null;
+  imageUrls: string[];
   productId: string | null;
   linkUrl: string | null;
   isFamily?: boolean;
@@ -17,11 +19,11 @@ type ShopItem = {
 
 /** 폴백: DB 슬롯 없을 때 사용 */
 const FALLBACK_ITEMS: ShopItem[] = [
-  { id: 'type-1', name: 'Тип 1', price: 11000, originalPrice: 12000, imageUrl: null, productId: null, linkUrl: null, isFamily: false },
-  { id: 'type-2', name: 'Тип 2', price: 11000, originalPrice: 12000, imageUrl: null, productId: null, linkUrl: null, isFamily: false },
-  { id: 'type-3', name: 'Тип 3', price: 11000, originalPrice: 12000, imageUrl: null, productId: null, linkUrl: null, isFamily: false },
-  { id: 'type-4', name: 'Тип 4', price: 11000, originalPrice: 12000, imageUrl: null, productId: null, linkUrl: null, isFamily: false },
-  { id: 'family', name: 'Family care', price: 13000, originalPrice: 14000, imageUrl: null, productId: null, linkUrl: null, isFamily: true },
+  { id: 'type-1', name: 'Тип 1', price: 11000, originalPrice: 12000, imageUrl: null, imageUrls: [], productId: null, linkUrl: null, isFamily: false },
+  { id: 'type-2', name: 'Тип 2', price: 11000, originalPrice: 12000, imageUrl: null, imageUrls: [], productId: null, linkUrl: null, isFamily: false },
+  { id: 'type-3', name: 'Тип 3', price: 11000, originalPrice: 12000, imageUrl: null, imageUrls: [], productId: null, linkUrl: null, isFamily: false },
+  { id: 'type-4', name: 'Тип 4', price: 11000, originalPrice: 12000, imageUrl: null, imageUrls: [], productId: null, linkUrl: null, isFamily: false },
+  { id: 'family', name: 'Family care', price: 13000, originalPrice: 14000, imageUrl: null, imageUrls: [], productId: null, linkUrl: null, isFamily: true },
 ];
 
 const VISIBLE = 3;
@@ -48,14 +50,19 @@ export const Shop: React.FC = () => {
       if (!slotData?.length) return;
 
       const productIds = [...new Set((slotData as { product_id: string | null }[]).map((s) => s.product_id).filter(Boolean))] as string[];
-      let productsMap: Record<string, { rrp_price: number | null; prp_price: number | null; image_url: string | null }> = {};
+      let productsMap: Record<string, { rrp_price: number | null; prp_price: number | null; image_url: string | null; image_urls: string[] }> = {};
       if (productIds.length > 0) {
         const { data: prodData } = await supabase
           .from('products')
-          .select('id, rrp_price, prp_price, image_url')
+          .select('id, rrp_price, prp_price, image_url, image_urls')
           .in('id', productIds);
-        (prodData ?? []).forEach((p: { id: string; rrp_price: number | null; prp_price: number | null; image_url: string | null }) => {
-          productsMap[p.id] = { rrp_price: p.rrp_price, prp_price: p.prp_price, image_url: p.image_url ?? null };
+        (prodData ?? []).forEach((p: { id: string; rrp_price: number | null; prp_price: number | null; image_url: string | null; image_urls?: string[] | null }) => {
+          productsMap[p.id] = {
+            rrp_price: p.rrp_price,
+            prp_price: p.prp_price,
+            image_url: p.image_url ?? null,
+            image_urls: Array.isArray(p.image_urls) ? p.image_urls : [],
+          };
         });
       }
 
@@ -67,12 +74,19 @@ export const Shop: React.FC = () => {
         const price = prp ?? rrp ?? 0;
         const originalPrice = prp != null && rrp != null ? rrp : null;
         const imageUrl = (productId && product?.image_url) ? product.image_url : (s.image_url ?? null);
+        const imageUrls =
+          (productId && product?.image_urls && product.image_urls.length
+            ? product.image_urls
+            : imageUrl
+            ? [imageUrl]
+            : []) ?? [];
         return {
           id: productId ?? `slot-${s.slot_index}`,
           name: s.title ?? `Слот ${s.slot_index + 1}`,
           price,
           originalPrice,
           imageUrl,
+          imageUrls,
           productId,
           linkUrl: s.link_url ?? null,
           isFamily: s.slot_index >= 4,
@@ -111,16 +125,7 @@ export const Shop: React.FC = () => {
       <p className={item.isFamily ? 'text-sm font-medium tracking-wide text-sky-700' : 'text-sm font-medium tracking-wide text-brand'}>
         {item.name}
       </p>
-      <div
-        className="mt-4 flex aspect-square w-full items-center justify-center overflow-hidden rounded-lg border border-slate-200/80 bg-white/80"
-        style={{ minHeight: '180px' }}
-      >
-        {item.imageUrl ? (
-          <img src={item.imageUrl} alt={item.name} className="h-full w-full object-cover" />
-        ) : (
-          <span className={item.isFamily ? 'text-base font-medium text-sky-600' : 'text-base font-medium text-brand'}>{item.name}</span>
-        )}
-      </div>
+      <ShopCardImage images={item.imageUrls.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : []} name={item.name} />
       <div className="mt-4 flex items-baseline gap-2">
         {item.originalPrice != null && (
           <span className="text-sm text-slate-500 line-through">{formatPrice(item.originalPrice)}</span>

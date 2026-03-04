@@ -55,6 +55,7 @@ type Product = {
   category: string | null;
   description: string | null;
   image_url: string | null;
+  image_urls?: string[] | null;
   rrp_price: number | null;
   prp_price: number | null;
   is_active: boolean | null;
@@ -84,6 +85,13 @@ type ProductStats = {
   reviewCount: number;
   avgRating: number | null;
   latestReviewAt: string | null;
+};
+
+type ProductReviewSummary = {
+  id: string;
+  rating: number;
+  body: string | null;
+  created_at: string;
 };
 
 type Slot = {
@@ -120,6 +128,8 @@ export const Admin: React.FC = () => {
   const [dashboardKpi, setDashboardKpi] = useState<DashboardKpi | null>(null);
   const [components, setComponents] = useState<ProductComponent[]>([]);
   const [productStats, setProductStats] = useState<ProductStats | null>(null);
+  const [productReviews, setProductReviews] = useState<ProductReviewSummary[]>([]);
+  const [showProductReviews, setShowProductReviews] = useState(false);
 
   /** 매출 그래프 기간: 일별 / 주별 / 월별 / 특정기간 */
   const [dashboardPeriod, setDashboardPeriod] = useState<DashboardPeriodType>('day');
@@ -147,6 +157,9 @@ export const Admin: React.FC = () => {
   const [saveSuccessAt, setSaveSuccessAt] = useState<number | null>(null);
   /** 상품 미리보기 펼침 여부 */
   const [productPreviewOpen, setProductPreviewOpen] = useState(false);
+  /** 상품 미리보기 자동 스크롤 타이머 */
+  const previewScrollTimerRef = useRef<number | null>(null);
+  const productPreviewRef = useRef<HTMLDivElement | null>(null);
 
   /** 저장 성공 토스트 3초 후 자동 숨김 */
   useEffect(() => {
@@ -154,6 +167,14 @@ export const Admin: React.FC = () => {
     const t = setTimeout(() => setSaveSuccessAt(null), 3000);
     return () => clearTimeout(t);
   }, [saveSuccessAt]);
+
+  useEffect(() => {
+    return () => {
+      if (previewScrollTimerRef.current != null) {
+        window.clearInterval(previewScrollTimerRef.current);
+      }
+    };
+  }, []);
 
   /** 목업 사용 시 기간별 매출 시계열 (그래프용) */
   const revenueChartData = useMemo(() => {
@@ -189,7 +210,7 @@ export const Admin: React.FC = () => {
         setError(null);
         const { data: prodData } = await supabase
           .from('products')
-          .select('id, name, category, description, image_url, rrp_price, prp_price, is_active, stock, detail_description')
+          .select('id, name, category, description, image_url, image_urls, rrp_price, prp_price, is_active, stock, detail_description')
           .order('name');
         if (prodData) setProducts(prodData as Product[]);
 
@@ -296,6 +317,8 @@ export const Admin: React.FC = () => {
   useEffect(() => {
     if (!supabase || !isAdmin || tab !== 'products' || !selectedProduct?.id) {
       setProductStats(null);
+      setProductReviews([]);
+      setShowProductReviews(false);
       return;
     }
     const productId = selectedProduct.id;
@@ -303,10 +326,14 @@ export const Admin: React.FC = () => {
       try {
         const [{ data: viewData }, { data: reviewData }] = await Promise.all([
           supabase.from('product_views').select('id').eq('product_id', productId),
-          supabase.from('product_reviews').select('rating, created_at').eq('product_id', productId),
+          supabase
+            .from('product_reviews')
+            .select('id, rating, body, created_at')
+            .eq('product_id', productId)
+            .order('created_at', { ascending: false }),
         ]);
         const viewCount = viewData?.length ?? 0;
-        const reviewRows = (reviewData as { rating: number | null; created_at: string }[] | null) ?? [];
+        const reviewRows = (reviewData as ProductReviewSummary[] | null) ?? [];
         const reviewCount = reviewRows.length;
         const avgRating =
           reviewCount > 0
@@ -325,9 +352,12 @@ export const Admin: React.FC = () => {
           avgRating,
           latestReviewAt,
         });
+        setProductReviews(reviewRows);
       } catch (err) {
         console.error('Failed to load product stats', err);
         setProductStats(null);
+        setProductReviews([]);
+        setShowProductReviews(false);
       }
     };
     void loadStats();
@@ -355,11 +385,17 @@ export const Admin: React.FC = () => {
     setSavingProduct(true);
     setError(null);
     try {
+      const mainImages = Array.isArray(selectedProduct.image_urls) && selectedProduct.image_urls.length
+        ? selectedProduct.image_urls
+        : selectedProduct.image_url
+        ? [selectedProduct.image_url]
+        : [];
       const payload = {
         name: selectedProduct.name,
         category: selectedProduct.category,
         description: selectedProduct.description,
-        image_url: selectedProduct.image_url,
+        image_url: mainImages[0] ?? null,
+        image_urls: mainImages,
         rrp_price: selectedProduct.rrp_price,
         prp_price: selectedProduct.prp_price,
         is_active: selectedProduct.is_active ?? true,
@@ -394,7 +430,7 @@ export const Admin: React.FC = () => {
       }
       const { data: prodData } = await supabase
         .from('products')
-        .select('id, name, category, description, image_url, rrp_price, prp_price, is_active, stock, detail_description')
+        .select('id, name, category, description, image_url, image_urls, rrp_price, prp_price, is_active, stock, detail_description')
         .order('name');
       if (prodData) setProducts(prodData as Product[]);
       const { data: compData } = await supabase
@@ -486,44 +522,105 @@ export const Admin: React.FC = () => {
     setComponents((prev) => prev.filter((_, i) => i !== index));
   };
 
-  /** 대표 이미지 파일 선택 시 업로드 후 URL 반영. 실패 시 에러 메시지 표시 */
+  /** 대표 이미지 파일 선택 시 업로드 후 URL 반영 (최대 3장). 실패 시 에러 메시지 표시 */
   const onMainImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const files = e.target.files;
     e.target.value = '';
-    if (!file || !selectedProduct) return;
+    if (!files || files.length === 0 || !selectedProduct) return;
     setError(null);
     setUploadingMainImage(true);
     try {
-      const url = await uploadProductImage(file);
-      if (url) {
-        handleProductField('image_url', url);
-      } else {
-        setError('이미지 업로드에 실패했습니다. Supabase Storage에 "product-images" 버킷(Public)이 있는지, 정책(INSERT 허용)을 확인하세요.');
+      const current =
+        (selectedProduct.image_urls && Array.isArray(selectedProduct.image_urls) && selectedProduct.image_urls.length
+          ? selectedProduct.image_urls
+          : selectedProduct.image_url
+          ? [selectedProduct.image_url]
+          : []) ?? [];
+      const maxImages = 3;
+      const nextUrls = [...current];
+      for (let i = 0; i < files.length && nextUrls.length < maxImages; i++) {
+        const file = files[i];
+        const url = await uploadProductImage(file);
+        if (url) {
+          nextUrls.push(url);
+        } else {
+          setError(
+            '이미지 업로드에 실패했습니다. Supabase Storage에 "product-images" 버킷(Public)이 있는지, 정책(INSERT 허용)을 확인하세요.',
+          );
+          break;
+        }
       }
+      setSelectedProduct((prev) =>
+        prev
+          ? ({
+              ...prev,
+              image_url: nextUrls[0] ?? null,
+              image_urls: nextUrls,
+            } as Product)
+          : prev,
+      );
     } finally {
       setUploadingMainImage(false);
     }
   };
 
-  /** 구성품 이미지 파일 선택 시 업로드 후 해당 항목의 해당 칸에 URL 반영 */
+  /** 구성품 이미지 파일 선택 시 업로드 후 해당 항목의 여러 칸에 URL 반영 (최대 6장) */
   const onComponentImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const files = e.target.files;
     e.target.value = '';
     const compIdx = componentUploadIndexRef.current;
-    const imgIdx = componentUploadImgIdxRef.current;
-    if (!file || compIdx < 0 || compIdx >= components.length) return;
+    let imgIdx = componentUploadImgIdxRef.current;
+    if (!files || files.length === 0 || compIdx < 0 || compIdx >= components.length) return;
     setError(null);
     setUploadingComponentIndex(compIdx);
     try {
-      const url = await uploadProductImage(file);
-      if (url) {
-        handleComponentImageUrlsChange(compIdx, imgIdx, url);
-      } else {
-        setError('이미지 업로드에 실패했습니다. Supabase Storage에 "product-images" 버킷(Public)이 있는지, 정책(INSERT 허용)을 확인하세요.');
+      const maxImages = 6;
+      const existingUrls =
+        components[compIdx].image_urls ?? (components[compIdx].image_url ? [components[compIdx].image_url] : []);
+      const already = existingUrls.length;
+      for (let i = 0; i < files.length && already + i < maxImages; i++) {
+        const file = files[i];
+        const url = await uploadProductImage(file);
+        if (url) {
+          handleComponentImageUrlsChange(compIdx, imgIdx, url);
+          imgIdx += 1;
+        } else {
+          setError(
+            '이미지 업로드에 실패했습니다. Supabase Storage에 "product-images" 버킷(Public)이 있는지, 정책(INSERT 허용)을 확인하세요.',
+          );
+          break;
+        }
       }
     } finally {
       setUploadingComponentIndex(-1);
     }
+  };
+
+  const startPreviewScroll = () => {
+    const el = productPreviewRef.current;
+    if (!el || previewScrollTimerRef.current != null) return;
+    el.scrollTop = 0;
+    previewScrollTimerRef.current = window.setInterval(() => {
+      if (!el) return;
+      const maxScroll = el.scrollHeight - el.clientHeight;
+      if (el.scrollTop >= maxScroll) {
+        if (previewScrollTimerRef.current != null) {
+          window.clearInterval(previewScrollTimerRef.current);
+          previewScrollTimerRef.current = null;
+        }
+        return;
+      }
+      el.scrollTop += 2;
+    }, 16);
+  };
+
+  const stopPreviewScroll = () => {
+    const el = productPreviewRef.current;
+    if (previewScrollTimerRef.current != null) {
+      window.clearInterval(previewScrollTimerRef.current);
+      previewScrollTimerRef.current = null;
+    }
+    if (el) el.scrollTop = 0;
   };
 
   const handleSlotChange = (index: number, patch: Partial<Slot>) => {
@@ -608,21 +705,21 @@ export const Admin: React.FC = () => {
           </button>
           <button
             type="button"
-            onClick={() => setTab('products')}
-            className={`rounded-full px-3 py-1.5 ${
-              tab === 'products' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
-            }`}
-          >
-            상품
-          </button>
-          <button
-            type="button"
             onClick={() => setTab('layout')}
             className={`rounded-full px-3 py-1.5 ${
               tab === 'layout' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
             }`}
           >
             메인 편집
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('products')}
+            className={`rounded-full px-3 py-1.5 ${
+              tab === 'products' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
+            }`}
+          >
+            상품관리
           </button>
         </nav>
       </header>
@@ -935,16 +1032,59 @@ export const Admin: React.FC = () => {
                     <p className="mt-1 text-sm font-semibold text-slate-900">
                       재고 {formatNumber(Number(selectedProduct.stock ?? 0))}개
                     </p>
-                    <p className="mt-0.5 text-[11px] text-slate-500">
+                    <button
+                      type="button"
+                      className="mt-0.5 text-left text-[11px] text-slate-500 underline-offset-2 hover:underline"
+                      onClick={() => {
+                        if (!selectedProduct?.id) return;
+                        setShowProductReviews(true);
+                      }}
+                    >
                       리뷰 {productStats ? productStats.reviewCount : 0}개
                       {productStats?.avgRating != null && (
                         <span className="ml-1 align-middle text-[11px] text-amber-500">
                           · ★ {productStats.avgRating.toFixed(1)}
                         </span>
                       )}
-                    </p>
+                    </button>
                   </div>
                 </div>
+
+                {showProductReviews && (
+                  <div className="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-700">
+                    <div className="mb-2 flex items-center justify-between">
+                      <p className="font-semibold">이 상품 리뷰 목록</p>
+                      {selectedProduct?.id && (
+                        <a
+                          href={`/product/${selectedProduct.id}#product-reviews`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs font-medium text-brand hover:underline"
+                        >
+                          상세페이지에서 보기
+                        </a>
+                      )}
+                    </div>
+                    {productReviews.length === 0 && <p className="text-slate-400">아직 리뷰가 없습니다.</p>}
+                    {productReviews.length > 0 && (
+                      <ul className="space-y-2">
+                        {productReviews.map((r) => (
+                          <li key={r.id} className="rounded-md border border-slate-100 bg-slate-50 px-2 py-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-amber-500 text-[11px]">
+                                {'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}
+                              </span>
+                              <span className="text-[10px] text-slate-400">
+                                {new Date(r.created_at).toLocaleDateString('ru-RU')}
+                              </span>
+                            </div>
+                            {r.body && <p className="mt-1 line-clamp-2 text-[11px] text-slate-700">{r.body}</p>}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
 
                 <p className="rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs text-amber-800">
                   아래 ① 썸네일·대표 이미지, ② 상세 설명, ③ 상세페이지 구성품 이미지를 입력하면 상품 상세 페이지에 그대로 반영됩니다. 이미지는 URL 입력 또는 「파일 올리기」로 올릴 수 있습니다.
@@ -1006,17 +1146,18 @@ export const Admin: React.FC = () => {
                   />
                 </div>
 
-                {/* ① 썸네일·상세 페이지 대표 이미지 (1장) */}
+                {/* ① 썸네일·상세 페이지 대표 이미지 (최대 3장) */}
                 <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3">
                   <label className={`${labelClass} font-semibold text-slate-800`}>
-                    ① 썸네일·상세 페이지 대표 이미지 (1장)
+                    ① 썸네일·상세 페이지 대표 이미지 (최대 3장)
                   </label>
                   <p className="mb-2 text-xs text-slate-500">
-                    쇼핑/상세 페이지에 쓰이는 대표 사진입니다. URL을 입력하거나 「파일 올리기」로 업로드하세요.
+                    쇼핑/상세 페이지에 쓰이는 대표 사진입니다. 최대 3장까지 업로드할 수 있고, 아래에서 순서를 바꿀 수 있습니다.
                   </p>
                   <input
                     type="file"
                     accept="image/*"
+                    multiple
                     ref={mainImageInputRef}
                     className="hidden"
                     onChange={onMainImageFileChange}
@@ -1028,7 +1169,7 @@ export const Admin: React.FC = () => {
                         className={inputClass}
                         value={selectedProduct.image_url ?? ''}
                         onChange={(e) => handleProductField('image_url', e.target.value || null)}
-                        placeholder="https://... 또는 아래 버튼으로 업로드"
+                        placeholder="https://... 또는 아래 버튼으로 업로드 (첫 번째 이미지)"
                       />
                       <button
                         type="button"
@@ -1039,17 +1180,89 @@ export const Admin: React.FC = () => {
                         {uploadingMainImage ? '업로드 중…' : '파일 올리기'}
                       </button>
                     </div>
-                    {selectedProduct.image_url && (
-                      <div className="shrink-0">
-                        <p className="mb-1 text-xs text-slate-500">현재 이미지</p>
-                        <img
-                          src={selectedProduct.image_url}
-                          alt="대표"
-                          className="h-24 w-24 rounded-lg border border-slate-200 object-cover"
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                        />
+                    <div className="shrink-0 space-y-1">
+                      <p className="text-xs text-slate-500">이미지 순서 (1 → 3)</p>
+                      <div className="flex gap-2">
+                        {(selectedProduct.image_urls && selectedProduct.image_urls.length
+                          ? selectedProduct.image_urls
+                          : selectedProduct.image_url
+                          ? [selectedProduct.image_url]
+                          : []
+                        ).map((url, idx, arr) => (
+                          <div key={idx} className="flex flex-col items-center gap-1">
+                            <div className="relative h-16 w-16 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                              <img
+                                src={url}
+                                alt={`썸네일 ${idx + 1}`}
+                                className="h-full w-full object-cover"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).style.display = 'none';
+                                }}
+                              />
+                              <span className="absolute left-1 top-1 rounded-full bg-slate-900/70 px-1.5 text-[10px] font-semibold text-white">
+                                {idx + 1}
+                              </span>
+                            </div>
+                            <div className="flex gap-1">
+                              <button
+                                type="button"
+                                disabled={idx === 0}
+                                onClick={() =>
+                                  setSelectedProduct((prev) => {
+                                    if (!prev) return prev;
+                                    const list =
+                                      (prev.image_urls && prev.image_urls.length
+                                        ? [...prev.image_urls]
+                                        : prev.image_url
+                                        ? [prev.image_url]
+                                        : []) ?? [];
+                                    if (idx === 0 || idx >= list.length) return prev;
+                                    const tmp = list[idx - 1];
+                                    list[idx - 1] = list[idx];
+                                    list[idx] = tmp;
+                                    return {
+                                      ...prev,
+                                      image_url: list[0] ?? null,
+                                      image_urls: list,
+                                    } as Product;
+                                  })
+                                }
+                                className="rounded-full border border-slate-200 px-1 text-[10px] text-slate-600 disabled:opacity-40"
+                              >
+                                ↑
+                              </button>
+                              <button
+                                type="button"
+                                disabled={idx === arr.length - 1}
+                                onClick={() =>
+                                  setSelectedProduct((prev) => {
+                                    if (!prev) return prev;
+                                    const list =
+                                      (prev.image_urls && prev.image_urls.length
+                                        ? [...prev.image_urls]
+                                        : prev.image_url
+                                        ? [prev.image_url]
+                                        : []) ?? [];
+                                    if (idx === list.length - 1 || idx >= list.length) return prev;
+                                    const tmp = list[idx + 1];
+                                    list[idx + 1] = list[idx];
+                                    list[idx] = tmp;
+                                    return {
+                                      ...prev,
+                                      image_url: list[0] ?? null,
+                                      image_urls: list,
+                                    } as Product;
+                                  })
+                                }
+                                className="rounded-full border border-slate-200 px-1 text-[10px] text-slate-600 disabled:opacity-40"
+                              >
+                                ↓
+                              </button>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                    )}
+                    </div>
                   </div>
                 </div>
 
@@ -1089,6 +1302,7 @@ export const Admin: React.FC = () => {
                   <input
                     type="file"
                     accept="image/*"
+                    multiple
                     ref={componentImageInputRef}
                     className="hidden"
                     onChange={onComponentImageFileChange}
@@ -1119,22 +1333,14 @@ export const Admin: React.FC = () => {
                             <span className="text-xs text-slate-500">사진 (여러 장 가능)</span>
                             {urls.length === 0 ? (
                               <div className="flex flex-wrap items-center gap-2">
-                                <input
-                                  type="url"
-                                  className={inputClass}
-                                  placeholder="이미지 URL"
-                                  value=""
-                                  onChange={(e) => handleComponentImageUrlsChange(idx, 0, e.target.value)}
-                                />
                                 <button
                                   type="button"
                                   onClick={() => { componentUploadIndexRef.current = idx; componentUploadImgIdxRef.current = 0; componentImageInputRef.current?.click(); }}
                                   disabled={uploadingComponentIndex === idx}
                                   className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:border-brand disabled:opacity-60"
                                 >
-                                  파일 올리기
+                                  사진 추가 (최대 6장)
                                 </button>
-                                <button type="button" onClick={() => handleComponentImageAdd(idx)} className="text-xs text-brand">+ 이미지 추가</button>
                               </div>
                             ) : (
                               urls.map((url, imgIdx) => (
@@ -1152,7 +1358,7 @@ export const Admin: React.FC = () => {
                                     disabled={uploadingComponentIndex === idx}
                                     className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:border-brand disabled:opacity-60"
                                   >
-                                    파일 올리기
+                                    사진 추가
                                   </button>
                                   {url && (
                                     <img src={url} alt="" className="h-12 w-12 rounded border object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
@@ -1191,7 +1397,12 @@ export const Admin: React.FC = () => {
                     <span className="text-slate-400">{productPreviewOpen ? '▲' : '▼'}</span>
                   </button>
                   {productPreviewOpen && selectedProduct && (
-                    <div className="mt-3 rounded-lg border border-slate-200 bg-white p-4 text-sm">
+                    <div
+                      ref={productPreviewRef}
+                      onMouseEnter={startPreviewScroll}
+                      onMouseLeave={stopPreviewScroll}
+                      className="mt-3 max-h-80 overflow-auto rounded-lg border border-slate-200 bg-white p-4 text-sm"
+                    >
                       <p className="mb-2 text-xs font-semibold uppercase text-slate-400">상품 상세 페이지 예시</p>
                       <h3 className="text-lg font-semibold text-slate-900">{selectedProduct.name || '(상품명)'}</h3>
                       <div className="relative mt-2 aspect-[4/3] w-full max-w-xs overflow-hidden rounded-lg bg-slate-100">
@@ -1238,10 +1449,20 @@ export const Admin: React.FC = () => {
 
       {tab === 'layout' && (
         <section className="mt-4 space-y-4">
-          <p className="text-xs text-slate-500">
-            메인 페이지 슬롯 5개. 드래그해서 순서를 바꿀 수 있습니다. <strong>쇼핑 페이지(뷰티박스 메뉴)에 보이는 항목은 이 슬롯에 연결된 상품입니다.</strong> 상품 탭에서 등록한 상품을 아래에서 선택해 연결하세요.
-          </p>
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-slate-500">
+              메인 페이지 슬롯 5개. 위에서 아래로 1→5 순서입니다. <strong>쇼핑 페이지(뷰티박스 메뉴)에 보이는 항목은 이 슬롯에 연결된 상품입니다.</strong> 상품 탭에서 등록한 상품을 아래에서 선택해 연결하세요.
+            </p>
+            <button
+              type="button"
+              onClick={handleSaveSlots}
+              disabled={savingSlots}
+              className="w-full rounded-full bg-brand py-2.5 text-sm font-semibold text-white hover:bg-brand/90 disabled:opacity-60 sm:w-auto sm:px-6"
+            >
+              {savingSlots ? '저장 중…' : '레이아웃 저장'}
+            </button>
+          </div>
+          <div className="space-y-3">
             {slots.map((slot) => (
               <div
                 key={slot.slot_index}
@@ -1252,12 +1473,34 @@ export const Admin: React.FC = () => {
                   const from = Number(e.dataTransfer.getData('text/plain'));
                   handleSlotDrag(from, slot.slot_index);
                 }}
-                className="cursor-move rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm"
+                className="cursor-move rounded-xl border border-slate-200 bg-white text-sm shadow-sm"
               >
-                <p className="mb-2 text-xs font-semibold uppercase text-slate-400">
-                  슬롯 {slot.slot_index + 1}
-                </p>
-                <div className="space-y-3">
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between px-4 py-3"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    const body = (e.currentTarget.nextSibling as HTMLDivElement | null);
+                    if (!body) return;
+                    const isHidden = body.classList.contains('hidden');
+                    document
+                      .querySelectorAll<HTMLDivElement>('[data-slot-body]')
+                      .forEach((el) => el !== body && el.classList.add('hidden'));
+                    if (isHidden) body.classList.remove('hidden');
+                    else body.classList.add('hidden');
+                  }}
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-brand-soft/40 text-xs font-semibold text-brand">
+                      {slot.slot_index + 1}
+                    </span>
+                    <span className="text-sm font-medium text-slate-800">
+                      {slot.title || `슬롯 ${slot.slot_index + 1}`}
+                    </span>
+                  </span>
+                  <span className="text-xs text-slate-400">드래그해서 순서 변경</span>
+                </button>
+                <div className="border-t border-slate-100 px-4 py-3 space-y-3" data-slot-body>
                   <div>
                     <label className={labelClass}>제목</label>
                     <input
@@ -1307,14 +1550,6 @@ export const Admin: React.FC = () => {
               </div>
             ))}
           </div>
-          <button
-            type="button"
-            onClick={handleSaveSlots}
-            disabled={savingSlots}
-            className="mt-2 w-full rounded-full bg-brand py-2.5 text-sm font-semibold text-white hover:bg-brand/90 disabled:opacity-60 md:w-auto md:px-6"
-          >
-            {savingSlots ? '저장 중…' : '레이아웃 저장'}
-          </button>
         </section>
       )}
     </main>

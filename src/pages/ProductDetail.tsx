@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
@@ -11,6 +11,7 @@ type Product = {
   description: string | null;
   detail_description: string | null;
   image_url: string | null;
+  image_urls?: string[] | null;
   rrp_price: number | null;
   prp_price: number | null;
   stock: number | null;
@@ -37,7 +38,7 @@ type Review = {
   rating: number;
   body: string | null;
   created_at: string;
-  profiles?: { name: string | null } | null;
+  profiles?: { name: string | null; email: string | null } | null;
   review_photos?: { image_url: string }[];
 };
 
@@ -74,10 +75,13 @@ export const ProductDetail: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewBody, setReviewBody] = useState('');
-  const [reviewPhotoUrls, setReviewPhotoUrls] = useState<string[]>([]);
   const [reviewPhotoFiles, setReviewPhotoFiles] = useState<File[]>([]);
   const [submittingReview, setSubmittingReview] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
+
+  const [heroIndex, setHeroIndex] = useState(0);
+  const heroTimerRef = useRef<number | null>(null);
+  const heroTouchStartX = useRef(0);
 
   const BUCKET_REVIEW_PHOTOS = 'review-photos';
 
@@ -104,7 +108,7 @@ export const ProductDetail: React.FC = () => {
       const currentId = id;
       const { data: prodData, error: prodErr } = await supabase
         .from('products')
-        .select('id, name, description, detail_description, image_url, rrp_price, prp_price, stock')
+        .select('id, name, description, detail_description, image_url, image_urls, rrp_price, prp_price, stock')
         .eq('id', currentId)
         .single();
 
@@ -127,7 +131,7 @@ export const ProductDetail: React.FC = () => {
 
       const { data: reviewData } = await supabase
         .from('product_reviews')
-        .select('id, user_id, rating, body, created_at')
+        .select('id, user_id, rating, body, created_at, profiles(name, email)')
         .eq('product_id', currentId)
         .order('created_at', { ascending: false });
       const reviewsList = (reviewData as Review[]) ?? [];
@@ -145,7 +149,7 @@ export const ProductDetail: React.FC = () => {
       }
       if (cancelled || currentId !== id) return;
       setReviews(
-        reviewsList.map((r) => ({ ...r, profiles: null, review_photos: photosMap[r.id] ?? [] })),
+        reviewsList.map((r) => ({ ...r, review_photos: photosMap[r.id] ?? [] })),
       );
       setLoading(false);
     };
@@ -183,7 +187,7 @@ export const ProductDetail: React.FC = () => {
         const { data: urlData } = supabase.storage.from(BUCKET_REVIEW_PHOTOS).getPublicUrl(path);
         uploadedUrls.push(urlData.publicUrl);
       }
-      const allUrls = [...uploadedUrls, ...reviewPhotoUrls.filter(Boolean)];
+      const allUrls = uploadedUrls;
 
       const { data: reviewRow, error: revErr } = await supabase
         .from('product_reviews')
@@ -202,11 +206,10 @@ export const ProductDetail: React.FC = () => {
       }
       setReviewBody('');
       setReviewRating(5);
-      setReviewPhotoUrls([]);
       setReviewPhotoFiles([]);
       const { data: reviewData } = await supabase
         .from('product_reviews')
-        .select('id, user_id, rating, body, created_at')
+        .select('id, user_id, rating, body, created_at, profiles(name, email)')
         .eq('product_id', id)
         .order('created_at', { ascending: false });
       const reviewsList = (reviewData as Review[]) ?? [];
@@ -223,7 +226,7 @@ export const ProductDetail: React.FC = () => {
         });
       }
       setReviews(
-        reviewsList.map((r) => ({ ...r, profiles: null, review_photos: photosMap[r.id] ?? [] })),
+        reviewsList.map((r) => ({ ...r, review_photos: photosMap[r.id] ?? [] })),
       );
     } catch (err) {
       setReviewError('Не удалось отправить отзыв.');
@@ -252,7 +255,55 @@ export const ProductDetail: React.FC = () => {
   }
 
   const price = product.prp_price ?? product.rrp_price;
+  const mainImages =
+    (product.image_urls && Array.isArray(product.image_urls) && product.image_urls.length
+      ? product.image_urls
+      : product.image_url
+      ? [product.image_url]
+      : []) ?? [];
   const hasDiscount = product.prp_price != null && product.rrp_price != null;
+  const hasHeroMultiple = mainImages.length > 1;
+
+  useEffect(() => {
+    return () => {
+      if (heroTimerRef.current != null) {
+        window.clearInterval(heroTimerRef.current);
+      }
+    };
+  }, []);
+
+  const startHeroHover = () => {
+    if (!hasHeroMultiple || heroTimerRef.current != null) return;
+    heroTimerRef.current = window.setInterval(() => {
+      setHeroIndex((prev) => (prev + 1) % mainImages.length);
+    }, 1200);
+  };
+
+  const endHeroHover = () => {
+    if (heroTimerRef.current != null) {
+      window.clearInterval(heroTimerRef.current);
+      heroTimerRef.current = null;
+    }
+    setHeroIndex(0);
+  };
+
+  const onHeroTouchStart = (e: React.TouchEvent) => {
+    if (!hasHeroMultiple) return;
+    heroTouchStartX.current = e.touches[0].clientX;
+  };
+
+  const onHeroTouchEnd = (e: React.TouchEvent) => {
+    if (!hasHeroMultiple) return;
+    const dx = e.changedTouches[0].clientX - heroTouchStartX.current;
+    if (Math.abs(dx) < 30) return;
+    e.stopPropagation();
+    setHeroIndex((prev) => {
+      if (dx < 0) {
+        return (prev + 1) % mainImages.length;
+      }
+      return (prev - 1 + mainImages.length) % mainImages.length;
+    });
+  };
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
@@ -266,12 +317,18 @@ export const ProductDetail: React.FC = () => {
             {product.name}
           </h1>
 
-          {/* 썸네일 + 그 밑 상세 설명 한 줄 */}
+          {/* 썸네일(최대 3장) + 그 밑 상세 설명 한 줄 */}
           <div className="mt-6">
-            <div className="relative aspect-[4/3] w-full max-w-xl overflow-hidden rounded-2xl bg-slate-100 ring-1 ring-slate-200/50">
-              {product.image_url ? (
+            <div
+              className="relative aspect-[4/3] w-full max-w-xl overflow-hidden rounded-2xl bg-slate-100 ring-1 ring-slate-200/50"
+              onMouseEnter={startHeroHover}
+              onMouseLeave={endHeroHover}
+              onTouchStart={onHeroTouchStart}
+              onTouchEnd={onHeroTouchEnd}
+            >
+              {mainImages.length > 0 ? (
                 <img
-                  src={product.image_url}
+                  src={mainImages[heroIndex]}
                   alt={product.name}
                   className="h-full w-full object-contain p-4 sm:p-6"
                 />
@@ -361,7 +418,7 @@ export const ProductDetail: React.FC = () => {
         </header>
 
         {product.detail_description && (
-          <section>
+          <section id="product-description">
             <h2 className="mb-3 text-lg font-semibold text-slate-900">Описание</h2>
             <div className="whitespace-pre-line rounded-xl border border-slate-100 bg-slate-50/50 p-4 text-slate-700">
               {product.detail_description}
@@ -370,7 +427,7 @@ export const ProductDetail: React.FC = () => {
         )}
 
         {components.length > 0 && (
-          <section>
+          <section id="product-components">
             <h2 className="mb-3 text-lg font-semibold text-slate-900">Подробнее о составе</h2>
             <ul className="space-y-3">
               {components.map((comp, idx) => {
@@ -397,7 +454,7 @@ export const ProductDetail: React.FC = () => {
           </section>
         )}
 
-        <section>
+        <section id="product-reviews">
           <h2 className="mb-3 text-lg font-semibold text-slate-900">Отзывы</h2>
 
           <ul className="space-y-4">
@@ -405,7 +462,11 @@ export const ProductDetail: React.FC = () => {
               <li key={r.id} className="rounded-xl border border-slate-100 bg-slate-50/30 p-4">
                 <div className="flex items-center gap-2">
                   <span className="font-medium text-slate-800">
-                    {r.profiles?.name ?? 'Покупатель'}
+                    {r.profiles?.name
+                      ? r.profiles.name
+                      : r.profiles?.email
+                      ? r.profiles.email.split('@')[0]
+                      : 'Покупатель'}
                   </span>
                   <span className="text-amber-500">{'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}</span>
                   <span className="text-xs text-slate-400">
@@ -429,7 +490,14 @@ export const ProductDetail: React.FC = () => {
 
           {isLoggedIn && id && isUuid(id) ? (
             <form onSubmit={handleSubmitReview} className="mt-6 rounded-xl border border-slate-200 bg-white p-4">
-              <h3 className="mb-3 text-sm font-semibold text-slate-800">Оставить отзыв</h3>
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <h3 className="text-sm font-semibold text-slate-800">Оставить отзыв</h3>
+                <p className="max-w-xs text-right text-[11px] font-medium text-amber-600">
+                  Оставьте отзыв — мы начислим 300 бонусных баллов для следующей покупки.
+                  <br />
+                  Особенно полезные отзывы, которые помогают другим, получают 500 баллов.
+                </p>
+              </div>
               <div className="mb-3">
                 <label className="mb-1 block text-xs font-medium text-slate-600">Оценка</label>
                 <select
@@ -482,14 +550,6 @@ export const ProductDetail: React.FC = () => {
                     ))}
                   </div>
                 )}
-                <p className="mt-1 text-[11px] text-slate-500">Или укажите URL через запятую:</p>
-                <input
-                  type="text"
-                  value={reviewPhotoUrls.join(', ')}
-                  onChange={(e) => setReviewPhotoUrls(e.target.value.split(',').map((s) => s.trim()).filter(Boolean))}
-                  className="mt-0.5 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm placeholder:text-slate-400"
-                  placeholder="https://..."
-                />
               </div>
               {reviewError && <p className="mb-2 text-sm text-red-600">{reviewError}</p>}
               <button

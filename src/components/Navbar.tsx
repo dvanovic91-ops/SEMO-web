@@ -7,7 +7,7 @@ import { supabase } from '../lib/supabase';
 const navLinkBase =
   'text-sm tracking-wide transition-colors border-b-2 border-transparent pb-1';
 
-const activeClass = 'text-brand border-brand';
+const activeClass = 'text-brand border-brand font-semibold';
 const inactiveClass = 'text-slate-900 hover:text-brand';
 
 /** 텔레그램 봇 — 지원/поддержка 링크 */
@@ -26,6 +26,7 @@ export const Navbar: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [telegramLinked, setTelegramLinked] = useState(false);
   const prevTelegramLinkedRef = useRef<boolean | null>(null);
+  const [unreadNotifications] = useState<number>(1);
 
   const fetchTelegramLinked = useCallback(() => {
     if (!isLoggedIn || !userId || !supabase) {
@@ -108,6 +109,21 @@ export const Navbar: React.FC = () => {
               {totalCount > 0 && (
                 <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-brand px-1 text-xs font-semibold text-white">
                   {totalCount > 99 ? '99+' : totalCount}
+                </span>
+              )}
+            </Link>
+            <Link
+              to={isLoggedIn ? '/profile#notifications' : '/login'}
+              aria-label="Уведомления"
+              className="relative flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:border-brand hover:text-brand"
+            >
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="M12 3a4 4 0 0 0-4 4v2.09c0 .46-.16.91-.46 1.26L6.3 12.76A2 2 0 0 0 6 14v1h12v-1a2 2 0 0 0-.3-1.24l-1.24-1.41A2 2 0 0 1 16 9.09V7a4 4 0 0 0-4-4z" />
+                <path d="M10 18a2 2 0 0 0 4 0" />
+              </svg>
+              {unreadNotifications > 0 && (
+                <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-brand px-1 text-xs font-semibold text-white">
+                  {unreadNotifications > 99 ? '99+' : unreadNotifications}
                 </span>
               )}
             </Link>
@@ -224,7 +240,7 @@ export const Navbar: React.FC = () => {
                   to={to}
                   onClick={() => setMobileMenuOpen(false)}
                   className={({ isActive }) =>
-                    `rounded-xl px-4 py-3.5 text-base font-medium ${isActive ? 'bg-brand-soft/30 text-brand' : 'text-slate-700'}`
+                    `rounded-xl px-4 py-3.5 text-base ${isActive ? 'bg-brand-soft/30 text-brand font-semibold' : 'text-slate-700 font-medium'}`
                   }
                 >
                   {label}
