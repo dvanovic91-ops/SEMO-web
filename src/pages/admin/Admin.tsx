@@ -317,18 +317,21 @@ export const Admin: React.FC = () => {
       .from('product_components')
       .select('id, product_id, sort_order, name, image_url, image_urls, description')
       .eq('product_id', selectedProduct.id)
-      .then(({ data }) => {
-        const rows = ((data as (Omit<ProductComponent, 'image_urls'> & { image_urls?: string[] | null })[]) ?? []).sort(
-          (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
-        );
-        setComponents(
-          rows.map((r) => ({
-            ...r,
-            image_urls:
-              r.image_urls && Array.isArray(r.image_urls) && r.image_urls.length > 0 ? r.image_urls : r.image_url ? [r.image_url] : [],
-          }))
-        );
-      });
+      .then(
+        ({ data }) => {
+          const rows = ((data as (Omit<ProductComponent, 'image_urls'> & { image_urls?: string[] | null })[]) ?? []).sort(
+            (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
+          );
+          setComponents(
+            rows.map((r) => ({
+              ...r,
+              image_urls:
+                r.image_urls && Array.isArray(r.image_urls) && r.image_urls.length > 0 ? r.image_urls : r.image_url ? [r.image_url] : [],
+            }))
+          );
+        },
+        () => setComponents([])
+      );
   }, [selectedProduct?.id]);
 
   // 선택된 상품의 조회수·리뷰 통계 (상품 탭에서만 로드)
@@ -749,7 +752,7 @@ export const Admin: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-brand-soft/90">
+    <div className="min-h-screen bg-orange-50">
       <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10">
         <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">

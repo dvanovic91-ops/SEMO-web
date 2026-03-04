@@ -7,13 +7,6 @@ const STORAGE_KEY = 'userEmail';
 export const TEST_ADMIN_EMAIL = 'admin@semo-beautybox.com';
 export const ADMIN_DUMMY_USER_ID = '00000000-0000-0000-0000-000000000001';
 
-/** 환경변수로 관리자 이메일 목록 지정 시 profiles 조회 없이 isAdmin 판별 → 400 방지 */
-const ADMIN_EMAILS_RAW = typeof import.meta !== 'undefined' && import.meta.env?.VITE_ADMIN_EMAILS;
-const ADMIN_EMAILS =
-  ADMIN_EMAILS_RAW && typeof ADMIN_EMAILS_RAW === 'string'
-    ? ADMIN_EMAILS_RAW.split(',').map((e) => e.trim().toLowerCase())
-    : null;
-
 interface AuthContextValue {
   userEmail: string | null;
   userId: string | null;
@@ -58,25 +51,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (supabase) {
       let cancelled = false;
       const applySession = async (session: { user: { email?: string | null; id: string } } | null) => {
+        try {
         if (cancelled) return;
         if (session?.user) {
           setUserEmailState(session.user.email ?? null);
           setUserId(session.user.id);
-          const email = (session.user.email ?? '').toLowerCase();
-          if (ADMIN_EMAILS) {
-            if (!cancelled) setIsAdmin(ADMIN_EMAILS.includes(email));
-          } else {
-            try {
-              const { data } = await supabase
-                .from('profiles')
-                .select('is_admin')
-                .eq('id', session.user.id)
-                .single();
-              if (!cancelled) setIsAdmin(!!data?.is_admin);
-            } catch {
-              if (!cancelled) setIsAdmin(false);
-            }
+          try {
+            const { data } = await supabase
+              .from('profiles')
+              .select('is_admin')
+              .eq('id', session.user.id)
+              .single();
+            if (!cancelled) setIsAdmin(!!data?.is_admin);
+          } catch {
+            if (!cancelled) setIsAdmin(false);
           }
+          /* 에러 나도 앱이 멈추지 않도록 initialized는 아래에서 무조건 true로 설정 */
           try {
             const raw = localStorage.getItem('semo_anon_result');
             if (raw) {
@@ -96,7 +86,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUserEmailState(null);
           setUserId(null);
         }
-        if (!cancelled) setInitialized(true);
+        } finally {
+          if (!cancelled) setInitialized(true);
+        }
       };
 
       const timeout = window.setTimeout(() => {
@@ -129,12 +121,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (session?.user) {
           setUserEmailState(session.user.email ?? null);
           setUserId(session.user.id);
-          if (ADMIN_EMAILS) {
-            const email = (session.user.email ?? '').toLowerCase();
-            setIsAdmin(ADMIN_EMAILS.includes(email));
-          } else {
-            void applySession(session);
-          }
+          void applySession(session);
           try {
             const raw = localStorage.getItem('semo_anon_result');
             if (raw) {

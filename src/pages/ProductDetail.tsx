@@ -72,7 +72,9 @@ export const ProductDetail: React.FC = () => {
   const [product, setProduct] = useState<Product | null>(null);
   const [components, setComponents] = useState<Component[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
-  const [loading, setLoading] = useState(true);
+  /** 로드 실패/타임아웃 시 메시지. null이면 로딩 중 또는 성공 — setLoading 제거로 #310 완화 */
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewBody, setReviewBody] = useState('');
   const [reviewPhotoFiles, setReviewPhotoFiles] = useState<File[]>([]);
@@ -84,35 +86,26 @@ export const ProductDetail: React.FC = () => {
   const heroTouchStartX = useRef(0);
 
   const BUCKET_REVIEW_PHOTOS = 'review-photos';
-  /** 마운트 시 한 번만 로드 (App에서 key={id}로 id 변경 시 새로 마운트됨) */
-  const loadingIdRef = useRef<string | null>(null);
-  /** 로딩이 끝나지 않을 때 탈출 (15초 후) */
   const loadingTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     const currentId = String(id ?? '').trim();
     if (!currentId) {
-      loadingIdRef.current = null;
-      setLoading((prev) => (prev ? false : prev));
       setProduct(null);
       setComponents([]);
       setReviews([]);
+      setLoadError(null);
       return;
     }
-    if (loadingIdRef.current === currentId) return;
-    loadingIdRef.current = currentId;
 
     let cancelled = false;
-    setLoading((prev) => (prev === true ? prev : true));
+    setLoadError(null);
 
-    if (loadingTimeoutRef.current != null) window.clearTimeout(loadingTimeoutRef.current);
-    loadingTimeoutRef.current = window.setTimeout(() => {
-      loadingTimeoutRef.current = null;
-      setLoading((prev) => {
-        if (!prev) return prev;
-        return false;
-      });
+    const t = window.setTimeout(() => {
+      if (cancelled) return;
+      setLoadError('timeout');
     }, 15000);
+    loadingTimeoutRef.current = t;
 
     if (!isUuid(currentId) && FALLBACK_PRODUCTS[currentId]) {
       if (loadingTimeoutRef.current != null) {
@@ -122,8 +115,6 @@ export const ProductDetail: React.FC = () => {
       setProduct(FALLBACK_PRODUCTS[currentId]);
       setComponents([]);
       setReviews([]);
-      setLoading((prev) => (prev === false ? prev : false));
-      loadingIdRef.current = null;
       return;
     }
 
@@ -133,14 +124,12 @@ export const ProductDetail: React.FC = () => {
         loadingTimeoutRef.current = null;
       }
       setProduct(null);
-      setLoading((prev) => (prev === false ? prev : false));
-      loadingIdRef.current = null;
+      setLoadError('no-client');
       return;
     }
 
     const load = async () => {
       try {
-        // 기본 스키마만 사용해 400 방지 (detail_description, image_urls, stock 없을 수 있음)
         const { data: prodData, error: prodErr } = await supabase
           .from('products')
           .select('id, name, description, image_url, rrp_price, prp_price')
@@ -154,12 +143,10 @@ export const ProductDetail: React.FC = () => {
             loadingTimeoutRef.current = null;
           }
           const errMsg = prodErr?.message ?? 'Товар не найден';
-          try { window.alert(`Ошибка загрузки товара: ${errMsg}`); } catch (_) {}
+          setLoadError(errMsg);
           setProduct(null);
           setComponents([]);
           setReviews([]);
-          setLoading((prev) => (prev === false ? prev : false));
-          loadingIdRef.current = null;
           return;
         }
         const row = prodData as Product & { detail_description?: string | null; image_urls?: string[] | null; stock?: number | null };
@@ -232,20 +219,15 @@ export const ProductDetail: React.FC = () => {
           loadingTimeoutRef.current = null;
         }
         if (!cancelled && currentId === (id ?? '')) {
-          try { window.alert(`Ошибка: ${e instanceof Error ? e.message : String(e)}`); } catch (_) {}
+          setLoadError(e instanceof Error ? e.message : String(e));
           setProduct(null);
           setComponents([]);
           setReviews([]);
-          setLoading((prev) => (prev === false ? prev : false));
         }
       } finally {
         if (loadingTimeoutRef.current != null) {
           window.clearTimeout(loadingTimeoutRef.current);
           loadingTimeoutRef.current = null;
-        }
-        if (!cancelled && currentId === (id ?? '')) {
-          setLoading((prev) => (prev === false ? prev : false));
-          loadingIdRef.current = null;
         }
       }
     };
@@ -257,9 +239,7 @@ export const ProductDetail: React.FC = () => {
         window.clearTimeout(loadingTimeoutRef.current);
         loadingTimeoutRef.current = null;
       }
-      loadingIdRef.current = null;
     };
-    // id는 상위에서 key로 쓰여 id 변경 시 컴포넌트가 새로 마운트되므로 빈 배열
   }, [id]);
 
   const handleSubmitReview = async (e: React.FormEvent) => {
@@ -344,18 +324,24 @@ export const ProductDetail: React.FC = () => {
     addItem({ id: product.id, name: product.name, price: Number(product.prp_price ?? product.rrp_price ?? 0) });
   };
 
-  if (loading || !product) {
+  /* 제미나이 제안: setLoading 제거, !product && !loadError 일 때만 로딩 UI (단순 조건 하나) */
+  const isLoading = id?.trim() && !product && !loadError;
+  if (!product && (loadError || !id?.trim())) {
     return (
       <main className="mx-auto max-w-3xl px-4 py-12">
-        {!loading && !product && (
-          <p className="text-slate-600">Товар не найден.</p>
-        )}
-        {loading && (
-          <>
-            <p className="text-slate-500">Загрузка…</p>
-            <p className="mt-1 text-xs text-slate-400">Если страница не открывается, вернитесь в каталог.</p>
-          </>
-        )}
+        {loadError && loadError !== 'timeout' && <p className="text-slate-600">Ошибка: {loadError}</p>}
+        {loadError === 'timeout' && <p className="text-slate-600">Загрузка заняла слишком много времени.</p>}
+        {!id?.trim() && !loadError && <p className="text-slate-600">Товар не найден.</p>}
+        <p className="mt-4">
+          <Link to="/shop" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> В каталог</Link>
+        </p>
+      </main>
+    );
+  }
+  if (isLoading) {
+    return (
+      <main className="mx-auto max-w-3xl px-4 py-12">
+        <p className="text-slate-500">Загрузка…</p>
         <p className="mt-4">
           <Link to="/shop" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> В каталог</Link>
         </p>
