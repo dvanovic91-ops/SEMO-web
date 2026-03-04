@@ -69,7 +69,7 @@ export const Navbar: React.FC = () => {
           console.warn('Telegram state changed! (Navbar) — was linked, now unlinked. Check DB or network.');
         }
         prevTelegramLinkedRef.current = linked;
-        setTelegramLinked(linked);
+        setTelegramLinked((prevState) => (prevState === linked ? prevState : linked));
         try {
           localStorage.setItem('telegram_linked', linked ? '1' : '0');
         } catch {

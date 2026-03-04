@@ -173,11 +173,12 @@ export const ProductDetail: React.FC = () => {
         if (cancelled || currentId !== (id ?? '')) return;
         setComponents((prev) => (prev.length === compList.length && compList.length === 0 ? prev : compList));
 
+        // profiles 조인 제거 → 400 방지 (조인 실패 시 대체로 작성자명만 'Пользователь' 표시)
         let reviewsList: Review[] = [];
         try {
           const { data: reviewData } = await supabase
             .from('product_reviews')
-            .select('id, user_id, rating, body, created_at, profiles(name, email)')
+            .select('id, user_id, rating, body, created_at')
             .eq('product_id', currentId);
           const raw = (reviewData as Review[]) ?? [];
           reviewsList = raw.slice().sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
@@ -276,7 +277,7 @@ export const ProductDetail: React.FC = () => {
       setReviewPhotoFiles([]);
       const { data: reviewData } = await supabase
         .from('product_reviews')
-        .select('id, user_id, rating, body, created_at, profiles(name, email)')
+        .select('id, user_id, rating, body, created_at')
         .eq('product_id', id);
       const raw = (reviewData as Review[]) ?? [];
       const reviewsList = raw.slice().sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 
 const STORAGE_KEY = 'userEmail';
@@ -6,6 +6,13 @@ const STORAGE_KEY = 'userEmail';
 /** 테스트용 관리자 이메일 — 이 계정으로 로그인 시 Profile 진입용 dummy userId 사용 */
 export const TEST_ADMIN_EMAIL = 'admin@semo-beautybox.com';
 export const ADMIN_DUMMY_USER_ID = '00000000-0000-0000-0000-000000000001';
+
+/** 환경변수로 관리자 이메일 목록 지정 시 profiles 조회 없이 isAdmin 판별 → 400 방지 */
+const ADMIN_EMAILS_RAW = typeof import.meta !== 'undefined' && import.meta.env?.VITE_ADMIN_EMAILS;
+const ADMIN_EMAILS =
+  ADMIN_EMAILS_RAW && typeof ADMIN_EMAILS_RAW === 'string'
+    ? ADMIN_EMAILS_RAW.split(',').map((e) => e.trim().toLowerCase())
+    : null;
 
 interface AuthContextValue {
   userEmail: string | null;
@@ -55,15 +62,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (session?.user) {
           setUserEmailState(session.user.email ?? null);
           setUserId(session.user.id);
-          try {
-            const { data } = await supabase
-              .from('profiles')
-              .select('is_admin')
-              .eq('id', session.user.id)
-              .single();
-            if (!cancelled) setIsAdmin(!!data?.is_admin);
-          } catch {
-            if (!cancelled) setIsAdmin(false);
+          const email = (session.user.email ?? '').toLowerCase();
+          if (ADMIN_EMAILS) {
+            if (!cancelled) setIsAdmin(ADMIN_EMAILS.includes(email));
+          } else {
+            try {
+              const { data } = await supabase
+                .from('profiles')
+                .select('is_admin')
+                .eq('id', session.user.id)
+                .single();
+              if (!cancelled) setIsAdmin(!!data?.is_admin);
+            } catch {
+              if (!cancelled) setIsAdmin(false);
+            }
           }
           try {
             const raw = localStorage.getItem('semo_anon_result');
@@ -117,6 +129,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (session?.user) {
           setUserEmailState(session.user.email ?? null);
           setUserId(session.user.id);
+          if (ADMIN_EMAILS) {
+            const email = (session.user.email ?? '').toLowerCase();
+            setIsAdmin(ADMIN_EMAILS.includes(email));
+          } else {
+            void applySession(session);
+          }
           try {
             const raw = localStorage.getItem('semo_anon_result');
             if (raw) {
@@ -151,14 +169,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return undefined;
   }, []);
 
-  const value: AuthContextValue = {
-    userEmail,
-    userId,
-    setUserEmail,
-    isLoggedIn: !!userEmail,
-    initialized,
-    isAdmin,
-  };
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      userEmail,
+      userId,
+      setUserEmail,
+      isLoggedIn: !!userEmail,
+      initialized,
+      isAdmin,
+    }),
+    [userEmail, userId, initialized, isAdmin, setUserEmail]
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
