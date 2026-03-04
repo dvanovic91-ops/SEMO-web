@@ -84,36 +84,38 @@ export const ProductDetail: React.FC = () => {
   const heroTouchStartX = useRef(0);
 
   const BUCKET_REVIEW_PHOTOS = 'review-photos';
-  const prevIdRef = useRef<string>('');
+  /** 같은 id로 effect가 두 번 돌지 않도록 (Strict Mode·무한 루프 방지) */
+  const loadingIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const currentId = id ?? '';
+    const currentId = String(id ?? '').trim();
     if (!currentId) {
-      setLoading(false);
+      loadingIdRef.current = null;
+      setLoading((prev) => (prev ? false : prev));
       setProduct(null);
       setComponents([]);
       setReviews([]);
       return;
     }
-    if (prevIdRef.current === currentId) return;
-    prevIdRef.current = currentId;
+    if (loadingIdRef.current === currentId) return;
+    loadingIdRef.current = currentId;
 
     let cancelled = false;
-    setLoading(true);
+    setLoading((prev) => (prev === true ? prev : true));
 
     if (!isUuid(currentId) && FALLBACK_PRODUCTS[currentId]) {
       setProduct(FALLBACK_PRODUCTS[currentId]);
       setComponents([]);
       setReviews([]);
-      setLoading(false);
-      prevIdRef.current = '';
+      setLoading((prev) => (prev === false ? prev : false));
+      loadingIdRef.current = null;
       return;
     }
 
     if (!supabase) {
       setProduct(null);
-      setLoading(false);
-      prevIdRef.current = '';
+      setLoading((prev) => (prev === false ? prev : false));
+      loadingIdRef.current = null;
       return;
     }
 
@@ -132,10 +134,11 @@ export const ProductDetail: React.FC = () => {
           setProduct(null);
           setComponents([]);
           setReviews([]);
-          setLoading(false);
+          setLoading((prev) => (prev === false ? prev : false));
+          loadingIdRef.current = null;
           return;
         }
-        setProduct(prodData as Product);
+        setProduct((prev) => (prev?.id === (prodData as Product).id ? prev : (prodData as Product)));
 
         try {
           await supabase.from('product_views').insert({ product_id: currentId });
@@ -145,16 +148,17 @@ export const ProductDetail: React.FC = () => {
         try {
           const { data: compData, error: compErr } = await supabase
             .from('product_components')
-            .select('id, sort_order, name, image_url, image_urls, description')
+            .select('*')
             .eq('product_id', currentId);
           if (!compErr && compData && Array.isArray(compData)) {
-            compList = (compData as Component[]).slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+            const rows = compData as (Component & { created_at?: string })[];
+            compList = rows.slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
           }
-        } catch (e) {
-          console.warn('product_components 로드 실패:', e);
+        } catch (_) {
+          compList = [];
         }
         if (cancelled || currentId !== (id ?? '')) return;
-        setComponents(compList ?? []);
+        setComponents((prev) => (prev.length === compList.length && compList.length === 0 ? prev : compList));
 
         let reviewsList: Review[] = [];
         try {
@@ -194,13 +198,17 @@ export const ProductDetail: React.FC = () => {
         }
       } finally {
         if (!cancelled && currentId === (id ?? '')) {
-          setLoading(false);
+          setLoading((prev) => (prev === false ? prev : false));
+          loadingIdRef.current = null;
         }
       }
     };
 
     void load();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      loadingIdRef.current = null;
+    };
   }, [id]);
 
   const handleSubmitReview = async (e: React.FormEvent) => {
