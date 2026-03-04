@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
 import { supabase } from '../lib/supabase';
 import { ShopCardImage } from './ShopCardImage';
@@ -34,6 +34,7 @@ function formatPrice(price: number): string {
 }
 
 export const Shop: React.FC = () => {
+  const navigate = useNavigate();
   const { addItem } = useCart();
   const [showAddedToast, setShowAddedToast] = useState(false);
   const [items, setItems] = useState<ShopItem[]>(FALLBACK_ITEMS);
@@ -168,18 +169,25 @@ export const Shop: React.FC = () => {
                       : 'flex h-full flex-col rounded-xl border border-brand/20 bg-brand-soft/25 px-4 py-6 sm:px-6'
                   }
                 >
-                  {product.productId ? (
-                    <Link to={`/product/${product.productId}`} className="flex flex-1 flex-col">
-                      {cardTop(product)}
-                    </Link>
-                  ) : product.linkUrl ? (
+                  {product.linkUrl ? (
                     <a href={product.linkUrl} className="flex flex-1 flex-col">
                       {cardTop(product)}
                     </a>
                   ) : (
-                    <Link to={`/product/${product.id}`} className="flex flex-1 flex-col">
+                    <div
+                      role="link"
+                      tabIndex={0}
+                      className="flex flex-1 flex-col cursor-pointer"
+                      onClick={() => navigate(`/product/${product.productId ?? product.id}`)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          navigate(`/product/${product.productId ?? product.id}`);
+                        }
+                      }}
+                    >
                       {cardTop(product)}
-                    </Link>
+                    </div>
                   )}
                   <button
                     type="button"

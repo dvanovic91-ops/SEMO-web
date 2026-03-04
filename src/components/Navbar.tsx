@@ -26,7 +26,24 @@ export const Navbar: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [telegramLinked, setTelegramLinked] = useState(false);
   const prevTelegramLinkedRef = useRef<boolean | null>(null);
-  const [unreadNotifications] = useState<number>(1);
+  const [notificationOpen, setNotificationOpen] = useState(false);
+
+  const notifications: { id: string; type: 'info' | 'order'; title: string; body: string; date: string }[] = [
+    {
+      id: 'n1',
+      type: 'info',
+      title: 'Новая коллекция Beauty Box',
+      body: 'Открыта предзаказ весна/лето 2026. Количество ограничено.',
+      date: '04.03.2026',
+    },
+    {
+      id: 'n2',
+      type: 'order',
+      title: 'Статус заказа',
+      body: 'Ваш последний заказ обрабатывается. Уведомим, когда передадим в доставку.',
+      date: '03.03.2026',
+    },
+  ];
 
   const fetchTelegramLinked = useCallback(() => {
     if (!isLoggedIn || !userId || !supabase) {
@@ -96,6 +113,7 @@ export const Navbar: React.FC = () => {
             ))}
           </nav>
 
+          <div className="relative flex items-center gap-2">
             <Link
               to="/cart"
               aria-label="Корзина"
@@ -112,21 +130,19 @@ export const Navbar: React.FC = () => {
                 </span>
               )}
             </Link>
-            <Link
-              to={isLoggedIn ? '/profile#notifications' : '/login'}
+            <button
+              type="button"
               aria-label="Уведомления"
-              className="relative flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:border-brand hover:text-brand"
+              onClick={() => setNotificationOpen((v) => !v)}
+              className={`relative flex h-9 w-9 items-center justify-center rounded-full border bg-white text-slate-600 transition ${
+                notificationOpen ? 'border-brand text-brand' : 'border-slate-200 hover:border-brand hover:text-brand'
+              }`}
             >
               <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
                 <path d="M12 3a4 4 0 0 0-4 4v2.09c0 .46-.16.91-.46 1.26L6.3 12.76A2 2 0 0 0 6 14v1h12v-1a2 2 0 0 0-.3-1.24l-1.24-1.41A2 2 0 0 1 16 9.09V7a4 4 0 0 0-4-4z" />
                 <path d="M10 18a2 2 0 0 0 4 0" />
               </svg>
-              {unreadNotifications > 0 && (
-                <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-brand px-1 text-xs font-semibold text-white">
-                  {unreadNotifications > 99 ? '99+' : unreadNotifications}
-                </span>
-              )}
-            </Link>
+            </button>
             <a
               href={TELEGRAM_BOT_URL}
               target="_blank"
@@ -150,6 +166,40 @@ export const Navbar: React.FC = () => {
                 <path d="M6 19.5c1.4-2.3 3.3-3.5 6-3.5s4.6 1.2 6 3.5" />
               </svg>
             </Link>
+
+            {notificationOpen && (
+              <div className="absolute right-0 top-11 z-30 w-80 max-w-[80vw] rounded-xl border border-slate-200 bg-white shadow-xl">
+                <div className="border-b border-slate-100 px-4 py-2">
+                  <p className="text-xs font-semibold text-slate-800">Уведомления</p>
+                </div>
+                <div className="max-h-80 overflow-auto px-3 py-2">
+                  {notifications.length === 0 && (
+                    <p className="px-1 py-2 text-xs text-slate-400">Пока нет уведомлений.</p>
+                  )}
+                  {notifications.length > 0 && (
+                    <ul className="space-y-2">
+                      {notifications.map((n) => (
+                        <li
+                          key={n.id}
+                          className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-700"
+                        >
+                          <div className="mb-0.5 flex items-center justify-between gap-2">
+                            <span className="font-semibold">
+                              {n.type === 'info' && 'Объявление'}
+                              {n.type === 'order' && 'Заказ'}
+                            </span>
+                            <span className="text-[10px] text-slate-400">{n.date}</span>
+                          </div>
+                          <p className="text-[11px] font-semibold text-slate-900">{n.title}</p>
+                          <p className="mt-0.5 text-[11px] text-slate-700">{n.body}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 

@@ -114,6 +114,8 @@ export const ProductDetail: React.FC = () => {
 
       if (cancelled || currentId !== id) return;
       if (prodErr || !prodData) {
+        const errMsg = prodErr?.message ?? (prodData ? '' : 'Товар не найден');
+        if (errMsg) window.alert(`Ошибка загрузки товара: ${errMsg}`);
         setLoading(false);
         return;
       }

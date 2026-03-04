@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import {
   LabelList,
   Line,
@@ -25,7 +25,7 @@ const labelClass = 'mb-1 block text-sm font-medium text-slate-700';
 /** 상품·구성품 이미지 업로드용 Storage 버킷 (Supabase 대시보드에서 Public 버킷 생성) */
 const BUCKET_PRODUCT_IMAGES = 'product-images';
 
-/** 파일을 product-images 버킷에 업로드하고 공개 URL 반환. 실패 시 null + 콘솔에 에러 로그 */
+/** 파일을 product-images 버킷에 업로드하고 공개 URL 반환. 실패 시 null + 콘솔에 에러 로그 (호출부에서 Alert 표시) */
 async function uploadProductImage(file: File): Promise<string | null> {
   if (!supabase) return null;
   const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
@@ -452,12 +452,13 @@ export const Admin: React.FC = () => {
       setSaveSuccessAt(Date.now());
     } catch (e) {
       console.error(e);
-      // Supabase/PostgREST 에러 메시지를 그대로 보여줘서 원인 파악을 쉽게 함
       const message =
         e && typeof e === 'object' && 'message' in e && typeof (e as any).message === 'string'
           ? (e as any).message
           : null;
-      setError(message ? `상품 저장에 실패했습니다: ${message}` : '상품 저장에 실패했습니다.');
+      const text = message ? `상품 저장에 실패했습니다: ${message}` : '상품 저장에 실패했습니다.';
+      setError(text);
+      window.alert(text);
     } finally {
       setSavingProduct(false);
     }
@@ -522,11 +523,11 @@ export const Admin: React.FC = () => {
     setComponents((prev) => prev.filter((_, i) => i !== index));
   };
 
-  /** 대표 이미지 파일 선택 시 업로드 후 URL 반영 (최대 3장). 실패 시 에러 메시지 표시 */
+  /** 대표 이미지 파일 선택 시 업로드 후 URL 반영 (최대 3장). 실패 시 에러 메시지 + Alert 표시 */
   const onMainImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    e.target.value = '';
     if (!files || files.length === 0 || !selectedProduct) return;
+    e.target.value = '';
     setError(null);
     setUploadingMainImage(true);
     try {
@@ -544,9 +545,10 @@ export const Admin: React.FC = () => {
         if (url) {
           nextUrls.push(url);
         } else {
-          setError(
-            '이미지 업로드에 실패했습니다. Supabase Storage에 "product-images" 버킷(Public)이 있는지, 정책(INSERT 허용)을 확인하세요.',
-          );
+          const msg =
+            '이미지 업로드에 실패했습니다. Supabase Storage "product-images" 버킷(Public) 및 INSERT 정책을 확인하세요.';
+          setError(msg);
+          window.alert(msg);
           break;
         }
       }
@@ -559,38 +561,57 @@ export const Admin: React.FC = () => {
             } as Product)
           : prev,
       );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+      window.alert(`대표 이미지 업로드 오류: ${msg}`);
     } finally {
       setUploadingMainImage(false);
     }
   };
 
-  /** 구성품 이미지 파일 선택 시 업로드 후 해당 항목의 여러 칸에 URL 반영 (최대 6장) */
+  /** 구성품 이미지 파일 선택 시 업로드 후 해당 항목에 URL 한 번에 반영 (최대 6장). 루프 내 setState 대신 한 번만 갱신 */
   const onComponentImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
+    if (!files || files.length === 0) return;
     e.target.value = '';
     const compIdx = componentUploadIndexRef.current;
-    let imgIdx = componentUploadImgIdxRef.current;
-    if (!files || files.length === 0 || compIdx < 0 || compIdx >= components.length) return;
+    if (compIdx < 0 || compIdx >= components.length) return;
     setError(null);
     setUploadingComponentIndex(compIdx);
     try {
       const maxImages = 6;
       const existingUrls =
         components[compIdx].image_urls ?? (components[compIdx].image_url ? [components[compIdx].image_url] : []);
-      const already = existingUrls.length;
-      for (let i = 0; i < files.length && already + i < maxImages; i++) {
-        const file = files[i];
-        const url = await uploadProductImage(file);
+      const toAdd = Math.min(files.length, maxImages - existingUrls.length);
+      if (toAdd <= 0) {
+        window.alert('구성품 이미지는 최대 6장까지입니다.');
+        return;
+      }
+      const newUrls: string[] = [];
+      for (let i = 0; i < toAdd; i++) {
+        const url = await uploadProductImage(files[i]);
         if (url) {
-          handleComponentImageUrlsChange(compIdx, imgIdx, url);
-          imgIdx += 1;
+          newUrls.push(url);
         } else {
-          setError(
-            '이미지 업로드에 실패했습니다. Supabase Storage에 "product-images" 버킷(Public)이 있는지, 정책(INSERT 허용)을 확인하세요.',
-          );
-          break;
+          const msg =
+            '이미지 업로드에 실패했습니다. Supabase Storage "product-images" 버킷(Public) 및 INSERT 정책을 확인하세요.';
+          setError(msg);
+          window.alert(msg);
+          return;
         }
       }
+      const nextUrls = [...existingUrls, ...newUrls];
+      setComponents((prev) =>
+        prev.map((c, i) => {
+          if (i !== compIdx) return c;
+          return { ...c, image_url: nextUrls[0] ?? c.image_url, image_urls: nextUrls };
+        }),
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+      window.alert(`구성품 이미지 업로드 오류: ${msg}`);
     } finally {
       setUploadingComponentIndex(-1);
     }
@@ -681,7 +702,12 @@ export const Admin: React.FC = () => {
       }
     } catch (e) {
       console.error(e);
-      setError('메인 페이지 레이아웃 저장에 실패했습니다.');
+      const msg =
+        e && typeof e === 'object' && 'message' in e && typeof (e as any).message === 'string'
+          ? (e as any).message
+          : '메인 페이지 레이아웃 저장에 실패했습니다.';
+      setError(msg);
+      window.alert(msg);
     } finally {
       setSavingSlots(false);
     }
@@ -1055,14 +1081,12 @@ export const Admin: React.FC = () => {
                     <div className="mb-2 flex items-center justify-between">
                       <p className="font-semibold">이 상품 리뷰 목록</p>
                       {selectedProduct?.id && (
-                        <a
-                          href={`/product/${selectedProduct.id}#product-reviews`}
-                          target="_blank"
-                          rel="noreferrer"
+                        <Link
+                          to={`/product/${selectedProduct.id}#product-reviews`}
                           className="text-xs font-medium text-brand hover:underline"
                         >
                           상세페이지에서 보기
-                        </a>
+                        </Link>
                       )}
                     </div>
                     {productReviews.length === 0 && <p className="text-slate-400">아직 리뷰가 없습니다.</p>}
