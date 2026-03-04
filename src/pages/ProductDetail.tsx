@@ -84,8 +84,10 @@ export const ProductDetail: React.FC = () => {
   const heroTouchStartX = useRef(0);
 
   const BUCKET_REVIEW_PHOTOS = 'review-photos';
-  /** 같은 id로 effect가 두 번 돌지 않도록 (Strict Mode·무한 루프 방지) */
+  /** 마운트 시 한 번만 로드 (App에서 key={id}로 id 변경 시 새로 마운트됨) */
   const loadingIdRef = useRef<string | null>(null);
+  /** 로딩이 끝나지 않을 때 탈출 (15초 후) */
+  const loadingTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     const currentId = String(id ?? '').trim();
@@ -103,7 +105,20 @@ export const ProductDetail: React.FC = () => {
     let cancelled = false;
     setLoading((prev) => (prev === true ? prev : true));
 
+    if (loadingTimeoutRef.current != null) window.clearTimeout(loadingTimeoutRef.current);
+    loadingTimeoutRef.current = window.setTimeout(() => {
+      loadingTimeoutRef.current = null;
+      setLoading((prev) => {
+        if (!prev) return prev;
+        return false;
+      });
+    }, 15000);
+
     if (!isUuid(currentId) && FALLBACK_PRODUCTS[currentId]) {
+      if (loadingTimeoutRef.current != null) {
+        window.clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
       setProduct(FALLBACK_PRODUCTS[currentId]);
       setComponents([]);
       setReviews([]);
@@ -113,6 +128,10 @@ export const ProductDetail: React.FC = () => {
     }
 
     if (!supabase) {
+      if (loadingTimeoutRef.current != null) {
+        window.clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
       setProduct(null);
       setLoading((prev) => (prev === false ? prev : false));
       loadingIdRef.current = null;
@@ -130,6 +149,10 @@ export const ProductDetail: React.FC = () => {
 
         if (cancelled || currentId !== (id ?? '')) return;
         if (prodErr || !prodData) {
+          if (loadingTimeoutRef.current != null) {
+            window.clearTimeout(loadingTimeoutRef.current);
+            loadingTimeoutRef.current = null;
+          }
           const errMsg = prodErr?.message ?? 'Товар не найден';
           try { window.alert(`Ошибка загрузки товара: ${errMsg}`); } catch (_) {}
           setProduct(null);
@@ -204,13 +227,22 @@ export const ProductDetail: React.FC = () => {
           reviewsList.map((r) => ({ ...r, review_photos: photosMap[r.id] ?? [] })),
         );
       } catch (e) {
+        if (loadingTimeoutRef.current != null) {
+          window.clearTimeout(loadingTimeoutRef.current);
+          loadingTimeoutRef.current = null;
+        }
         if (!cancelled && currentId === (id ?? '')) {
           try { window.alert(`Ошибка: ${e instanceof Error ? e.message : String(e)}`); } catch (_) {}
           setProduct(null);
           setComponents([]);
           setReviews([]);
+          setLoading((prev) => (prev === false ? prev : false));
         }
       } finally {
+        if (loadingTimeoutRef.current != null) {
+          window.clearTimeout(loadingTimeoutRef.current);
+          loadingTimeoutRef.current = null;
+        }
         if (!cancelled && currentId === (id ?? '')) {
           setLoading((prev) => (prev === false ? prev : false));
           loadingIdRef.current = null;
@@ -221,9 +253,13 @@ export const ProductDetail: React.FC = () => {
     void load();
     return () => {
       cancelled = true;
-      /* 다음 진입 시 같은 id도 다시 로드되도록 ref 초기화 */
+      if (loadingTimeoutRef.current != null) {
+        window.clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
       loadingIdRef.current = null;
     };
+    // id는 상위에서 key로 쓰여 id 변경 시 컴포넌트가 새로 마운트되므로 빈 배열
   }, [id]);
 
   const handleSubmitReview = async (e: React.FormEvent) => {
@@ -314,7 +350,12 @@ export const ProductDetail: React.FC = () => {
         {!loading && !product && (
           <p className="text-slate-600">Товар не найден.</p>
         )}
-        {loading && <p className="text-slate-500">Загрузка…</p>}
+        {loading && (
+          <>
+            <p className="text-slate-500">Загрузка…</p>
+            <p className="mt-1 text-xs text-slate-400">Если страница не открывается, вернитесь в каталог.</p>
+          </>
+        )}
         <p className="mt-4">
           <Link to="/shop" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> В каталог</Link>
         </p>

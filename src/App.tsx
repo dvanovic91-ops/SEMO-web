@@ -1,5 +1,5 @@
 import React from 'react';
-import { Route, Routes, useLocation } from 'react-router-dom';
+import { Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
 import { Footer } from './components/Footer';
@@ -33,6 +33,12 @@ import { Support } from './pages/Support';
 import { AuthCallback, AUTH_MESSAGE_TYPE } from './pages/AuthCallback';
 import { Admin } from './pages/admin/Admin';
 
+/** 상품 id가 바뀔 때마다 ProductDetail을 새로 마운트 → effect 중복·#310 완화 */
+function ProductDetailWithKey() {
+  const { id } = useParams<{ id: string }>();
+  return <ProductDetail key={id ?? 'empty'} />;
+}
+
 const App: React.FC = () => {
   return (
     <div className="flex min-h-screen flex-col bg-white">
@@ -47,7 +53,7 @@ const App: React.FC = () => {
               <Route path="/about" element={<About />} />
               <Route path="/skin-test" element={<SkinTest />} />
               <Route path="/shop" element={<Shop />} />
-              <Route path="/product/:id" element={<ProductDetail />} />
+              <Route path="/product/:id" element={<ProductDetailWithKey />} />
               <Route path="/cart" element={<Cart />} />
               <Route path="/support" element={<Support />} />
               <Route path="/profile" element={<Profile />} />
