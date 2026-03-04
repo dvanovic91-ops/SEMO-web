@@ -87,3 +87,49 @@ const { data, error } = await supabase.storage
 ```
 
 리뷰/프로필 테이블에는 **파일 경로**(`user-uploads` 버킷 내 path)만 저장하고, 표시할 때 Storage URL을 조합해 사용하면 됩니다.
+
+---
+
+## 관리자 상품 이미지 버킷 (`product-images`)
+
+관리자 모드에서 상품 썸네일·구성품 이미지를 올릴 때 사용하는 **Public** 버킷입니다.
+
+### 버킷 생성
+
+Supabase 대시보드 → **Storage** → **New bucket**
+
+- **Name:** `product-images`
+- **Public bucket:** **ON** (상품 상세 페이지에서 이미지 URL로 바로 노출)
+- **Allowed MIME types:** `image/jpeg`, `image/png`, `image/webp`, `image/gif`
+- **File size limit:** 예: 5MB
+
+### RLS 정책 (인증된 사용자 업로드 허용)
+
+관리자만 업로드하려면 앱에서 관리자 체크를 하고 있으므로, Storage에서는 **authenticated** 사용자에게 insert만 허용해도 됩니다. (관리자 페이지 자체가 비관리자에게 안 보이므로.)
+
+Supabase 대시보드 → **Storage** → **Policies** → `product-images` 버킷:
+
+**INSERT (업로드 허용)**
+
+```sql
+create policy "product-images insert authenticated"
+on storage.objects for insert
+to authenticated
+with check (bucket_id = 'product-images');
+```
+
+**SELECT (공개 읽기 — Public 버킷이면 익명도 가능, 선택 사항)**
+
+```sql
+create policy "product-images select public"
+on storage.objects for select
+to public
+using (bucket_id = 'product-images');
+```
+
+Public 버킷이면 URL만 알면 누구나 볼 수 있으므로 SELECT 정책은 없어도 접근 가능할 수 있습니다. 필요 시 위 정책 추가.
+
+### 프론트 사용
+
+- **경로:** `products/{timestamp}_{random}.{ext}` (Admin.tsx의 `uploadProductImage()`)
+- **URL:** `getPublicUrl(path)` 로 얻은 URL을 `products.image_url` 또는 `product_components.image_url`에 저장

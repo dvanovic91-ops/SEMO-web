@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link, Navigate } from 'react-router-dom';
+import { BackArrow } from '../../components/BackArrow';
 import { useAuth } from '../../context/AuthContext';
 import { USE_MOCK_REVIEWS, mockReviews } from '../../data/mocks';
 
@@ -13,7 +14,7 @@ export const ProfileReviews: React.FC = () => {
   return (
     <main className="mx-auto max-w-xl px-4 py-6 sm:px-6 sm:py-10 md:py-14">
       <p className="mb-6">
-        <Link to="/profile" className="text-sm text-slate-500 hover:text-slate-700">← Profile</Link>
+        <Link to="/profile" className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700"><BackArrow /> Profile</Link>
       </p>
       <header className="mb-8">
         <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">

@@ -123,7 +123,7 @@ function getDayLabels(count: number): RevenueDataPoint[] {
       amount: Math.floor(revenue / numProducts) + (j === 0 ? revenue % numProducts : 0),
     }));
     points.push({
-      label: d.getDate() + ' ' + ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'][d.getMonth()],
+      label: (d.getMonth() + 1) + '월 ' + d.getDate() + '일',
       dateKey,
       revenue,
       products,
@@ -138,7 +138,7 @@ function getWeekLabels(count: number): RevenueDataPoint[] {
   const productNames = ['Beauty Box — Весна 2026', 'Сыворотка для лица', 'Крем для рук'];
   for (let i = count - 1; i >= 0; i--) {
     const revenue = 35000 + Math.floor(Math.random() * 45000);
-    const weekLabel = 'Неделя ' + (count - i);
+    const weekLabel = (count - i) + '주';
     const d = new Date();
     d.setDate(d.getDate() - i * 7);
     const dateKey = d.toISOString().slice(0, 10);
@@ -159,7 +159,6 @@ function getWeekLabels(count: number): RevenueDataPoint[] {
 /** 월별 매출 목업 (최근 12개월) */
 function getMonthLabels(count: number): RevenueDataPoint[] {
   const points: RevenueDataPoint[] = [];
-  const monthNames = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
   const now = new Date();
   const productNames = ['Beauty Box — Весна 2026', 'Сыворотка для лица', 'Крем для рук', 'Маска для лица'];
   for (let i = count - 1; i >= 0; i--) {
@@ -167,7 +166,7 @@ function getMonthLabels(count: number): RevenueDataPoint[] {
     const revenue = 80000 + Math.floor(Math.random() * 120000);
     const dateKey = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-01';
     points.push({
-      label: monthNames[d.getMonth()] + ' ' + d.getFullYear(),
+      label: d.getFullYear() + '년 ' + (d.getMonth() + 1) + '월',
       dateKey,
       revenue,
       products: [
@@ -206,7 +205,7 @@ export function getMockRevenueSeries(
       const dateKey = d.toISOString().slice(0, 10);
       const revenue = 5000 + Math.floor(Math.random() * 15000);
       points.push({
-        label: d.getDate() + ' ' + ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'][d.getMonth()],
+        label: (d.getMonth() + 1) + '월 ' + d.getDate() + '일',
         dateKey,
         revenue,
         products: [

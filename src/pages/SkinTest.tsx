@@ -11,6 +11,7 @@ import {
 } from '../data/skinTestData';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
+import { BackArrow } from '../components/BackArrow';
 
 const MAX_TEST_COUNT = 2;
 /** 어드민 이메일 — 웹에서도 테스트 횟수 제한 없음 (봇 ADMIN_IDS와 별도) */
@@ -176,8 +177,8 @@ export const SkinTest: React.FC = () => {
               >
                 Зарегистрироваться! Всего 10 секунд!
               </Link>
-              <Link to="/" className="text-xs text-slate-400 hover:text-slate-600 sm:text-sm">
-                ← На главную
+              <Link to="/" className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-600 sm:text-sm">
+                <BackArrow /> На главную
               </Link>
             </div>
           </div>
@@ -198,8 +199,8 @@ export const SkinTest: React.FC = () => {
               >
                 В профиль
               </Link>
-              <Link to="/" className="text-xs text-slate-400 hover:text-slate-600 sm:text-sm">
-                ← На главную
+              <Link to="/" className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-600 sm:text-sm">
+                <BackArrow /> На главную
               </Link>
             </div>
           </div>
@@ -231,9 +232,9 @@ export const SkinTest: React.FC = () => {
             </button>
             <Link
               to="/"
-              className="text-xs text-slate-400 hover:text-slate-600 sm:text-sm"
+              className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-600 sm:text-sm"
             >
-              ← На главную
+              <BackArrow /> На главную
             </Link>
           </div>
         </div>
@@ -270,7 +271,7 @@ export const SkinTest: React.FC = () => {
                 onClick={handleProfilePrev}
                 className="mt-3 flex items-center justify-center gap-1 text-sm text-slate-500 hover:text-slate-700 sm:mt-4"
               >
-                <span aria-hidden>←</span>
+                <BackArrow />
                 Предыдущий шаг
               </button>
             )}
@@ -348,7 +349,7 @@ export const SkinTest: React.FC = () => {
               className="mt-2 flex items-center justify-center gap-1 text-sm text-slate-500 hover:text-slate-700 disabled:invisible sm:mt-3"
               disabled={questionIndex === 0}
             >
-              <span aria-hidden>←</span>
+              <BackArrow />
               Предыдущий вопрос
             </button>
             <button
@@ -356,7 +357,7 @@ export const SkinTest: React.FC = () => {
               onClick={handleBackToProfile}
               className="mt-1 flex items-center justify-center gap-1 text-sm text-slate-500 hover:text-slate-700 sm:mt-2"
             >
-              <span aria-hidden>↩</span>
+              <BackArrow />
               Несколько вопросов перед тестом
             </button>
           </div>

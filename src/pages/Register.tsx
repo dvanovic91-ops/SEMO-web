@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { InnHelpTooltip } from '../components/InnHelpTooltip';
 import { supabase } from '../lib/supabase';
 import { AddressSuggest } from '../components/AddressSuggest';
+import { BackArrow } from '../components/BackArrow';
 
 /**
  * 회원가입 — 기본인적 / 배송(주소 세분화). 이메일 인증 구조, 전화 포맷, INN/우편 제한.
@@ -452,8 +453,8 @@ export const Register: React.FC = () => {
       </form>
 
       <p className="mt-6 text-center">
-        <Link to="/login" className="text-sm text-slate-500 hover:text-slate-700">
-          ← Уже есть аккаунт? Войти
+        <Link to="/login" className="inline-flex items-center justify-center gap-1.5 text-sm text-slate-500 hover:text-slate-700">
+          <BackArrow /> Уже есть аккаунт? Войти
         </Link>
       </p>
     </main>

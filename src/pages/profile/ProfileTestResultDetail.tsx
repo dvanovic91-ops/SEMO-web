@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
+import { BackArrow } from '../../components/BackArrow';
 import { useAuth } from '../../context/AuthContext';
 import { SKIN_INFO } from '../../data/skinTestData';
 import { supabase } from '../../lib/supabase';
@@ -62,7 +63,7 @@ export const ProfileTestResultDetail: React.FC = () => {
     return (
       <main className="mx-auto max-w-xl px-4 py-6 sm:px-6 sm:py-10">
         <p className="mb-6">
-          <Link to="/profile/test-results" className="text-sm text-slate-500 hover:text-slate-700">← Результаты тестов</Link>
+          <Link to="/profile/test-results" className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700"><BackArrow /> Результаты тестов</Link>
         </p>
         <p className="py-8 text-center text-sm text-slate-500">Загрузка…</p>
       </main>
@@ -73,7 +74,7 @@ export const ProfileTestResultDetail: React.FC = () => {
     return (
       <main className="mx-auto max-w-xl px-4 py-6 sm:px-6 sm:py-10">
         <p className="mb-6">
-          <Link to="/profile/test-results" className="text-sm text-slate-500 hover:text-slate-700">← Результаты тестов</Link>
+          <Link to="/profile/test-results" className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700"><BackArrow /> Результаты тестов</Link>
         </p>
         <p className="rounded-xl border border-slate-100 bg-slate-50/50 px-4 py-8 text-center text-slate-500">Результат не найден.</p>
       </main>
@@ -86,7 +87,7 @@ export const ProfileTestResultDetail: React.FC = () => {
   return (
     <main className="mx-auto max-w-2xl px-4 py-6 sm:px-6 sm:py-10 md:py-14">
       <p className="mb-6">
-        <Link to="/profile/test-results" className="text-sm text-slate-500 hover:text-slate-700">← Результаты тестов</Link>
+        <Link to="/profile/test-results" className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700"><BackArrow /> Результаты тестов</Link>
       </p>
       <header className="mb-8">
         <p className="text-sm text-slate-500">{formatDate(result.completed_at)}</p>

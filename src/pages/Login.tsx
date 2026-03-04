@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { BackArrow } from '../components/BackArrow';
 import { supabase, setRememberMe } from '../lib/supabase';
 
 const inputClass =
@@ -207,8 +208,8 @@ export const Login: React.FC = () => {
       </div>
 
       <p className="mt-6 text-center">
-        <Link to="/" className="text-sm text-slate-500 hover:text-slate-700">
-          ← На главную
+        <Link to="/" className="inline-flex items-center justify-center gap-1.5 text-sm text-slate-500 hover:text-slate-700">
+          <BackArrow /> На главную
         </Link>
       </p>
     </main>

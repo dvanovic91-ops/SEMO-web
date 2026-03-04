@@ -1,5 +1,5 @@
 import { Link, NavLink } from 'react-router-dom';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { supabase } from '../lib/supabase';
@@ -25,6 +25,7 @@ export const Navbar: React.FC = () => {
   const { isLoggedIn, userId } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [telegramLinked, setTelegramLinked] = useState(false);
+  const prevTelegramLinkedRef = useRef<boolean | null>(null);
 
   const fetchTelegramLinked = useCallback(() => {
     if (!isLoggedIn || !userId || !supabase) {
@@ -38,6 +39,11 @@ export const Navbar: React.FC = () => {
       .single()
       .then(({ data }) => {
         const linked = !!data?.telegram_id;
+        const prev = prevTelegramLinkedRef.current;
+        if (prev === true && !linked) {
+          console.warn('Telegram state changed! (Navbar) — was linked, now unlinked. Check DB or network.');
+        }
+        prevTelegramLinkedRef.current = linked;
         setTelegramLinked(linked);
         try {
           localStorage.setItem('telegram_linked', linked ? '1' : '0');
@@ -45,7 +51,10 @@ export const Navbar: React.FC = () => {
           // ignore
         }
       })
-      .catch(() => setTelegramLinked(false));
+      .catch(() => {
+        // fetch 실패 시 기존 상태 유지 — 네트워크 오류로 풀린 것처럼 보이지 않도록
+        // setTelegramLinked(false) 제거
+      });
   }, [isLoggedIn, userId]);
 
   useEffect(() => {

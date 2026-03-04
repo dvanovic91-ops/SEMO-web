@@ -1,63 +1,69 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth, ADMIN_DUMMY_USER_ID } from '../context/AuthContext';
 import { getProfile } from '../lib/profileStorage';
 import { supabase } from '../lib/supabase';
+import { BackArrow } from '../components/BackArrow';
 
 /**
  * 로그인된 사용자 개인화면 — 인사/등급/포인트 박스. Supabase 로그인 시 DB 포인트(테스트 완료 300p 등 이벤트별) 표시.
+ * 텔레그램 연동: fetch 실패 시 기존 상태 유지, localStorage는 성공 응답에서만 갱신.
  */
 export const Profile: React.FC = () => {
   const navigate = useNavigate();
-  const { userEmail, userId, setUserEmail, isLoggedIn, initialized } = useAuth();
+  const { userEmail, userId, setUserEmail, isLoggedIn, initialized, isAdmin } = useAuth();
   const [gradeTooltipOpen, setGradeTooltipOpen] = useState(false);
   const [dbProfile, setDbProfile] = useState<{ name: string | null; grade: string; points: number; telegram_id: string | null } | null>(null);
+  const prevTelegramIdRef = useRef<string | null | undefined>(undefined);
+  const currentUserIdRef = useRef<string | null>(null);
+  currentUserIdRef.current = userId;
 
   const localProfile = useMemo(() => (userEmail ? getProfile(userEmail) : null), [userEmail]);
 
   const refreshProfile = useCallback(() => {
     if (!supabase || !userId) {
       setDbProfile(null);
-      try {
-        localStorage.removeItem('telegram_linked');
-      } catch {
-        // ignore
-      }
       return;
     }
+    const requestedUserId = userId;
     supabase
       .from('profiles')
-      .select('name, grade, points, telegram_id')
+      .select('name, grade, points, telegram_id, telegram_reward_given')
       .eq('id', userId)
       .single()
       .then(({ data }) => {
+        if (currentUserIdRef.current !== requestedUserId) return;
+        const nextTelegramId = data?.telegram_id ?? null;
+        const prev = prevTelegramIdRef.current;
+        if (prev !== undefined && prev && !nextTelegramId) {
+          console.warn('Telegram state changed! (Profile) — was linked, now unlinked. Check DB or network.');
+        }
+        prevTelegramIdRef.current = nextTelegramId;
+
         setDbProfile(
           data
             ? {
                 name: data.name ?? '',
                 grade: data.grade ?? 'Обычный участник',
                 points: data.points ?? 0,
-                telegram_id: data.telegram_id ?? null,
+                telegram_id: nextTelegramId,
               }
             : null
         );
         try {
-          localStorage.setItem('telegram_linked', data?.telegram_id ? '1' : '0');
+          localStorage.setItem('telegram_linked', nextTelegramId ? '1' : '0');
         } catch {
           // ignore
         }
       })
       .catch(() => {
-        setDbProfile(null);
-        try {
-          localStorage.removeItem('telegram_linked');
-        } catch {
-          // ignore
-        }
+        // fetch 실패 시 기존 값 유지 — DB에 연동돼 있어도 네트워크 오류로 풀린 것처럼 보이지 않도록
+        // setDbProfile(null); localStorage.removeItem 제거
       });
   }, [userId]);
 
   useEffect(() => {
+    setDbProfile(null);
     refreshProfile();
   }, [refreshProfile]);
 
@@ -96,13 +102,23 @@ export const Profile: React.FC = () => {
         <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
           Личный кабинет
         </h1>
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="shrink-0 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-        >
-          Выйти
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          {isAdmin && (
+            <Link
+              to="/admin"
+              className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+            >
+              Админ
+            </Link>
+          )}
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+          >
+            Выйти
+          </button>
+        </div>
       </header>
 
       {/* 옅은 주황 박스: 인사 + 등급(툴팁) + 포인트(별) */}
@@ -244,7 +260,7 @@ export const Profile: React.FC = () => {
 
       <p className="mt-6 text-center">
         <Link to="/" className="text-sm text-slate-500 hover:text-slate-700">
-          ← На главную
+          <BackArrow /> На главную
         </Link>
       </p>
     </main>

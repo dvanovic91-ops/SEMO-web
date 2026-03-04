@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { InnHelpTooltip } from '../components/InnHelpTooltip';
+import { BackArrow } from '../components/BackArrow';
 
 /**
  * OAuth 가입 후 배송 정보만 입력. 주소 세분화, INN 12자리+도움말, 우편 6자리.
@@ -171,8 +172,8 @@ export const RegisterShipping: React.FC = () => {
       </form>
 
       <p className="mt-6 text-center">
-        <Link to="/" className="text-sm text-slate-500 hover:text-slate-700">
-          ← На главную
+        <Link to="/" className="inline-flex items-center justify-center gap-1.5 text-sm text-slate-500 hover:text-slate-700">
+          <BackArrow /> На главную
         </Link>
       </p>
     </main>

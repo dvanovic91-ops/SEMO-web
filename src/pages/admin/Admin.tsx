@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import {
   LabelList,
@@ -21,6 +21,25 @@ import { supabase } from '../../lib/supabase';
 const inputClass =
   'w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand';
 const labelClass = 'mb-1 block text-sm font-medium text-slate-700';
+
+/** 상품·구성품 이미지 업로드용 Storage 버킷 (Supabase 대시보드에서 Public 버킷 생성) */
+const BUCKET_PRODUCT_IMAGES = 'product-images';
+
+/** 파일을 product-images 버킷에 업로드하고 공개 URL 반환. 실패 시 null */
+async function uploadProductImage(file: File): Promise<string | null> {
+  if (!supabase) return null;
+  const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+  const safeExt = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext) ? ext : 'jpg';
+  const path = `products/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${safeExt}`;
+  const { error } = await supabase.storage.from(BUCKET_PRODUCT_IMAGES).upload(path, file, {
+    cacheControl: '3600',
+    upsert: false,
+    contentType: file.type || `image/${safeExt}`,
+  });
+  if (error) return null;
+  const { data } = supabase.storage.from(BUCKET_PRODUCT_IMAGES).getPublicUrl(path);
+  return data.publicUrl;
+}
 
 /** 천 단위 콤마 (1,000 형식) */
 function formatNumber(n: number): string {
@@ -95,6 +114,16 @@ export const Admin: React.FC = () => {
   const [rangeEnd, setRangeEnd] = useState('');
 
   const [error, setError] = useState<string | null>(null);
+
+  /** 상품 대표 이미지 파일 선택용 (숨김 input 트리거) */
+  const mainImageInputRef = useRef<HTMLInputElement>(null);
+  /** 구성품 이미지 파일 선택용 + 업로드 대상 인덱스 */
+  const componentImageInputRef = useRef<HTMLInputElement>(null);
+  const componentUploadIndexRef = useRef<number>(-1);
+  /** 대표 이미지 업로드 중 여부 */
+  const [uploadingMainImage, setUploadingMainImage] = useState(false);
+  /** 업로드 중인 구성품 인덱스 (-1이면 없음) */
+  const [uploadingComponentIndex, setUploadingComponentIndex] = useState<number>(-1);
 
   /** 목업 사용 시 기간별 매출 시계열 (그래프용) */
   const revenueChartData = useMemo(() => {
@@ -305,6 +334,35 @@ export const Admin: React.FC = () => {
 
   const handleComponentRemove = (index: number) => {
     setComponents((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  /** 대표 이미지 파일 선택 시 업로드 후 URL 반영 */
+  const onMainImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !selectedProduct) return;
+    setUploadingMainImage(true);
+    try {
+      const url = await uploadProductImage(file);
+      if (url) handleProductField('image_url', url);
+    } finally {
+      setUploadingMainImage(false);
+    }
+  };
+
+  /** 구성품 이미지 파일 선택 시 업로드 후 해당 항목 URL 반영 */
+  const onComponentImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    const idx = componentUploadIndexRef.current;
+    if (!file || idx < 0 || idx >= components.length) return;
+    setUploadingComponentIndex(idx);
+    try {
+      const url = await uploadProductImage(file);
+      if (url) handleComponentChange(idx, { image_url: url });
+    } finally {
+      setUploadingComponentIndex(-1);
+    }
   };
 
   const handleSlotChange = (index: number, patch: Partial<Slot>) => {
@@ -622,6 +680,9 @@ export const Admin: React.FC = () => {
             </h2>
             {selectedProduct && (
               <div className="space-y-4 text-sm">
+                <p className="rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs text-amber-800">
+                  아래 ① 썸네일·대표 이미지, ② 상세 설명, ③ 상세페이지 구성품 이미지를 입력하면 상품 상세 페이지에 그대로 반영됩니다. 이미지는 URL 입력 또는 「파일 올리기」로 올릴 수 있습니다.
+                </p>
                 <div>
                   <label className={labelClass}>상품명</label>
                   <input
@@ -641,7 +702,7 @@ export const Admin: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className={labelClass}>설명</label>
+                  <label className={labelClass}>설명 (목록용 짧은 설명)</label>
                   <textarea
                     className={`${inputClass} min-h-[72px]`}
                     value={selectedProduct.description ?? ''}
@@ -678,18 +739,49 @@ export const Admin: React.FC = () => {
                     onChange={(e) => handleProductField('stock', e.target.value === '' ? null : e.target.value)}
                   />
                 </div>
-                <div>
-                  <label className={labelClass}>패키지 이미지 URL (상품 상세 큰 사진)</label>
+
+                {/* ① 썸네일·상세 페이지 대표 이미지 (1장) */}
+                <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3">
+                  <label className={`${labelClass} font-semibold text-slate-800`}>
+                    ① 썸네일·상세 페이지 대표 이미지 (1장)
+                  </label>
+                  <p className="mb-2 text-xs text-slate-500">
+                    쇼핑/상세 페이지에 쓰이는 대표 사진입니다. URL을 입력하거나 「파일 올리기」로 업로드하세요.
+                  </p>
                   <input
-                    type="url"
-                    className={inputClass}
-                    value={selectedProduct.image_url ?? ''}
-                    onChange={(e) => handleProductField('image_url', e.target.value || null)}
-                    placeholder="https://..."
+                    type="file"
+                    accept="image/*"
+                    ref={mainImageInputRef}
+                    className="hidden"
+                    onChange={onMainImageFileChange}
                   />
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <input
+                      type="url"
+                      className={inputClass}
+                      value={selectedProduct.image_url ?? ''}
+                      onChange={(e) => handleProductField('image_url', e.target.value || null)}
+                      placeholder="https://... 또는 아래 버튼으로 업로드"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => mainImageInputRef.current?.click()}
+                      disabled={uploadingMainImage}
+                      className="shrink-0 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:border-brand hover:text-brand disabled:opacity-60"
+                    >
+                      {uploadingMainImage ? '업로드 중…' : '파일 올리기'}
+                    </button>
+                  </div>
                 </div>
-                <div>
-                  <label className={labelClass}>상품 상세 설명</label>
+
+                {/* ② 상세 설명 (본문) */}
+                <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3">
+                  <label className={`${labelClass} font-semibold text-slate-800`}>
+                    ② 상세 설명 (상품 페이지 본문)
+                  </label>
+                  <p className="mb-2 text-xs text-slate-500">
+                    상품 상세 페이지 본문에 표시되는 HTML/텍스트입니다.
+                  </p>
                   <textarea
                     className={`${inputClass} min-h-[100px]`}
                     value={selectedProduct.detail_description ?? ''}
@@ -697,9 +789,13 @@ export const Admin: React.FC = () => {
                     placeholder="상품 페이지에 표시되는 본문"
                   />
                 </div>
-                <div>
+
+                {/* ③ 상세 페이지 구성품 이미지 (최대 6개) */}
+                <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3">
                   <div className="mb-2 flex items-center justify-between">
-                    <label className={labelClass}>구성품 (1~6개, 이미지 URL로 상세 페이지 구성)</label>
+                    <label className={`${labelClass} font-semibold text-slate-800`}>
+                      ③ 상세 페이지 구성품 이미지 (최대 6개)
+                    </label>
                     <button
                       type="button"
                       onClick={handleComponentAdd}
@@ -708,7 +804,17 @@ export const Admin: React.FC = () => {
                       + 항목
                     </button>
                   </div>
-                  <div className="space-y-3 rounded-lg border border-slate-100 bg-slate-50/50 p-3">
+                  <p className="mb-3 text-xs text-slate-500">
+                    상세 페이지 하단 구성품 그리드에 들어갈 이름·이미지·설명입니다. 이미지는 URL 입력 또는 각 행의 「파일 올리기」로 넣을 수 있습니다.
+                  </p>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    ref={componentImageInputRef}
+                    className="hidden"
+                    onChange={onComponentImageFileChange}
+                  />
+                  <div className="space-y-3">
                     {components.map((comp, idx) => (
                       <div key={comp.id} className="rounded-lg border border-slate-200 bg-white p-3">
                         <div className="mb-2 flex items-center justify-between">
@@ -721,7 +827,7 @@ export const Admin: React.FC = () => {
                             삭제
                           </button>
                         </div>
-                        <div className="grid gap-2 sm:grid-cols-2">
+                        <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
                           <input
                             type="text"
                             className={inputClass}
@@ -732,10 +838,21 @@ export const Admin: React.FC = () => {
                           <input
                             type="text"
                             className={inputClass}
-                            placeholder="이미지 URL"
+                            placeholder="이미지 URL 또는 파일 올리기"
                             value={comp.image_url ?? ''}
                             onChange={(e) => handleComponentChange(idx, { image_url: e.target.value || null })}
                           />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              componentUploadIndexRef.current = idx;
+                              componentImageInputRef.current?.click();
+                            }}
+                            disabled={uploadingComponentIndex === idx}
+                            className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:border-brand hover:text-brand disabled:opacity-60"
+                          >
+                            {uploadingComponentIndex === idx ? '업로드 중…' : '파일 올리기'}
+                          </button>
                         </div>
                         <textarea
                           className={`${inputClass} mt-2 min-h-[60px]`}

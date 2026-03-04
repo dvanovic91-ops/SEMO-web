@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { getProfile, setProfile } from '../../lib/profileStorage';
 import { InnHelpTooltip } from '../../components/InnHelpTooltip';
 import { AddressSuggest } from '../../components/AddressSuggest';
+import { BackArrow } from '../../components/BackArrow';
 import { supabase } from '../../lib/supabase';
 
 /**
@@ -71,7 +72,7 @@ function ErrorFallback({ onRetry }: { onRetry?: () => void }) {
         </p>
       )}
       <p className="mt-6 text-center">
-        <Link to="/profile" className="text-sm text-slate-500 hover:text-slate-700">← Profile</Link>
+        <Link to="/profile" className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700"><BackArrow /> Profile</Link>
       </p>
     </main>
   );
@@ -133,12 +134,16 @@ export const ProfileEdit: React.FC = () => {
     if (!supabase || !userId) return;
     supabase
       .from('profiles')
-      .select('name, phone, telegram_id')
+      .select('name, phone, telegram_id, telegram_reward_given')
       .eq('id', userId)
       .single()
       .then(({ data }) => {
         if (data) {
-          setTelegramLinked(!!data?.telegram_id);
+          const nextLinked = !!data?.telegram_id;
+          setTelegramLinked((prev) => {
+            if (prev === true && !nextLinked) console.warn('Telegram state changed! (ProfileEdit) — was linked, now unlinked. Check DB or network.');
+            return nextLinked;
+          });
           setForm((prev) => ({
             ...prev,
             name: data?.name ?? prev?.name ?? safeName,
@@ -237,10 +242,12 @@ export const ProfileEdit: React.FC = () => {
         setProfile(safeUserEmail, { ...profile, name: form.name, grade: profile?.grade ?? 'Обычный участник', points: profile?.points ?? 0 });
       }
       if (supabase && userId) {
-        await supabase
-          .from('profiles')
-          .update({ name: form?.name ?? undefined, phone: form?.phone || null })
-          .eq('id', userId);
+        const payload: { name?: string | null; phone?: string | null } = {};
+        if (form?.name !== undefined) payload.name = form.name || null;
+        if (form?.phone !== undefined) payload.phone = form.phone || null;
+        if (Object.keys(payload).length > 0) {
+          await supabase.from('profiles').update(payload).eq('id', userId);
+        }
       }
       setEditing(false);
       setSaved(true);
@@ -258,7 +265,7 @@ export const ProfileEdit: React.FC = () => {
     }
     if (!supabase || !userId) return;
     try {
-      await supabase.from('profiles').update({ phone: form.phone }).eq('id', userId);
+      await supabase.from('profiles').update({ phone: form?.phone ?? '' }).eq('id', userId);
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
       const { data, error } = await supabase
         .from('link_tokens')
@@ -279,6 +286,7 @@ export const ProfileEdit: React.FC = () => {
     if (!supabase || !userId) return;
     setPhoneError('');
     try {
+      // 의도적 연동 해제: 사용자가 "Изменить номер" 클릭 시에만 telegram_id null로 설정
       await supabase.from('profiles').update({ telegram_id: null, phone_verified: false }).eq('id', userId);
       setTelegramLinked(false);
       setEditing(true);
@@ -298,7 +306,7 @@ export const ProfileEdit: React.FC = () => {
     <ProfileEditErrorBoundary>
       <main className="mx-auto max-w-xl px-4 py-6 sm:px-6 sm:py-10 md:py-14">
         <p className="mb-6">
-          <Link to="/profile" className="text-sm text-slate-500 hover:text-slate-700">← Profile</Link>
+          <Link to="/profile" className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700"><BackArrow /> Profile</Link>
         </p>
 
         <header className="mb-8">
@@ -510,7 +518,7 @@ export const ProfileEdit: React.FC = () => {
         </form>
 
         <p className="mt-8 text-center">
-          <Link to="/profile" className="text-sm text-slate-500 hover:text-slate-700">← Profile</Link>
+          <Link to="/profile" className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700"><BackArrow /> Profile</Link>
         </p>
       </main>
     </ProfileEditErrorBoundary>
