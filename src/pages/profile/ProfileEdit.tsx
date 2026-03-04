@@ -187,8 +187,8 @@ export const ProfileEdit: React.FC = () => {
   useEffect(() => {
     setForm((prev) => ({
       ...prev,
-      email: safeUserEmail || prev?.email ?? '',
-      name: prev?.name || safeName,
+      email: (safeUserEmail || prev?.email) ?? '',
+      name: (prev?.name || safeName),
       fioLast: prev?.fioLast ?? '',
       fioFirst: prev?.fioFirst ?? '',
       fioMiddle: prev?.fioMiddle ?? '',
