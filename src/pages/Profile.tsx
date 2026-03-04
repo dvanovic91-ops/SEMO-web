@@ -106,9 +106,9 @@ export const Profile: React.FC = () => {
           {isAdmin && (
             <Link
               to="/admin"
-              className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+              className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white transition hover:bg-brand/90"
             >
-              Админ
+              관리메뉴
             </Link>
           )}
           <button

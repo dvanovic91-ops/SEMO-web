@@ -103,8 +103,10 @@ export interface RevenueDataPoint {
   dateKey: string;
   /** 매출 (루블) */
   revenue: number;
-  /** 해당 기간에 팔린 상품 요약 (목업) */
-  products?: { name: string; amount: number }[];
+  /** 해당 기간 전체 수량 (주문 건수 또는 판매 수량) — 수량 그래프용 */
+  quantity: number;
+  /** 해당 기간에 팔린 상품 요약 (목업). amount=금액(루블), quantity=해당 상품 수량 */
+  products?: { name: string; amount: number; quantity: number }[];
 }
 
 /** 일별 매출 목업 (최근 14일) */
@@ -117,15 +119,22 @@ function getDayLabels(count: number): RevenueDataPoint[] {
     d.setDate(d.getDate() - i);
     const dateKey = d.toISOString().slice(0, 10);
     const revenue = 8000 + Math.floor(Math.random() * 12000) + (i === 0 ? 5000 : 0);
+    const quantity = 1 + Math.floor(Math.random() * 5);
     const numProducts = 1 + Math.floor(Math.random() * 2);
-    const products = Array.from({ length: numProducts }, (_, j) => ({
-      name: productNames[j % productNames.length],
-      amount: Math.floor(revenue / numProducts) + (j === 0 ? revenue % numProducts : 0),
-    }));
+    const products = Array.from({ length: numProducts }, (_, j) => {
+      const amt = Math.floor(revenue / numProducts) + (j === 0 ? revenue % numProducts : 0);
+      const q = j === 0 ? quantity - (numProducts > 1 ? Math.floor(quantity / 2) : 0) : Math.floor(quantity / 2);
+      return {
+        name: productNames[j % productNames.length],
+        amount: amt,
+        quantity: numProducts === 1 ? quantity : q,
+      };
+    });
     points.push({
       label: (d.getMonth() + 1) + '월 ' + d.getDate() + '일',
       dateKey,
       revenue,
+      quantity,
       products,
     });
   }
@@ -138,6 +147,7 @@ function getWeekLabels(count: number): RevenueDataPoint[] {
   const productNames = ['Beauty Box — Весна 2026', 'Сыворотка для лица', 'Крем для рук'];
   for (let i = count - 1; i >= 0; i--) {
     const revenue = 35000 + Math.floor(Math.random() * 45000);
+    const quantity = 3 + Math.floor(Math.random() * 12);
     const weekLabel = (count - i) + '주';
     const d = new Date();
     d.setDate(d.getDate() - i * 7);
@@ -146,10 +156,15 @@ function getWeekLabels(count: number): RevenueDataPoint[] {
       label: weekLabel,
       dateKey,
       revenue,
+      quantity,
       products: [
-        { name: productNames[0], amount: Math.floor(revenue * 0.5) },
-        { name: productNames[1], amount: Math.floor(revenue * 0.3) },
-        { name: productNames[2], amount: revenue - Math.floor(revenue * 0.5) - Math.floor(revenue * 0.3) },
+        { name: productNames[0], amount: Math.floor(revenue * 0.5), quantity: Math.floor(quantity * 0.5) },
+        { name: productNames[1], amount: Math.floor(revenue * 0.3), quantity: Math.floor(quantity * 0.3) },
+        {
+          name: productNames[2],
+          amount: revenue - Math.floor(revenue * 0.5) - Math.floor(revenue * 0.3),
+          quantity: quantity - Math.floor(quantity * 0.5) - Math.floor(quantity * 0.3),
+        },
       ],
     });
   }
@@ -164,16 +179,18 @@ function getMonthLabels(count: number): RevenueDataPoint[] {
   for (let i = count - 1; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const revenue = 80000 + Math.floor(Math.random() * 120000);
+    const quantity = 10 + Math.floor(Math.random() * 40);
     const dateKey = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-01';
     points.push({
       label: d.getFullYear() + '년 ' + (d.getMonth() + 1) + '월',
       dateKey,
       revenue,
+      quantity,
       products: [
-        { name: productNames[0], amount: Math.floor(revenue * 0.4) },
-        { name: productNames[1], amount: Math.floor(revenue * 0.25) },
-        { name: productNames[2], amount: Math.floor(revenue * 0.2) },
-        { name: productNames[3], amount: revenue - Math.floor(revenue * 0.85) },
+        { name: productNames[0], amount: Math.floor(revenue * 0.4), quantity: Math.floor(quantity * 0.4) },
+        { name: productNames[1], amount: Math.floor(revenue * 0.25), quantity: Math.floor(quantity * 0.25) },
+        { name: productNames[2], amount: Math.floor(revenue * 0.2), quantity: Math.floor(quantity * 0.2) },
+        { name: productNames[3], amount: revenue - Math.floor(revenue * 0.85), quantity: quantity - Math.floor(quantity * 0.85) },
       ],
     });
   }
@@ -204,13 +221,15 @@ export function getMockRevenueSeries(
       if (d > end) break;
       const dateKey = d.toISOString().slice(0, 10);
       const revenue = 5000 + Math.floor(Math.random() * 15000);
+      const quantity = 1 + Math.floor(Math.random() * 4);
       points.push({
         label: (d.getMonth() + 1) + '월 ' + d.getDate() + '일',
         dateKey,
         revenue,
+        quantity,
         products: [
-          { name: productNames[0], amount: Math.floor(revenue * 0.6) },
-          { name: productNames[1], amount: revenue - Math.floor(revenue * 0.6) },
+          { name: productNames[0], amount: Math.floor(revenue * 0.6), quantity: Math.floor(quantity * 0.6) },
+          { name: productNames[1], amount: revenue - Math.floor(revenue * 0.6), quantity: quantity - Math.floor(quantity * 0.6) },
         ],
       });
     }

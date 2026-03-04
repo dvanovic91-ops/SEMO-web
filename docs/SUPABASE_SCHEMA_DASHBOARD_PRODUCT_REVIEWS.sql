@@ -32,16 +32,18 @@ create policy "product_views 관리자 조회"
   on public.product_views for select
   using (exists (select 1 from public.profiles where id = auth.uid() and is_admin = true));
 
--- ---------- product_components (구성품 1,2,3... 관리자 설정) ----------
+-- ---------- product_components (구성품 1,2,3... 관리자 설정, 항목당 이미지 여러 장) ----------
 create table if not exists public.product_components (
   id uuid primary key default gen_random_uuid(),
   product_id uuid not null references public.products(id) on delete cascade,
   sort_order smallint not null default 0,
   name text,
   image_url text,
+  image_urls jsonb default '[]',
   description text,
   created_at timestamptz default now()
 );
+alter table public.product_components add column if not exists image_urls jsonb default '[]';
 
 alter table public.product_components enable row level security;
 

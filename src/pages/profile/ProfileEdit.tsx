@@ -316,13 +316,6 @@ export const ProfileEdit: React.FC = () => {
           <p className="mt-1 text-sm text-slate-500">
             Основные данные и адрес доставки. Ниже — смена пароля.
           </p>
-          <button
-            type="button"
-            onClick={loadProfileFromDb}
-            className="mt-2 text-xs text-slate-500 underline hover:text-slate-700"
-          >
-            Обновить данные
-          </button>
         </header>
 
         <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
@@ -415,8 +408,12 @@ export const ProfileEdit: React.FC = () => {
                   <span className="inline-flex items-center gap-2">
                     Адрес (поиск по базе)
                     <span className="group relative ml-0.5 inline-flex cursor-help" aria-label="Подсказка">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 text-xs font-medium transition hover:border-brand hover:text-brand">?</span>
-                      <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 w-[220px] -translate-x-1/2 rounded px-2.5 py-1.5 text-xs font-medium leading-snug text-slate-700 bg-white shadow-md border border-slate-100 opacity-0 transition group-hover:opacity-100">При вводе адреса нижние поля заполнятся автоматически.</span>
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 text-xs font-medium transition hover:border-brand hover:text-brand">
+                        ?
+                      </span>
+                      <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 w-[220px] -translate-x-1/2 rounded px-2.5 py-1.5 text-xs font-medium leading-snug text-brand bg-white shadow-md border border-slate-100 opacity-0 transition group-hover:opacity-100">
+                        При вводе адреса нижние поля заполнятся автоматически.
+                      </span>
                     </span>
                   </span>
                 }

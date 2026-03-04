@@ -21,8 +21,15 @@ type Component = {
   sort_order: number;
   name: string | null;
   image_url: string | null;
+  image_urls?: string[] | null;
   description: string | null;
 };
+
+/** 구성품 이미지 URL 배열 (image_urls 우선, 없으면 [image_url]) */
+function getComponentImageUrls(comp: Component): string[] {
+  if (comp.image_urls && Array.isArray(comp.image_urls) && comp.image_urls.length > 0) return comp.image_urls;
+  return comp.image_url ? [comp.image_url] : [];
+}
 
 type Review = {
   id: string;
@@ -112,7 +119,7 @@ export const ProductDetail: React.FC = () => {
 
       const { data: compData } = await supabase
         .from('product_components')
-        .select('id, sort_order, name, image_url, description')
+        .select('id, sort_order, name, image_url, image_urls, description')
         .eq('product_id', currentId)
         .order('sort_order');
       if (cancelled || currentId !== id) return;
@@ -312,27 +319,41 @@ export const ProductDetail: React.FC = () => {
                 <div className="border-t border-slate-100 bg-slate-50/50 px-4 py-4 sm:px-6 sm:py-5">
                   <p className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">Состав набора</p>
                   <div className="grid grid-cols-3 gap-2 sm:gap-3 sm:grid-cols-6">
-                    {components.slice(0, 6).map((comp, idx) => (
-                      <div
-                        key={comp.id}
-                        className="flex flex-col items-center rounded-xl bg-white p-2 shadow-sm ring-1 ring-slate-100"
-                      >
-                        <div className="aspect-square w-full overflow-hidden rounded-lg bg-slate-100">
-                          {comp.image_url ? (
-                            <img
-                              src={comp.image_url}
-                              alt={comp.name ?? `Элемент ${idx + 1}`}
-                              className="h-full w-full object-cover"
-                            />
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center text-slate-300 text-xs">—</div>
+                    {components.slice(0, 6).map((comp, idx) => {
+                      const imgs = getComponentImageUrls(comp);
+                      const firstImg = imgs[0];
+                      return (
+                        <div
+                          key={comp.id}
+                          className="flex flex-col items-center rounded-xl bg-white p-2 shadow-sm ring-1 ring-slate-100"
+                        >
+                          <div className="aspect-square w-full overflow-hidden rounded-lg bg-slate-100">
+                            {firstImg ? (
+                              <img
+                                src={firstImg}
+                                alt={comp.name ?? `Элемент ${idx + 1}`}
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center text-slate-300 text-xs">—</div>
+                            )}
+                          </div>
+                          {imgs.length > 1 && (
+                            <div className="mt-1 flex gap-0.5">
+                              {imgs.slice(0, 4).map((src, i) => (
+                                <div key={i} className="h-6 w-6 overflow-hidden rounded bg-slate-100">
+                                  <img src={src} alt="" className="h-full w-full object-cover" />
+                                </div>
+                              ))}
+                              {imgs.length > 4 && <span className="text-[10px] text-slate-400">+{imgs.length - 4}</span>}
+                            </div>
                           )}
+                          <p className="mt-1.5 line-clamp-2 text-center text-[11px] font-medium text-slate-700 sm:text-xs">
+                            {comp.name ?? `№${idx + 1}`}
+                          </p>
                         </div>
-                        <p className="mt-1.5 line-clamp-2 text-center text-[11px] font-medium text-slate-700 sm:text-xs">
-                          {comp.name ?? `№${idx + 1}`}
-                        </p>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -352,19 +373,26 @@ export const ProductDetail: React.FC = () => {
           <section>
             <h2 className="mb-3 text-lg font-semibold text-slate-900">Подробнее о составе</h2>
             <ul className="space-y-3">
-              {components.map((comp, idx) => (
-                <li key={comp.id} className="flex gap-4 rounded-xl border border-slate-100 bg-white p-4">
-                  {comp.image_url && (
-                    <div className="h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-slate-100">
-                      <img src={comp.image_url} alt={comp.name ?? `Элемент ${idx + 1}`} className="h-full w-full object-cover" />
+              {components.map((comp, idx) => {
+                const imgs = getComponentImageUrls(comp);
+                return (
+                  <li key={comp.id} className="flex gap-4 rounded-xl border border-slate-100 bg-white p-4">
+                    {imgs.length > 0 && (
+                      <div className="flex shrink-0 gap-1">
+                        {imgs.map((src, i) => (
+                          <div key={i} className="h-20 w-20 overflow-hidden rounded-lg bg-slate-100">
+                            <img src={src} alt={comp.name ?? `Элемент ${idx + 1}`} className="h-full w-full object-cover" />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-slate-800">{comp.name ?? `Элемент ${idx + 1}`}</p>
+                      {comp.description && <p className="mt-1 text-sm text-slate-600">{comp.description}</p>}
                     </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium text-slate-800">{comp.name ?? `Элемент ${idx + 1}`}</p>
-                    {comp.description && <p className="mt-1 text-sm text-slate-600">{comp.description}</p>}
-                  </div>
-                </li>
-              ))}
+                  </li>
+                );
+              })}
             </ul>
           </section>
         )}

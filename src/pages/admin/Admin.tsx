@@ -68,6 +68,8 @@ type ProductComponent = {
   sort_order: number;
   name: string | null;
   image_url: string | null;
+  /** 항목당 이미지 여러 장 (DB image_urls 또는 [image_url] 사용) */
+  image_urls: string[];
   description: string | null;
 };
 
@@ -75,6 +77,13 @@ type DashboardKpi = {
   totalRevenueCents: number;
   orderCount: number;
   products: { id: string; name: string; stock: number; viewCount: number }[];
+};
+
+type ProductStats = {
+  viewCount: number;
+  reviewCount: number;
+  avgRating: number | null;
+  latestReviewAt: string | null;
 };
 
 type Slot = {
@@ -110,11 +119,16 @@ export const Admin: React.FC = () => {
 
   const [dashboardKpi, setDashboardKpi] = useState<DashboardKpi | null>(null);
   const [components, setComponents] = useState<ProductComponent[]>([]);
+  const [productStats, setProductStats] = useState<ProductStats | null>(null);
 
   /** 매출 그래프 기간: 일별 / 주별 / 월별 / 특정기간 */
   const [dashboardPeriod, setDashboardPeriod] = useState<DashboardPeriodType>('day');
   const [rangeStart, setRangeStart] = useState('');
   const [rangeEnd, setRangeEnd] = useState('');
+  /** 그래프 Y축: 수량(전체 수량) vs 금액(루블 매출) */
+  const [dashboardMetric, setDashboardMetric] = useState<'quantity' | 'revenue'>('revenue');
+  /** 특정 상품만 보기 (빈 문자열이면 전체) */
+  const [selectedChartProduct, setSelectedChartProduct] = useState<string>('');
 
   const [error, setError] = useState<string | null>(null);
 
@@ -123,6 +137,8 @@ export const Admin: React.FC = () => {
   /** 구성품 이미지 파일 선택용 + 업로드 대상 인덱스 */
   const componentImageInputRef = useRef<HTMLInputElement>(null);
   const componentUploadIndexRef = useRef<number>(-1);
+  /** 구성품 내 이미지 인덱스 (파일 올리기 시 어느 사진 칸에 넣을지) */
+  const componentUploadImgIdxRef = useRef<number>(0);
   /** 대표 이미지 업로드 중 여부 */
   const [uploadingMainImage, setUploadingMainImage] = useState(false);
   /** 업로드 중인 구성품 인덱스 (-1이면 없음) */
@@ -148,6 +164,22 @@ export const Admin: React.FC = () => {
       dashboardPeriod === 'range' ? rangeEnd || undefined : undefined
     );
   }, [USE_MOCK_DASHBOARD, dashboardPeriod, rangeStart, rangeEnd]);
+
+  /** 수량/금액 + 상품 필터 적용한 그래프 데이터 (value 하나로 통일) */
+  const chartData = useMemo(() => {
+    if (!revenueChartData.length) return [];
+    const isQuantity = dashboardMetric === 'quantity';
+    return revenueChartData.map((d) => {
+      let value: number;
+      if (selectedChartProduct) {
+        const prod = d.products?.find((p) => p.name === selectedChartProduct);
+        value = prod ? (isQuantity ? prod.quantity : prod.amount) : 0;
+      } else {
+        value = isQuantity ? d.quantity : d.revenue;
+      }
+      return { ...d, value };
+    });
+  }, [revenueChartData, dashboardMetric, selectedChartProduct]);
 
   useEffect(() => {
     if (!supabase || !isAdmin) return;
@@ -237,7 +269,7 @@ export const Admin: React.FC = () => {
     void loadKpi();
   }, [isAdmin, tab]);
 
-  // 선택된 상품의 구성품 로드
+  // 선택된 상품의 구성품 로드 (image_urls 있으면 사용, 없으면 [image_url]로 보정)
   useEffect(() => {
     if (!supabase || !selectedProduct?.id) {
       setComponents([]);
@@ -245,11 +277,61 @@ export const Admin: React.FC = () => {
     }
     supabase
       .from('product_components')
-      .select('id, product_id, sort_order, name, image_url, description')
+      .select('id, product_id, sort_order, name, image_url, image_urls, description')
       .eq('product_id', selectedProduct.id)
       .order('sort_order')
-      .then(({ data }) => setComponents((data as ProductComponent[]) ?? []));
+      .then(({ data }) => {
+        const rows = (data as (Omit<ProductComponent, 'image_urls'> & { image_urls?: string[] | null })[]) ?? [];
+        setComponents(
+          rows.map((r) => ({
+            ...r,
+            image_urls:
+              r.image_urls && Array.isArray(r.image_urls) && r.image_urls.length > 0 ? r.image_urls : r.image_url ? [r.image_url] : [],
+          }))
+        );
+      });
   }, [selectedProduct?.id]);
+
+  // 선택된 상품의 조회수·리뷰 통계 (상품 탭에서만 로드)
+  useEffect(() => {
+    if (!supabase || !isAdmin || tab !== 'products' || !selectedProduct?.id) {
+      setProductStats(null);
+      return;
+    }
+    const productId = selectedProduct.id;
+    const loadStats = async () => {
+      try {
+        const [{ data: viewData }, { data: reviewData }] = await Promise.all([
+          supabase.from('product_views').select('id').eq('product_id', productId),
+          supabase.from('product_reviews').select('rating, created_at').eq('product_id', productId),
+        ]);
+        const viewCount = viewData?.length ?? 0;
+        const reviewRows = (reviewData as { rating: number | null; created_at: string }[] | null) ?? [];
+        const reviewCount = reviewRows.length;
+        const avgRating =
+          reviewCount > 0
+            ? reviewRows.reduce((sum, r) => sum + (r.rating ?? 0), 0) / reviewCount
+            : null;
+        const latestReviewAt =
+          reviewCount > 0
+            ? reviewRows.reduce<string | null>(
+                (latest, r) => (!latest || r.created_at > latest ? r.created_at : latest),
+                null
+              )
+            : null;
+        setProductStats({
+          viewCount,
+          reviewCount,
+          avgRating,
+          latestReviewAt,
+        });
+      } catch (err) {
+        console.error('Failed to load product stats', err);
+        setProductStats(null);
+      }
+    };
+    void loadStats();
+  }, [supabase, isAdmin, tab, selectedProduct?.id]);
 
   if (!initialized) return null;
   if (!isLoggedIn) return <Navigate to="/login" replace />;
@@ -295,13 +377,17 @@ export const Admin: React.FC = () => {
         setSelectedProduct({ ...selectedProduct, id: data.id });
       }
       // 구성품 저장: 기존 삭제 후 일괄 삽입
-      const compPayload = components.map((c, i) => ({
-        product_id: productId,
-        sort_order: i,
-        name: c.name || null,
-        image_url: c.image_url || null,
-        description: c.description || null,
-      }));
+      const compPayload = components.map((c, i) => {
+        const urls = c.image_urls?.length ? c.image_urls : c.image_url ? [c.image_url] : [];
+        return {
+          product_id: productId,
+          sort_order: i,
+          name: c.name || null,
+          image_url: urls[0] || null,
+          image_urls: urls,
+          description: c.description || null,
+        };
+      });
       await supabase.from('product_components').delete().eq('product_id', productId);
       if (compPayload.length > 0) {
         await supabase.from('product_components').insert(compPayload);
@@ -313,15 +399,29 @@ export const Admin: React.FC = () => {
       if (prodData) setProducts(prodData as Product[]);
       const { data: compData } = await supabase
         .from('product_components')
-        .select('id, product_id, sort_order, name, image_url, description')
+        .select('id, product_id, sort_order, name, image_url, image_urls, description')
         .eq('product_id', productId)
         .order('sort_order');
-      if (compData) setComponents(compData as ProductComponent[]);
+      if (compData) {
+        const rows = compData as (Omit<ProductComponent, 'image_urls'> & { image_urls?: string[] | null })[];
+        setComponents(
+          rows.map((r) => ({
+            ...r,
+            image_urls:
+              r.image_urls && Array.isArray(r.image_urls) && r.image_urls.length > 0 ? r.image_urls : r.image_url ? [r.image_url] : [],
+          }))
+        );
+      }
       setError(null);
       setSaveSuccessAt(Date.now());
     } catch (e) {
       console.error(e);
-      setError('상품 저장에 실패했습니다.');
+      // Supabase/PostgREST 에러 메시지를 그대로 보여줘서 원인 파악을 쉽게 함
+      const message =
+        e && typeof e === 'object' && 'message' in e && typeof (e as any).message === 'string'
+          ? (e as any).message
+          : null;
+      setError(message ? `상품 저장에 실패했습니다: ${message}` : '상품 저장에 실패했습니다.');
     } finally {
       setSavingProduct(false);
     }
@@ -344,9 +444,42 @@ export const Admin: React.FC = () => {
         sort_order: prev.length,
         name: '',
         image_url: null,
+        image_urls: [],
         description: null,
       },
     ]);
+  };
+
+  /** 구성품 항목의 이미지 URL 목록에서 한 개 변경 (인덱스까지 없으면 빈 문자열로 채움) */
+  const handleComponentImageUrlsChange = (compIdx: number, imgIdx: number, url: string) => {
+    setComponents((prev) =>
+      prev.map((c, i) => {
+        if (i !== compIdx) return c;
+        const base = c.image_urls ?? (c.image_url ? [c.image_url] : []);
+        const next = [...base];
+        while (next.length <= imgIdx) next.push('');
+        next[imgIdx] = url;
+        return { ...c, image_urls: next };
+      })
+    );
+  };
+
+  /** 구성품 항목에 이미지 한 장 추가 */
+  const handleComponentImageAdd = (compIdx: number) => {
+    setComponents((prev) =>
+      prev.map((c, i) => (i !== compIdx ? c : { ...c, image_urls: [...(c.image_urls ?? []), ''] }))
+    );
+  };
+
+  /** 구성품 항목에서 이미지 한 장 제거 */
+  const handleComponentImageRemove = (compIdx: number, imgIdx: number) => {
+    setComponents((prev) =>
+      prev.map((c, i) => {
+        if (i !== compIdx) return c;
+        const next = (c.image_urls ?? []).filter((_, idx) => idx !== imgIdx);
+        return { ...c, image_urls: next };
+      })
+    );
   };
 
   const handleComponentRemove = (index: number) => {
@@ -372,18 +505,19 @@ export const Admin: React.FC = () => {
     }
   };
 
-  /** 구성품 이미지 파일 선택 시 업로드 후 해당 항목 URL 반영. 실패 시 에러 메시지 표시 */
+  /** 구성품 이미지 파일 선택 시 업로드 후 해당 항목의 해당 칸에 URL 반영 */
   const onComponentImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
-    const idx = componentUploadIndexRef.current;
-    if (!file || idx < 0 || idx >= components.length) return;
+    const compIdx = componentUploadIndexRef.current;
+    const imgIdx = componentUploadImgIdxRef.current;
+    if (!file || compIdx < 0 || compIdx >= components.length) return;
     setError(null);
-    setUploadingComponentIndex(idx);
+    setUploadingComponentIndex(compIdx);
     try {
       const url = await uploadProductImage(file);
       if (url) {
-        handleComponentChange(idx, { image_url: url });
+        handleComponentImageUrlsChange(compIdx, imgIdx, url);
       } else {
         setError('이미지 업로드에 실패했습니다. Supabase Storage에 "product-images" 버킷(Public)이 있는지, 정책(INSERT 허용)을 확인하세요.');
       }
@@ -410,24 +544,44 @@ export const Admin: React.FC = () => {
     });
   };
 
+  /** 메인 편집 저장 — RPC 없이 직접 삭제 후 삽입 (Supabase에 RPC 미생성 시에도 동작) */
   const handleSaveSlots = async () => {
     if (!supabase) return;
     setSavingSlots(true);
     setError(null);
     try {
-      const payload = slots.map((s) => ({
-        id: s.id,
+      const { data: existing } = await supabase.from('main_layout_slots').select('id');
+      if (existing?.length) {
+        const { error: delErr } = await supabase.from('main_layout_slots').delete().in('id', existing.map((r) => r.id));
+        if (delErr) throw delErr;
+      }
+      const toInsert = slots.map((s) => ({
         slot_index: s.slot_index,
         title: s.title || null,
         description: s.description || null,
-        image_url: s.image_url,
-        product_id: s.product_id,
+        image_url: s.image_url || null,
+        product_id: s.product_id || null,
         link_url: s.link_url || null,
       }));
-      const { error: upErr } = await supabase.rpc('upsert_main_layout_slots', {
-        slots_json: payload,
-      });
-      if (upErr) throw upErr;
+      const { error: insErr } = await supabase.from('main_layout_slots').insert(toInsert);
+      if (insErr) throw insErr;
+      const { data: slotData } = await supabase
+        .from('main_layout_slots')
+        .select('id, slot_index, title, description, image_url, product_id, link_url')
+        .order('slot_index');
+      if (slotData?.length) {
+        setSlots(
+          slotData.map((s) => ({
+            ...s,
+            slot_index: s.slot_index,
+            title: s.title ?? '',
+            description: s.description ?? '',
+            image_url: s.image_url ?? null,
+            product_id: s.product_id ?? null,
+            link_url: s.link_url ?? '',
+          }))
+        );
+      }
     } catch (e) {
       console.error(e);
       setError('메인 페이지 레이아웃 저장에 실패했습니다.');
@@ -515,9 +669,9 @@ export const Admin: React.FC = () => {
             </div>
           </div>
 
-          {/* 매출 꺾은선 그래프: 기간 선택 + 차트 (목업 시에만 데이터 표시) */}
+          {/* 매출/수량 꺾은선 그래프: 기간·수량/금액·상품 필터 + 차트 */}
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h3 className="mb-3 text-sm font-semibold text-slate-900">기간별 매출</h3>
+            <h3 className="mb-3 text-sm font-semibold text-slate-900">기간별 매출 / 수량</h3>
             <div className="mb-4 flex flex-wrap items-center gap-2">
               {(['day', 'week', 'month', 'range'] as const).map((p) => (
                 <button
@@ -551,30 +705,67 @@ export const Admin: React.FC = () => {
                   />
                 </span>
               )}
+              {/* 수량 vs 금액 선택 */}
+              <span className="ml-2 inline-flex rounded-full bg-slate-100 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setDashboardMetric('quantity')}
+                  className={`rounded-full px-3 py-1.5 text-sm ${dashboardMetric === 'quantity' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                >
+                  수량
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDashboardMetric('revenue')}
+                  className={`rounded-full px-3 py-1.5 text-sm ${dashboardMetric === 'revenue' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                >
+                  금액
+                </button>
+              </span>
+              {/* 특정 상품만 보기 */}
+              <select
+                value={selectedChartProduct}
+                onChange={(e) => setSelectedChartProduct(e.target.value)}
+                className={inputClass + ' max-w-[200px]'}
+              >
+                <option value="">전체</option>
+                {USE_MOCK_DASHBOARD && mockProductBreakdown.map((row) => (
+                  <option key={row.productName} value={row.productName}>
+                    {row.productName}
+                  </option>
+                ))}
+              </select>
             </div>
-            {USE_MOCK_DASHBOARD && revenueChartData.length > 0 ? (
+            {USE_MOCK_DASHBOARD && chartData.length > 0 ? (
               <div className="h-[320px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={revenueChartData} margin={{ top: 20, right: 20, left: 10, bottom: 20 }}>
+                  <LineChart data={chartData} margin={{ top: 20, right: 20, left: 10, bottom: 20 }}>
                     <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="#64748b" />
-                    <YAxis tick={{ fontSize: 11 }} stroke="#64748b" tickFormatter={(v) => formatNumber(v) + ' ₽'} />
+                    <YAxis
+                      tick={{ fontSize: 11 }}
+                      stroke="#64748b"
+                      tickFormatter={(v) => (dashboardMetric === 'revenue' ? formatNumber(v) + ' ₽' : String(v))}
+                    />
                     <Tooltip
-                      formatter={(value: number) => [formatNumber(value) + ' ₽', '매출']}
+                      formatter={(value: number) => [
+                        dashboardMetric === 'revenue' ? formatNumber(value) + ' ₽' : String(value),
+                        dashboardMetric === 'revenue' ? '매출' : '수량',
+                      ]}
                       labelFormatter={(label) => label}
                       contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0' }}
                     />
                     <Line
                       type="monotone"
-                      dataKey="revenue"
+                      dataKey="value"
                       stroke="var(--color-brand, #0d9488)"
                       strokeWidth={2}
                       dot={{ r: 4, fill: 'var(--color-brand, #0d9488)' }}
-                      name="매출"
+                      name={dashboardMetric === 'revenue' ? '매출' : '수량'}
                     >
                       <LabelList
-                        dataKey="revenue"
+                        dataKey="value"
                         position="top"
-                        formatter={(v: number) => formatNumber(v)}
+                        formatter={(v: number) => (dashboardMetric === 'revenue' ? formatNumber(v) : String(v))}
                         className="fill-slate-600"
                         style={{ fontSize: 11 }}
                       />
@@ -720,6 +911,41 @@ export const Admin: React.FC = () => {
             </h2>
             {selectedProduct && (
               <div className="space-y-4 text-sm">
+                {/* 선택된 상품 한눈에 보기: 조회수·주문·재고·리뷰 */}
+                <div className="grid gap-3 rounded-lg border border-slate-100 bg-slate-50/60 p-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">조회수</p>
+                    <p className="mt-1 text-xl font-semibold text-slate-900">
+                      {productStats ? formatNumber(productStats.viewCount) : '—'}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-slate-500">상품 상세 페이지 진입 횟수</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">주문 수</p>
+                    <p className="mt-1 text-xl font-semibold text-slate-900">—</p>
+                    <p className="mt-0.5 text-[11px] text-slate-500">주문 연동은 추후 확장 예정</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">최근 주문</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900">—</p>
+                    <p className="mt-0.5 text-[11px] text-slate-500">주문 데이터 연동 후 표시</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">재고 · 리뷰</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900">
+                      재고 {formatNumber(Number(selectedProduct.stock ?? 0))}개
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-slate-500">
+                      리뷰 {productStats ? productStats.reviewCount : 0}개
+                      {productStats?.avgRating != null && (
+                        <span className="ml-1 align-middle text-[11px] text-amber-500">
+                          · ★ {productStats.avgRating.toFixed(1)}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+
                 <p className="rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs text-amber-800">
                   아래 ① 썸네일·대표 이미지, ② 상세 설명, ③ 상세페이지 구성품 이미지를 입력하면 상품 상세 페이지에 그대로 반영됩니다. 이미지는 URL 입력 또는 「파일 올리기」로 올릴 수 있습니다.
                 </p>
@@ -858,7 +1084,7 @@ export const Admin: React.FC = () => {
                     </button>
                   </div>
                   <p className="mb-3 text-xs text-slate-500">
-                    상세 페이지 하단 구성품 그리드에 들어갈 이름·이미지·설명입니다. 이미지는 URL 입력 또는 각 행의 「파일 올리기」로 넣을 수 있습니다.
+                    상세 페이지 하단 구성품 그리드. 항목당 이름·설명 + 사진 여러 장 넣을 수 있습니다.
                   </p>
                   <input
                     type="file"
@@ -868,64 +1094,86 @@ export const Admin: React.FC = () => {
                     onChange={onComponentImageFileChange}
                   />
                   <div className="space-y-3">
-                    {components.map((comp, idx) => (
-                      <div key={comp.id} className="rounded-lg border border-slate-200 bg-white p-3">
-                        <div className="mb-2 flex items-center justify-between">
-                          <span className="text-xs font-semibold text-slate-500">항목 {idx + 1}</span>
-                          <button
-                            type="button"
-                            onClick={() => handleComponentRemove(idx)}
-                            className="text-xs text-red-600 hover:underline"
-                          >
-                            삭제
-                          </button>
-                        </div>
-                        <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                    {components.map((comp, idx) => {
+                      const urls = comp.image_urls?.length ? comp.image_urls : comp.image_url ? [comp.image_url] : [];
+                      return (
+                        <div key={comp.id} className="rounded-lg border border-slate-200 bg-white p-3">
+                          <div className="mb-2 flex items-center justify-between">
+                            <span className="text-xs font-semibold text-slate-500">항목 {idx + 1}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleComponentRemove(idx)}
+                              className="text-xs text-red-600 hover:underline"
+                            >
+                              삭제
+                            </button>
+                          </div>
                           <input
                             type="text"
-                            className={inputClass}
+                            className={`${inputClass} mb-2`}
                             placeholder="이름"
                             value={comp.name ?? ''}
                             onChange={(e) => handleComponentChange(idx, { name: e.target.value })}
                           />
-                          <input
-                            type="text"
-                            className={inputClass}
-                            placeholder="이미지 URL 또는 파일 올리기"
-                            value={comp.image_url ?? ''}
-                            onChange={(e) => handleComponentChange(idx, { image_url: e.target.value || null })}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => {
-                              componentUploadIndexRef.current = idx;
-                              componentImageInputRef.current?.click();
-                            }}
-                            disabled={uploadingComponentIndex === idx}
-                            className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:border-brand hover:text-brand disabled:opacity-60"
-                          >
-                            {uploadingComponentIndex === idx ? '업로드 중…' : '파일 올리기'}
-                          </button>
-                        </div>
-                        {comp.image_url && (
-                          <div className="mt-2 flex items-center gap-2">
-                            <span className="text-xs text-slate-500">미리보기:</span>
-                            <img
-                              src={comp.image_url}
-                              alt={comp.name ?? `항목 ${idx + 1}`}
-                              className="h-16 w-16 rounded border border-slate-200 object-cover"
-                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                            />
+                          <div className="space-y-2">
+                            <span className="text-xs text-slate-500">사진 (여러 장 가능)</span>
+                            {urls.length === 0 ? (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <input
+                                  type="url"
+                                  className={inputClass}
+                                  placeholder="이미지 URL"
+                                  value=""
+                                  onChange={(e) => handleComponentImageUrlsChange(idx, 0, e.target.value)}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => { componentUploadIndexRef.current = idx; componentUploadImgIdxRef.current = 0; componentImageInputRef.current?.click(); }}
+                                  disabled={uploadingComponentIndex === idx}
+                                  className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:border-brand disabled:opacity-60"
+                                >
+                                  파일 올리기
+                                </button>
+                                <button type="button" onClick={() => handleComponentImageAdd(idx)} className="text-xs text-brand">+ 이미지 추가</button>
+                              </div>
+                            ) : (
+                              urls.map((url, imgIdx) => (
+                                <div key={imgIdx} className="flex flex-wrap items-center gap-2">
+                                  <input
+                                    type="url"
+                                    className={inputClass}
+                                    placeholder={`이미지 ${imgIdx + 1} URL`}
+                                    value={url}
+                                    onChange={(e) => handleComponentImageUrlsChange(idx, imgIdx, e.target.value)}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => { componentUploadIndexRef.current = idx; componentUploadImgIdxRef.current = imgIdx; componentImageInputRef.current?.click(); }}
+                                    disabled={uploadingComponentIndex === idx}
+                                    className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:border-brand disabled:opacity-60"
+                                  >
+                                    파일 올리기
+                                  </button>
+                                  {url && (
+                                    <img src={url} alt="" className="h-12 w-12 rounded border object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                                  )}
+                                  <button type="button" onClick={() => handleComponentImageRemove(idx, imgIdx)} className="text-xs text-red-600">삭제</button>
+                                </div>
+                              ))
+                            )}
+                            {urls.length > 0 && (
+                              <button type="button" onClick={() => handleComponentImageAdd(idx)} className="text-xs text-brand">+ 이미지 추가</button>
+                            )}
                           </div>
-                        )}
-                        <textarea
-                          className={`${inputClass} mt-2 min-h-[60px]`}
-                          placeholder="설명"
-                          value={comp.description ?? ''}
-                          onChange={(e) => handleComponentChange(idx, { description: e.target.value || null })}
-                        />
-                      </div>
-                    ))}
+                          <textarea
+                            className={`${inputClass} mt-2 min-h-[60px]`}
+                            placeholder="설명"
+                            value={comp.description ?? ''}
+                            onChange={(e) => handleComponentChange(idx, { description: e.target.value || null })}
+                          />
+                        </div>
+                      );
+                    })}
                     {components.length === 0 && (
                       <p className="py-2 text-center text-xs text-slate-400">구성품을 추가하세요.</p>
                     )}
