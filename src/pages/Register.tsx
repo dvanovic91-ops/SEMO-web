@@ -239,11 +239,13 @@ export const Register: React.FC = () => {
               label={
                 <span className="inline-flex items-center gap-2">
                   Адрес (поиск по базе)
-                  <span
-                    className="flex h-4 w-4 items-center justify-center rounded-full border border-brand text-[10px] text-brand cursor-help"
-                    title="При вводе адреса нижние поля заполнятся автоматически."
-                  >
-                    ?
+                  <span className="group relative ml-0.5 inline-flex cursor-help" aria-label="Подсказка">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 text-xs font-medium transition hover:border-brand hover:text-brand">
+                      ?
+                    </span>
+                    <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 w-[220px] -translate-x-1/2 rounded px-2.5 py-1.5 text-xs font-medium leading-snug text-slate-700 bg-white shadow-md border border-slate-100 opacity-0 transition group-hover:opacity-100">
+                      При вводе адреса нижние поля заполнятся автоматически.
+                    </span>
                   </span>
                 </span>
               }

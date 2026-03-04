@@ -28,6 +28,7 @@ import { ProfileOrders } from './pages/profile/ProfileOrders';
 import { ProfilePoints } from './pages/profile/ProfilePoints';
 import { ProfileReviews } from './pages/profile/ProfileReviews';
 import { ProfileTestResults } from './pages/profile/ProfileTestResults';
+import { ProfileTestResultDetail } from './pages/profile/ProfileTestResultDetail';
 import { Support } from './pages/Support';
 import { AuthCallback, AUTH_MESSAGE_TYPE } from './pages/AuthCallback';
 import { Admin } from './pages/admin/Admin';
@@ -53,6 +54,7 @@ const App: React.FC = () => {
               <Route path="/profile/edit" element={<ProfileEdit />} />
               <Route path="/profile/points" element={<ProfilePoints />} />
               <Route path="/profile/test-results" element={<ProfileTestResults />} />
+              <Route path="/profile/test-results/:id" element={<ProfileTestResultDetail />} />
               <Route path="/profile/reviews" element={<ProfileReviews />} />
               <Route path="/profile/orders" element={<ProfileOrders />} />
               <Route path="/admin" element={<Admin />} />

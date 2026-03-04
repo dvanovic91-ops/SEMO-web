@@ -679,6 +679,16 @@ export const Admin: React.FC = () => {
                   />
                 </div>
                 <div>
+                  <label className={labelClass}>패키지 이미지 URL (상품 상세 큰 사진)</label>
+                  <input
+                    type="url"
+                    className={inputClass}
+                    value={selectedProduct.image_url ?? ''}
+                    onChange={(e) => handleProductField('image_url', e.target.value || null)}
+                    placeholder="https://..."
+                  />
+                </div>
+                <div>
                   <label className={labelClass}>상품 상세 설명</label>
                   <textarea
                     className={`${inputClass} min-h-[100px]`}
@@ -689,7 +699,7 @@ export const Admin: React.FC = () => {
                 </div>
                 <div>
                   <div className="mb-2 flex items-center justify-between">
-                    <label className={labelClass}>구성품 (1, 2, 3…)</label>
+                    <label className={labelClass}>구성품 (1~6개, 이미지 URL로 상세 페이지 구성)</label>
                     <button
                       type="button"
                       onClick={handleComponentAdd}

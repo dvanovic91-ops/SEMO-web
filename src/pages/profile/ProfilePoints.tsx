@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { getProfile } from '../../lib/profileStorage';
@@ -9,21 +9,28 @@ import { USE_MOCK_POINTS, mockPointBalance, mockPointHistory } from '../../data/
 export const ProfilePoints: React.FC = () => {
   const { userEmail, userId, isLoggedIn, initialized } = useAuth();
   const [dbPoints, setDbPoints] = useState<number | null>(null);
+  const currentUserIdRef = useRef<string | null>(null);
+  currentUserIdRef.current = userId;
 
   const refreshPoints = useCallback(() => {
     if (!supabase || !userId) {
       setDbPoints(null);
       return;
     }
+    const requestedUserId = userId;
     supabase
       .from('profiles')
       .select('points')
-      .eq('id', userId)
+      .eq('id', requestedUserId)
       .single()
       .then(({ data }) => {
+        if (currentUserIdRef.current !== requestedUserId) return;
         setDbPoints(data?.points ?? null);
       })
-      .catch(() => setDbPoints(null));
+      .catch(() => {
+        if (currentUserIdRef.current !== requestedUserId) return;
+        setDbPoints(null);
+      });
   }, [userId]);
 
   useEffect(() => {
@@ -80,10 +87,6 @@ export const ProfilePoints: React.FC = () => {
           </li>
         ))}
       </ul>
-
-      <p className="mt-8 text-center">
-        <Link to="/profile" className="text-sm text-slate-500 hover:text-slate-700">← Profile</Link>
-      </p>
     </main>
   );
 };

@@ -122,10 +122,18 @@ export const SkinTest: React.FC = () => {
   const handleFinalSubmit = () => {
     if (answers.length !== QUESTIONS.length) return;
     const { type, scores } = calcSkinType(answers);
-    const info = SKIN_INFO[type];
-    if (info) setResult({ type, info, scores });
+    const info = SKIN_INFO[type] ?? {
+      name: type,
+      desc: 'Результат теста сохранён.',
+      concerns: [] as string[],
+      avoid: '',
+    };
+    setResult({ type, info, scores });
     if (userId) {
-      if (!isAdmin && (limitReached || (testCount !== null && testCount >= MAX_TEST_COUNT))) return;
+      if (!isAdmin && (limitReached || (testCount !== null && testCount >= MAX_TEST_COUNT))) {
+        setStage('result');
+        return;
+      }
       if (supabase) {
         supabase.from('skin_test_results').insert({ user_id: userId, skin_type: type }).then(() => {
           setTestCount((c) => {
@@ -136,7 +144,6 @@ export const SkinTest: React.FC = () => {
         });
       }
     } else {
-      // 비회원: 로컬에만 저장, 가입 시 AuthContext에서 DB 저장
       try {
         localStorage.setItem('semo_anon_result', JSON.stringify({ skin_type: type }));
         localStorage.setItem('semo_anon_test_done', '1');
@@ -321,8 +328,12 @@ export const SkinTest: React.FC = () => {
             {isLastQuestion && answers.length === QUESTIONS.length && (
               <button
                 type="button"
-                onClick={handleFinalSubmit}
-                className="mt-4 w-full max-w-xl rounded-full bg-brand py-3 text-sm font-semibold text-white hover:bg-brand/90 sm:mt-5 sm:py-3.5"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleFinalSubmit();
+                }}
+                className="mt-4 w-full max-w-xl rounded-full bg-brand py-3 text-sm font-semibold text-white hover:bg-brand/90 active:bg-brand/80 sm:mt-5 sm:py-3.5"
               >
                 Завершить тест
               </button>

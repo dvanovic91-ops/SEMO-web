@@ -66,18 +66,15 @@ export const ProfileTestResults: React.FC = () => {
         <ul className="space-y-3">
           {list.map((r) => (
             <li key={r.id} className="flex items-center justify-between rounded-xl border border-slate-100 bg-white px-4 py-4">
-              <div>
+              <Link to={`/profile/test-results/${r.id}`} className="min-w-0 flex-1">
                 <p className="font-medium text-slate-800">{r.skin_type ?? '—'}</p>
                 <p className="text-xs text-slate-500">{formatDate(r.completed_at)}</p>
-              </div>
-              <Link to="/skin-test" className="text-sm font-medium text-brand hover:underline">Пройти снова</Link>
+              </Link>
+              <Link to="/skin-test" className="ml-3 shrink-0 text-sm font-medium text-brand hover:underline">Пройти снова</Link>
             </li>
           ))}
         </ul>
       )}
-      <p className="mt-6 text-center">
-        <Link to="/profile" className="text-sm text-slate-500 hover:text-slate-700">← Profile</Link>
-      </p>
     </main>
   );
 };

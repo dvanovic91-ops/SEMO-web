@@ -77,6 +77,7 @@ export const ProductDetail: React.FC = () => {
     if (!id) return;
 
     setLoading(true);
+    let cancelled = false;
 
     if (!isUuid(id) && FALLBACK_PRODUCTS[id]) {
       setProduct(FALLBACK_PRODUCTS[id]);
@@ -92,32 +93,34 @@ export const ProductDetail: React.FC = () => {
     }
 
     const load = async () => {
+      const currentId = id;
       const { data: prodData, error: prodErr } = await supabase
         .from('products')
         .select('id, name, description, detail_description, image_url, rrp_price, prp_price, stock')
-        .eq('id', id)
+        .eq('id', currentId)
         .single();
 
+      if (cancelled || currentId !== id) return;
       if (prodErr || !prodData) {
         setLoading(false);
         return;
       }
       setProduct(prodData as Product);
 
-      // 조회수 기록 (anon 허용)
-      await supabase.from('product_views').insert({ product_id: id });
+      await supabase.from('product_views').insert({ product_id: currentId });
 
       const { data: compData } = await supabase
         .from('product_components')
         .select('id, sort_order, name, image_url, description')
-        .eq('product_id', id)
+        .eq('product_id', currentId)
         .order('sort_order');
+      if (cancelled || currentId !== id) return;
       setComponents((compData as Component[]) ?? []);
 
       const { data: reviewData } = await supabase
         .from('product_reviews')
         .select('id, user_id, rating, body, created_at')
-        .eq('product_id', id)
+        .eq('product_id', currentId)
         .order('created_at', { ascending: false });
       const reviewsList = (reviewData as Review[]) ?? [];
       const reviewIds = reviewsList.map((r) => r.id);
@@ -132,6 +135,7 @@ export const ProductDetail: React.FC = () => {
           photosMap[ph.review_id].push({ image_url: ph.image_url });
         });
       }
+      if (cancelled || currentId !== id) return;
       setReviews(
         reviewsList.map((r) => ({ ...r, profiles: null, review_photos: photosMap[r.id] ?? [] })),
       );
@@ -139,6 +143,7 @@ export const ProductDetail: React.FC = () => {
     };
 
     void load();
+    return () => { cancelled = true; };
   }, [id]);
 
   const handleSubmitReview = async (e: React.FormEvent) => {
@@ -252,11 +257,53 @@ export const ProductDetail: React.FC = () => {
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
             {product.name}
           </h1>
-          {product.image_url && (
-            <div className="mt-4 aspect-square max-w-md overflow-hidden rounded-xl bg-slate-100">
-              <img src={product.image_url} alt={product.name} className="h-full w-full object-cover" />
+          {/* 큰 패키지 사진 — 디자인 기준: 세련된 메인 비주얼 */}
+          <div className="mt-4 flex flex-col gap-6 sm:gap-8">
+            <div className="relative overflow-hidden rounded-2xl bg-slate-100 shadow-sm ring-1 ring-slate-200/50">
+              <div className="aspect-[4/3] w-full max-w-xl mx-auto">
+                {product.image_url ? (
+                  <img
+                    src={product.image_url}
+                    alt={product.name}
+                    className="h-full w-full object-contain p-4 sm:p-6"
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-slate-400 text-sm">
+                    Изображение не загружено
+                  </div>
+                )}
+              </div>
+              {/* 구성품 6개 — 패키지 위/아래에 그리드로 배치 (관리자에서 설정한 이미지) */}
+              {components.length > 0 && (
+                <div className="border-t border-slate-100 bg-slate-50/50 px-4 py-4 sm:px-6 sm:py-5">
+                  <p className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">Состав набора</p>
+                  <div className="grid grid-cols-3 gap-2 sm:gap-3 sm:grid-cols-6">
+                    {components.slice(0, 6).map((comp, idx) => (
+                      <div
+                        key={comp.id}
+                        className="flex flex-col items-center rounded-xl bg-white p-2 shadow-sm ring-1 ring-slate-100"
+                      >
+                        <div className="aspect-square w-full overflow-hidden rounded-lg bg-slate-100">
+                          {comp.image_url ? (
+                            <img
+                              src={comp.image_url}
+                              alt={comp.name ?? `Элемент ${idx + 1}`}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center text-slate-300 text-xs">—</div>
+                          )}
+                        </div>
+                        <p className="mt-1.5 line-clamp-2 text-center text-[11px] font-medium text-slate-700 sm:text-xs">
+                          {comp.name ?? `№${idx + 1}`}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+          </div>
           <div className="mt-4 flex items-baseline gap-2">
             {hasDiscount && (
               <span className="text-lg text-slate-500 line-through">
@@ -290,8 +337,8 @@ export const ProductDetail: React.FC = () => {
 
         {components.length > 0 && (
           <section>
-            <h2 className="mb-3 text-lg font-semibold text-slate-900">Состав набора</h2>
-            <ul className="space-y-4">
+            <h2 className="mb-3 text-lg font-semibold text-slate-900">Подробнее о составе</h2>
+            <ul className="space-y-3">
               {components.map((comp, idx) => (
                 <li key={comp.id} className="flex gap-4 rounded-xl border border-slate-100 bg-white p-4">
                   {comp.image_url && (
