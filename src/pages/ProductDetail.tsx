@@ -255,57 +255,58 @@ export const ProductDetail: React.FC = () => {
 
       <article className="space-y-8">
         <header>
-          {/* 1) 제목만 상단 왼쪽 — 가격·장바구니는 아래 이미지 영역 우측 상단과 대칭 */}
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
             {product.name}
           </h1>
-          {product.description && (
-            <p className="mt-2 text-slate-600">{product.description}</p>
-          )}
 
-          {/* 2) 큰 패키지 사진 + 우측 상단에 RRP(위)·PRP(아래)·장바구니 — 제목과 대칭 */}
-          <div className="mt-6 flex flex-col gap-6 sm:gap-8">
-            <div className="relative overflow-hidden rounded-2xl bg-slate-100 shadow-sm ring-1 ring-slate-200/50">
-              <div className="flex flex-col sm:flex-row sm:items-start gap-4">
-                {/* 이미지 영역 (좌측) */}
-                <div className="aspect-[4/3] w-full sm:max-w-md flex-shrink-0">
-                {product.image_url ? (
-                  <img
-                    src={product.image_url}
-                    alt={product.name}
-                    className="h-full w-full object-contain p-4 sm:p-6"
-                  />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center text-slate-400 text-sm">
-                    Изображение не загружено
-                  </div>
-                )}
-              </div>
-              {/* 가격·장바구니: 사진 기준 우측 상단, RRP 위 / PRP 아래 / 장바구니 버튼 */}
-              <div className="flex flex-col items-end justify-start gap-1.5 px-4 pb-4 sm:px-0 sm:pb-0 sm:pt-4 sm:pr-4 sm:flex-1 sm:min-w-[10rem]">
+          {/* 썸네일 + 그 밑 상세 설명 한 줄 */}
+          <div className="mt-6">
+            <div className="relative aspect-[4/3] w-full max-w-xl overflow-hidden rounded-2xl bg-slate-100 ring-1 ring-slate-200/50">
+              {product.image_url ? (
+                <img
+                  src={product.image_url}
+                  alt={product.name}
+                  className="h-full w-full object-contain p-4 sm:p-6"
+                />
+              ) : (
+                <div className="absolute right-3 top-3 text-right text-[10px] text-slate-400 sm:text-xs">
+                  Изображение не загружено
+                </div>
+              )}
+            </div>
+            {product.description && (
+              <p className="mt-2 line-clamp-1 text-sm text-slate-600">{product.description}</p>
+            )}
+          </div>
+
+          {/* 대표 설명 1~2줄 (관리자 description) + 줄긋는가격 밑 정가, 오른쪽 장바구니 */}
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0 flex-1 sm:w-full">
+              {product.description && (
+                <p className="line-clamp-2 text-sm text-slate-700">{product.description}</p>
+              )}
+              <div className="mt-2 flex w-full flex-col gap-0.5 sm:items-center">
                 {product.rrp_price != null && (
-                  <p className="text-sm font-medium text-slate-500 sm:text-base">
-                    <span className={hasDiscount ? 'line-through' : ''}>
-                      RRP {formatPrice(Number(product.rrp_price))}
-                    </span>
-                  </p>
+                  <span className={hasDiscount ? 'text-sm text-slate-500 line-through' : 'text-sm text-slate-500'}>
+                    {formatPrice(Number(product.rrp_price))}
+                  </span>
                 )}
-                <p className="text-lg font-semibold tracking-tight text-slate-900 sm:text-xl">
-                  {price != null ? (
-                    <>PRP {formatPrice(Number(price))}</>
-                  ) : (
-                    '—'
-                  )}
+                <p className="w-full text-center text-lg font-semibold tracking-tight text-slate-900 sm:text-xl">
+                  {price != null ? formatPrice(Number(price)) : '—'}
                 </p>
-                <button
-                  type="button"
-                  onClick={handleAddToCart}
-                  className="mt-1 rounded-full bg-brand py-2.5 px-6 text-sm font-semibold text-white transition hover:bg-brand/90"
-                >
-                  В корзину
-                </button>
               </div>
-              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleAddToCart}
+              className="shrink-0 rounded-full bg-brand py-2.5 px-6 text-sm font-semibold text-white transition hover:bg-brand/90"
+            >
+              В корзину
+            </button>
+          </div>
+
+          {/* 구성품 그리드가 있으면 같은 카드 안에 */}
+          <div className="mt-6 overflow-hidden rounded-2xl bg-slate-100 shadow-sm ring-1 ring-slate-200/50">
               {/* 3) 하단 박스: 상세 구성품 이미지 (관리자 product_components 연동) — 이미지·가격 행 아래 전체 너비 */}
               {components.length > 0 && (
                 <div className="border-t border-slate-100 bg-slate-50/50 px-4 py-4 sm:px-6 sm:py-5">
@@ -335,7 +336,6 @@ export const ProductDetail: React.FC = () => {
                   </div>
                 </div>
               )}
-            </div>
           </div>
         </header>
 

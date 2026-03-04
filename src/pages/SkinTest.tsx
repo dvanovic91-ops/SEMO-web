@@ -343,6 +343,7 @@ export const SkinTest: React.FC = () => {
             <p className="mt-4 tabular-nums text-sm text-slate-500 sm:mt-5">
               {current}/{total}
             </p>
+            {/* 이전 질문으로: 1~20번 모두 표시 (1번에서는 disabled) */}
             <button
               type="button"
               onClick={handlePrev}
@@ -352,14 +353,17 @@ export const SkinTest: React.FC = () => {
               <BackArrow />
               Предыдущий вопрос
             </button>
-            <button
-              type="button"
-              onClick={handleBackToProfile}
-              className="mt-1 flex items-center justify-center gap-1.5 text-sm font-medium text-brand hover:opacity-90 sm:mt-2"
-            >
-              <BackArrow />
-              Несколько вопросов перед тестом
-            </button>
+            {/* 테스트 전 단계로: 1번에서만 표시, 2~20번에서는 숨김 */}
+            {questionIndex === 0 && (
+              <button
+                type="button"
+                onClick={handleBackToProfile}
+                className="mt-1 flex items-center justify-center gap-1.5 text-sm font-medium text-brand hover:opacity-90 sm:mt-2"
+              >
+                <BackArrow />
+                Несколько вопросов перед тестом
+              </button>
+            )}
           </div>
         </div>
       </main>
@@ -462,10 +466,10 @@ export const SkinTest: React.FC = () => {
               </>
             ) : (
               <Link
-                to="/profile"
+                to="/product/type-1"
                 className="rounded-full bg-brand py-4 text-center text-base font-semibold text-white transition hover:bg-brand/90"
               >
-                В профиль
+                Смотреть товары
               </Link>
             )}
             <Link

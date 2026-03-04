@@ -48,30 +48,31 @@ export const Shop: React.FC = () => {
       if (!slotData?.length) return;
 
       const productIds = [...new Set((slotData as { product_id: string | null }[]).map((s) => s.product_id).filter(Boolean))] as string[];
-      let productsMap: Record<string, { prp_price: number | null; rrp_price: number | null }> = {};
+      let productsMap: Record<string, { rrp_price: number | null; prp_price: number | null; image_url: string | null }> = {};
       if (productIds.length > 0) {
         const { data: prodData } = await supabase
           .from('products')
-          .select('id, rrp_price, prp_price')
+          .select('id, rrp_price, prp_price, image_url')
           .in('id', productIds);
-        (prodData ?? []).forEach((p: { id: string; rrp_price: number | null; prp_price: number | null }) => {
-          productsMap[p.id] = { rrp_price: p.rrp_price, prp_price: p.prp_price };
+        (prodData ?? []).forEach((p: { id: string; rrp_price: number | null; prp_price: number | null; image_url: string | null }) => {
+          productsMap[p.id] = { rrp_price: p.rrp_price, prp_price: p.prp_price, image_url: p.image_url ?? null };
         });
       }
 
       const list: ShopItem[] = slotData.map((s: { slot_index: number; title: string | null; image_url: string | null; product_id: string | null; link_url: string | null }) => {
         const productId = s.product_id ?? null;
-        const prices = productId ? productsMap[productId] : null;
-        const prp = prices?.prp_price != null ? Number(prices.prp_price) : null;
-        const rrp = prices?.rrp_price != null ? Number(prices.rrp_price) : null;
+        const product = productId ? productsMap[productId] : null;
+        const prp = product?.prp_price != null ? Number(product.prp_price) : null;
+        const rrp = product?.rrp_price != null ? Number(product.rrp_price) : null;
         const price = prp ?? rrp ?? 0;
         const originalPrice = prp != null && rrp != null ? rrp : null;
+        const imageUrl = (productId && product?.image_url) ? product.image_url : (s.image_url ?? null);
         return {
           id: productId ?? `slot-${s.slot_index}`,
           name: s.title ?? `Слот ${s.slot_index + 1}`,
           price,
           originalPrice,
-          imageUrl: s.image_url ?? null,
+          imageUrl,
           productId,
           linkUrl: s.link_url ?? null,
           isFamily: s.slot_index >= 4,

@@ -129,6 +129,8 @@ export const Admin: React.FC = () => {
   const [uploadingComponentIndex, setUploadingComponentIndex] = useState<number>(-1);
   /** 저장 성공 시 토스트 표시 (타임스탬프로 키 역할) */
   const [saveSuccessAt, setSaveSuccessAt] = useState<number | null>(null);
+  /** 상품 미리보기 펼침 여부 */
+  const [productPreviewOpen, setProductPreviewOpen] = useState(false);
 
   /** 저장 성공 토스트 3초 후 자동 숨김 */
   useEffect(() => {
@@ -793,22 +795,35 @@ export const Admin: React.FC = () => {
                     className="hidden"
                     onChange={onMainImageFileChange}
                   />
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <input
-                      type="url"
-                      className={inputClass}
-                      value={selectedProduct.image_url ?? ''}
-                      onChange={(e) => handleProductField('image_url', e.target.value || null)}
-                      placeholder="https://... 또는 아래 버튼으로 업로드"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => mainImageInputRef.current?.click()}
-                      disabled={uploadingMainImage}
-                      className="shrink-0 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:border-brand hover:text-brand disabled:opacity-60"
-                    >
-                      {uploadingMainImage ? '업로드 중…' : '파일 올리기'}
-                    </button>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3">
+                    <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
+                      <input
+                        type="url"
+                        className={inputClass}
+                        value={selectedProduct.image_url ?? ''}
+                        onChange={(e) => handleProductField('image_url', e.target.value || null)}
+                        placeholder="https://... 또는 아래 버튼으로 업로드"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => mainImageInputRef.current?.click()}
+                        disabled={uploadingMainImage}
+                        className="shrink-0 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:border-brand hover:text-brand disabled:opacity-60"
+                      >
+                        {uploadingMainImage ? '업로드 중…' : '파일 올리기'}
+                      </button>
+                    </div>
+                    {selectedProduct.image_url && (
+                      <div className="shrink-0">
+                        <p className="mb-1 text-xs text-slate-500">현재 이미지</p>
+                        <img
+                          src={selectedProduct.image_url}
+                          alt="대표"
+                          className="h-24 w-24 rounded-lg border border-slate-200 object-cover"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -892,6 +907,17 @@ export const Admin: React.FC = () => {
                             {uploadingComponentIndex === idx ? '업로드 중…' : '파일 올리기'}
                           </button>
                         </div>
+                        {comp.image_url && (
+                          <div className="mt-2 flex items-center gap-2">
+                            <span className="text-xs text-slate-500">미리보기:</span>
+                            <img
+                              src={comp.image_url}
+                              alt={comp.name ?? `항목 ${idx + 1}`}
+                              className="h-16 w-16 rounded border border-slate-200 object-cover"
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                            />
+                          </div>
+                        )}
                         <textarea
                           className={`${inputClass} mt-2 min-h-[60px]`}
                           placeholder="설명"
@@ -905,6 +931,49 @@ export const Admin: React.FC = () => {
                     )}
                   </div>
                 </div>
+
+                {/* 미리보기: 상품 상세 페이지처럼 어떻게 보일지 확인 */}
+                <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50/50 p-3">
+                  <button
+                    type="button"
+                    onClick={() => setProductPreviewOpen((v) => !v)}
+                    className="flex w-full items-center justify-between text-left text-sm font-medium text-slate-700"
+                  >
+                    <span>미리보기</span>
+                    <span className="text-slate-400">{productPreviewOpen ? '▲' : '▼'}</span>
+                  </button>
+                  {productPreviewOpen && selectedProduct && (
+                    <div className="mt-3 rounded-lg border border-slate-200 bg-white p-4 text-sm">
+                      <p className="mb-2 text-xs font-semibold uppercase text-slate-400">상품 상세 페이지 예시</p>
+                      <h3 className="text-lg font-semibold text-slate-900">{selectedProduct.name || '(상품명)'}</h3>
+                      <div className="relative mt-2 aspect-[4/3] w-full max-w-xs overflow-hidden rounded-lg bg-slate-100">
+                        {selectedProduct.image_url ? (
+                          <img src={selectedProduct.image_url} alt="" className="h-full w-full object-contain p-2" />
+                        ) : (
+                          <span className="absolute right-2 top-2 text-[10px] text-slate-400">Изображение не загружено</span>
+                        )}
+                      </div>
+                      {selectedProduct.description && (
+                        <p className="mt-1 line-clamp-1 text-slate-600">{selectedProduct.description}</p>
+                      )}
+                      <p className="mt-2 line-clamp-2 text-slate-700">{selectedProduct.description || '—'}</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        {selectedProduct.rrp_price != null && (
+                          <span className={selectedProduct.prp_price != null ? 'text-slate-500 line-through' : 'text-slate-600'}>
+                            {formatNumber(Number(selectedProduct.rrp_price))} руб.
+                          </span>
+                        )}
+                        <span className="font-semibold text-slate-900">
+                          {selectedProduct.prp_price != null || selectedProduct.rrp_price != null
+                            ? `${formatNumber(Number(selectedProduct.prp_price ?? selectedProduct.rrp_price ?? 0))} руб.`
+                            : '—'}
+                        </span>
+                        <span className="rounded-full bg-brand px-3 py-1 text-xs font-medium text-white">В корзину</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <button
                   type="button"
                   onClick={handleSaveProduct}
