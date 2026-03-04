@@ -1,115 +1,52 @@
-# Supabase Storage — 이미지 저장소 설정
+# Supabase Storage — 설정하는 법 (따라만 하면 됨)
 
-피부 사진, 리뷰 사진 등 유저 업로드를 안전하게 저장하기 위한 버킷과 RLS 정책입니다.
-
-## 1. 버킷 생성
-
-Supabase 대시보드 → **Storage** → **New bucket**
-
-- **Name:** `user-uploads`
-- **Public bucket:** OFF (비공개. URL은 signed URL 또는 RLS 통과 후만 접근)
-- **Allowed MIME types:** `image/jpeg`, `image/png`, `image/webp`, `image/gif` (필요 시 추가)
-- **File size limit:** 예: 5MB
-
-또는 SQL로 버킷을 만들 수 없으므로 반드시 대시보드에서 생성합니다.
-
-## 2. RLS 정책 (본인 폴더만 접근)
-
-경로 규칙: **`{user_id}/...`** — 각 유저는 `auth.uid()`와 같은 이름의 폴더 아래에만 올리기/보기/삭제 가능하도록 합니다.
-
-Supabase 대시보드 → **Storage** → **Policies** → `user-uploads` 버킷에 아래 정책 추가.
-
-### 정책 1: 본인 폴더에만 업로드 (INSERT)
-
-```sql
-create policy "user-uploads insert own folder"
-on storage.objects for insert
-to authenticated
-with check (
-  bucket_id = 'user-uploads'
-  and (storage.foldername(name))[1] = auth.uid()::text
-);
-```
-
-### 정책 2: 본인 폴더만 조회 (SELECT)
-
-```sql
-create policy "user-uploads select own folder"
-on storage.objects for select
-to authenticated
-using (
-  bucket_id = 'user-uploads'
-  and (storage.foldername(name))[1] = auth.uid()::text
-);
-```
-
-### 정책 3: 본인 폴더만 수정 (UPDATE)
-
-```sql
-create policy "user-uploads update own folder"
-on storage.objects for update
-to authenticated
-using (
-  bucket_id = 'user-uploads'
-  and (storage.foldername(name))[1] = auth.uid()::text
-)
-with check (
-  bucket_id = 'user-uploads'
-  and (storage.foldername(name))[1] = auth.uid()::text
-);
-```
-
-### 정책 4: 본인 폴더만 삭제 (DELETE)
-
-```sql
-create policy "user-uploads delete own folder"
-on storage.objects for delete
-to authenticated
-using (
-  bucket_id = 'user-uploads'
-  and (storage.foldername(name))[1] = auth.uid()::text
-);
-```
-
-## 3. 프론트에서 사용 예시
-
-- **저장 경로:** `{userId}/{timestamp 또는 uuid}-{filename}`  
-  예: `a1b2c3d4-.../1730123456-photo.jpg`
-- **업로드:** `supabase.storage.from('user-uploads').upload(path, file, { upsert: true })`
-- **공개 URL이 필요할 때:** 버킷을 Public이 아니면 `createSignedUrl()` 사용. Public이면 `getPublicUrl()`.
-
-```ts
-const path = `${userId}/${Date.now()}-${file.name}`;
-const { data, error } = await supabase.storage
-  .from('user-uploads')
-  .upload(path, file, { contentType: file.type });
-// 저장 후 data.path를 DB(리뷰, 프로필 등)에 저장
-```
-
-리뷰/프로필 테이블에는 **파일 경로**(`user-uploads` 버킷 내 path)만 저장하고, 표시할 때 Storage URL을 조합해 사용하면 됩니다.
+이 프로젝트에서 이미지 쓰려면 버킷 두 개 만들고, 각각 정책 한 번씩 추가하면 됩니다.
 
 ---
 
-## 관리자 상품 이미지 버킷 (`product-images`)
+## 1. 리뷰 사진용 버킷 (review-photos)
 
-관리자 모드에서 상품 썸네일·구성품 이미지를 올릴 때 사용하는 **Public** 버킷입니다.
+**1단계: 버킷 만들기**
 
-### 버킷 생성
+1. Supabase 대시보드 왼쪽에서 **Storage** 클릭.
+2. 오른쪽 위 **New bucket** 클릭.
+3. **Bucket name** 칸에 `review-photos` 그대로 입력. (이름 틀리면 앱에서 안 씀)
+4. **Public bucket** 스위치 **켜기(ON)**. (리뷰 사진은 누구나 봐야 해서)
+5. Restrict file size / Restrict MIME types는 안 건드려도 됨.
+6. **Create** 클릭.
 
-Supabase 대시보드 → **Storage** → **New bucket**
+**2단계: 업로드 허용 정책 넣기**
 
-- **Name:** `product-images`
-- **Public bucket:** **ON** (상품 상세 페이지에서 이미지 URL로 바로 노출)
-- **Allowed MIME types:** `image/jpeg`, `image/png`, `image/webp`, `image/gif`
-- **File size limit:** 예: 5MB
+1. 방금 만든 **review-photos** 버킷 이름 클릭해서 들어감.
+2. 위쪽 탭에서 **Policies** 클릭.
+3. **New policy** 누르고 **For full customization** 같은 걸로 “직접 SQL 쓰기” 들어가거나,  
+   또는 **SQL Editor**로 가서 아래 SQL 한 번에 실행해도 됨.
 
-### RLS 정책 (인증된 사용자 업로드 허용)
+```sql
+create policy "review-photos insert authenticated"
+on storage.objects for insert
+to authenticated
+with check (bucket_id = 'review-photos');
+```
 
-관리자만 업로드하려면 앱에서 관리자 체크를 하고 있으므로, Storage에서는 **authenticated** 사용자에게 insert만 허용해도 됩니다. (관리자 페이지 자체가 비관리자에게 안 보이므로.)
+이거 하나만 있으면 “로그인한 사람이 review-photos에 업로드 가능”이 됨.  
+Public이 켜져 있으니까 읽기는 별도 정책 없어도 됨.
 
-Supabase 대시보드 → **Storage** → **Policies** → `product-images` 버킷:
+---
 
-**INSERT (업로드 허용)**
+## 2. 상품 이미지용 버킷 (product-images)
+
+**1단계: 버킷 만들기**
+
+1. **Storage** 메뉴에서 다시 **New bucket** 클릭.
+2. **Bucket name**에 `product-images` 그대로 입력.
+3. **Public bucket** 스위치 **켜기(ON)**.
+4. **Create** 클릭.
+
+**2단계: 업로드 허용 정책 넣기**
+
+1. **product-images** 버킷 클릭 → **Policies** 탭.
+2. **New policy**로 들어가서 아래 SQL 실행.
 
 ```sql
 create policy "product-images insert authenticated"
@@ -118,18 +55,23 @@ to authenticated
 with check (bucket_id = 'product-images');
 ```
 
-**SELECT (공개 읽기 — Public 버킷이면 익명도 가능, 선택 사항)**
+---
 
-```sql
-create policy "product-images select public"
-on storage.objects for select
-to public
-using (bucket_id = 'product-images');
-```
+## SQL Editor로 정책 넣는 법 (정리)
 
-Public 버킷이면 URL만 알면 누구나 볼 수 있으므로 SELECT 정책은 없어도 접근 가능할 수 있습니다. 필요 시 위 정책 추가.
+1. Supabase 왼쪽 메뉴에서 **SQL Editor** 클릭.
+2. **New query** 선택.
+3. 위에 적어둔 SQL 중 넣을 것 복사해서 붙여넣기. (review-photos용 / product-images용 각각 한 번씩)
+4. **Run** (또는 Ctrl+Enter) 누르기.
+5. 에러 없이 완료되면 끝.
 
-### 프론트 사용
+---
 
-- **경로:** `products/{timestamp}_{random}.{ext}` (Admin.tsx의 `uploadProductImage()`)
-- **URL:** `getPublicUrl(path)` 로 얻은 URL을 `products.image_url` 또는 `product_components.image_url`에 저장
+## 요약
+
+| 버킷 이름       | 용도           | Public | 정책 |
+|----------------|----------------|--------|------|
+| review-photos  | 리뷰 사진      | ON     | INSERT to authenticated (위 SQL 1개) |
+| product-images | 상품/구성품 이미지 | ON     | INSERT to authenticated (위 SQL 1개) |
+
+버킷 두 개 만들고, 각각 정책 SQL 한 줄씩 실행하면 설정 끝입니다.

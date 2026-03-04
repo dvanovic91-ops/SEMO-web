@@ -259,7 +259,7 @@ export const Profile: React.FC = () => {
       </nav>
 
       <p className="mt-6 text-center">
-        <Link to="/" className="text-sm text-slate-500 hover:text-slate-700">
+        <Link to="/" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90">
           <BackArrow /> На главную
         </Link>
       </p>

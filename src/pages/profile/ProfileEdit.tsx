@@ -72,7 +72,7 @@ function ErrorFallback({ onRetry }: { onRetry?: () => void }) {
         </p>
       )}
       <p className="mt-6 text-center">
-        <Link to="/profile" className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700"><BackArrow /> Profile</Link>
+        <Link to="/profile" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> Profile</Link>
       </p>
     </main>
   );
@@ -306,7 +306,7 @@ export const ProfileEdit: React.FC = () => {
     <ProfileEditErrorBoundary>
       <main className="mx-auto max-w-xl px-4 py-6 sm:px-6 sm:py-10 md:py-14">
         <p className="mb-6">
-          <Link to="/profile" className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700"><BackArrow /> Profile</Link>
+          <Link to="/profile" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> Profile</Link>
         </p>
 
         <header className="mb-8">
@@ -518,7 +518,7 @@ export const ProfileEdit: React.FC = () => {
         </form>
 
         <p className="mt-8 text-center">
-          <Link to="/profile" className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700"><BackArrow /> Profile</Link>
+          <Link to="/profile" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> Profile</Link>
         </p>
       </main>
     </ProfileEditErrorBoundary>

@@ -19,7 +19,7 @@ export const About: React.FC = () => {
         Доставка door-to-door, обновление бокса по сезонам. Только оригинальная корейская косметика.
       </p>
       <p className="mt-10">
-        <Link to="/" className="text-sm text-slate-500 transition hover:text-brand">
+        <Link to="/" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90">
           <BackArrow /> На главную
         </Link>
       </p>

@@ -25,7 +25,7 @@ const labelClass = 'mb-1 block text-sm font-medium text-slate-700';
 /** 상품·구성품 이미지 업로드용 Storage 버킷 (Supabase 대시보드에서 Public 버킷 생성) */
 const BUCKET_PRODUCT_IMAGES = 'product-images';
 
-/** 파일을 product-images 버킷에 업로드하고 공개 URL 반환. 실패 시 null */
+/** 파일을 product-images 버킷에 업로드하고 공개 URL 반환. 실패 시 null + 콘솔에 에러 로그 */
 async function uploadProductImage(file: File): Promise<string | null> {
   if (!supabase) return null;
   const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
@@ -36,7 +36,10 @@ async function uploadProductImage(file: File): Promise<string | null> {
     upsert: false,
     contentType: file.type || `image/${safeExt}`,
   });
-  if (error) return null;
+  if (error) {
+    console.error('Product image upload failed:', error);
+    return null;
+  }
   const { data } = supabase.storage.from(BUCKET_PRODUCT_IMAGES).getPublicUrl(path);
   return data.publicUrl;
 }
@@ -124,6 +127,15 @@ export const Admin: React.FC = () => {
   const [uploadingMainImage, setUploadingMainImage] = useState(false);
   /** 업로드 중인 구성품 인덱스 (-1이면 없음) */
   const [uploadingComponentIndex, setUploadingComponentIndex] = useState<number>(-1);
+  /** 저장 성공 시 토스트 표시 (타임스탬프로 키 역할) */
+  const [saveSuccessAt, setSaveSuccessAt] = useState<number | null>(null);
+
+  /** 저장 성공 토스트 3초 후 자동 숨김 */
+  useEffect(() => {
+    if (saveSuccessAt == null) return;
+    const t = setTimeout(() => setSaveSuccessAt(null), 3000);
+    return () => clearTimeout(t);
+  }, [saveSuccessAt]);
 
   /** 목업 사용 시 기간별 매출 시계열 (그래프용) */
   const revenueChartData = useMemo(() => {
@@ -303,6 +315,8 @@ export const Admin: React.FC = () => {
         .eq('product_id', productId)
         .order('sort_order');
       if (compData) setComponents(compData as ProductComponent[]);
+      setError(null);
+      setSaveSuccessAt(Date.now());
     } catch (e) {
       console.error(e);
       setError('상품 저장에 실패했습니다.');
@@ -317,13 +331,14 @@ export const Admin: React.FC = () => {
     );
   };
 
+  /** 구성품 항목 추가 — 새 상품(아직 id 없음)에서도 추가 가능, 저장 시 productId 반영 */
   const handleComponentAdd = () => {
-    if (!selectedProduct?.id) return;
+    if (!selectedProduct) return;
     setComponents((prev) => [
       ...prev,
       {
         id: `new-${Date.now()}`,
-        product_id: selectedProduct.id,
+        product_id: selectedProduct.id || 'temp',
         sort_order: prev.length,
         name: '',
         image_url: null,
@@ -336,30 +351,40 @@ export const Admin: React.FC = () => {
     setComponents((prev) => prev.filter((_, i) => i !== index));
   };
 
-  /** 대표 이미지 파일 선택 시 업로드 후 URL 반영 */
+  /** 대표 이미지 파일 선택 시 업로드 후 URL 반영. 실패 시 에러 메시지 표시 */
   const onMainImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file || !selectedProduct) return;
+    setError(null);
     setUploadingMainImage(true);
     try {
       const url = await uploadProductImage(file);
-      if (url) handleProductField('image_url', url);
+      if (url) {
+        handleProductField('image_url', url);
+      } else {
+        setError('이미지 업로드에 실패했습니다. Supabase Storage에 "product-images" 버킷(Public)이 있는지, 정책(INSERT 허용)을 확인하세요.');
+      }
     } finally {
       setUploadingMainImage(false);
     }
   };
 
-  /** 구성품 이미지 파일 선택 시 업로드 후 해당 항목 URL 반영 */
+  /** 구성품 이미지 파일 선택 시 업로드 후 해당 항목 URL 반영. 실패 시 에러 메시지 표시 */
   const onComponentImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     const idx = componentUploadIndexRef.current;
     if (!file || idx < 0 || idx >= components.length) return;
+    setError(null);
     setUploadingComponentIndex(idx);
     try {
       const url = await uploadProductImage(file);
-      if (url) handleComponentChange(idx, { image_url: url });
+      if (url) {
+        handleComponentChange(idx, { image_url: url });
+      } else {
+        setError('이미지 업로드에 실패했습니다. Supabase Storage에 "product-images" 버킷(Public)이 있는지, 정책(INSERT 허용)을 확인하세요.');
+      }
     } finally {
       setUploadingComponentIndex(-1);
     }
@@ -447,6 +472,16 @@ export const Admin: React.FC = () => {
       </header>
 
       {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
+
+      {/* 저장 성공 토스트 — 3초 후 자동 사라짐 */}
+      {saveSuccessAt != null && (
+        <div
+          className="fixed left-1/2 top-20 z-50 -translate-x-1/2 rounded-xl bg-slate-800 px-6 py-3 text-sm font-medium text-white shadow-lg"
+          role="alert"
+        >
+          저장되었습니다.
+        </div>
+      )}
 
       {tab === 'dashboard' && (
         <section className="space-y-6">
@@ -639,6 +674,9 @@ export const Admin: React.FC = () => {
                 새 상품
               </button>
             </div>
+            <p className="mb-2 text-xs text-slate-500">
+              DB에 저장된 상품 전체입니다. 쇼핑 페이지(뷰티박스 메뉴)에 노출하려면 아래에서 상품 저장 후 <strong>메인 편집</strong> 탭에서 슬롯에 이 상품을 연결하세요.
+            </p>
             <ul className="divide-y divide-slate-100 text-sm">
               {products.map((p) => (
                 <li
@@ -884,7 +922,7 @@ export const Admin: React.FC = () => {
       {tab === 'layout' && (
         <section className="mt-4 space-y-4">
           <p className="text-xs text-slate-500">
-            메인 페이지 슬롯 5개. 드래그해서 순서를 바꿀 수 있습니다.
+            메인 페이지 슬롯 5개. 드래그해서 순서를 바꿀 수 있습니다. <strong>쇼핑 페이지(뷰티박스 메뉴)에 보이는 항목은 이 슬롯에 연결된 상품입니다.</strong> 상품 탭에서 등록한 상품을 아래에서 선택해 연결하세요.
           </p>
           <div className="grid gap-4 md:grid-cols-2">
             {slots.map((slot) => (
@@ -923,15 +961,21 @@ export const Admin: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className={labelClass}>상품 ID (선택)</label>
-                    <input
-                      type="text"
+                    <label className={labelClass}>연결할 상품 (쇼핑에 노출할 상품)</label>
+                    <select
                       className={inputClass}
                       value={slot.product_id ?? ''}
                       onChange={(e) =>
                         handleSlotChange(slot.slot_index, { product_id: e.target.value || null })
                       }
-                    />
+                    >
+                      <option value="">— 선택 안 함 —</option>
+                      {products.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className={labelClass}>링크 (상품 없을 때)</label>

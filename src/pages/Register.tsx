@@ -453,7 +453,7 @@ export const Register: React.FC = () => {
       </form>
 
       <p className="mt-6 text-center">
-        <Link to="/login" className="inline-flex items-center justify-center gap-1.5 text-sm text-slate-500 hover:text-slate-700">
+        <Link to="/login" className="inline-flex items-center justify-center gap-1.5 text-sm font-medium text-brand hover:opacity-90">
           <BackArrow /> Уже есть аккаунт? Войти
         </Link>
       </p>

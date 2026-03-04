@@ -238,7 +238,7 @@ export const ProductDetail: React.FC = () => {
         )}
         {loading && <p className="text-slate-500">Загрузка…</p>}
         <p className="mt-4">
-          <Link to="/shop" className="inline-flex items-center gap-1.5 text-sm text-brand hover:underline"><BackArrow /> В каталог</Link>
+          <Link to="/shop" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> В каталог</Link>
         </p>
       </main>
     );
@@ -250,42 +250,25 @@ export const ProductDetail: React.FC = () => {
   return (
     <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
       <p className="mb-6">
-        <Link to="/shop" className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700"><BackArrow /> В каталог</Link>
+        <Link to="/shop" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> В каталог</Link>
       </p>
 
       <article className="space-y-8">
         <header>
-          {/* 1) 제목·가격·장바구니 같은 행 — 관리자 상품관리(products) 연동 */}
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 sm:gap-y-3">
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
-              {product.name}
-            </h1>
-            <div className="flex items-baseline gap-2">
-              {hasDiscount && (
-                <span className="text-lg text-slate-500 line-through">
-                  {formatPrice(Number(product.rrp_price))}
-                </span>
-              )}
-              <span className="text-xl font-semibold text-slate-900">
-                {price != null ? formatPrice(Number(price)) : '—'}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={handleAddToCart}
-              className="rounded-full bg-brand py-2.5 px-6 text-sm font-semibold text-white transition hover:bg-brand/90"
-            >
-              В корзину
-            </button>
-          </div>
+          {/* 1) 제목만 상단 왼쪽 — 가격·장바구니는 아래 이미지 영역 우측 상단과 대칭 */}
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
+            {product.name}
+          </h1>
           {product.description && (
             <p className="mt-2 text-slate-600">{product.description}</p>
           )}
 
-          {/* 2) 큰 패키지 사진 — 관리자 패키지 이미지 URL 연동 */}
+          {/* 2) 큰 패키지 사진 + 우측 상단에 RRP(위)·PRP(아래)·장바구니 — 제목과 대칭 */}
           <div className="mt-6 flex flex-col gap-6 sm:gap-8">
             <div className="relative overflow-hidden rounded-2xl bg-slate-100 shadow-sm ring-1 ring-slate-200/50">
-              <div className="aspect-[4/3] w-full max-w-xl mx-auto">
+              <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+                {/* 이미지 영역 (좌측) */}
+                <div className="aspect-[4/3] w-full sm:max-w-md flex-shrink-0">
                 {product.image_url ? (
                   <img
                     src={product.image_url}
@@ -298,7 +281,32 @@ export const ProductDetail: React.FC = () => {
                   </div>
                 )}
               </div>
-              {/* 3) 하단 박스: 상세 구성품 이미지 (관리자 product_components 연동) */}
+              {/* 가격·장바구니: 사진 기준 우측 상단, RRP 위 / PRP 아래 / 장바구니 버튼 */}
+              <div className="flex flex-col items-end justify-start gap-1.5 px-4 pb-4 sm:px-0 sm:pb-0 sm:pt-4 sm:pr-4 sm:flex-1 sm:min-w-[10rem]">
+                {product.rrp_price != null && (
+                  <p className="text-sm font-medium text-slate-500 sm:text-base">
+                    <span className={hasDiscount ? 'line-through' : ''}>
+                      RRP {formatPrice(Number(product.rrp_price))}
+                    </span>
+                  </p>
+                )}
+                <p className="text-lg font-semibold tracking-tight text-slate-900 sm:text-xl">
+                  {price != null ? (
+                    <>PRP {formatPrice(Number(price))}</>
+                  ) : (
+                    '—'
+                  )}
+                </p>
+                <button
+                  type="button"
+                  onClick={handleAddToCart}
+                  className="mt-1 rounded-full bg-brand py-2.5 px-6 text-sm font-semibold text-white transition hover:bg-brand/90"
+                >
+                  В корзину
+                </button>
+              </div>
+              </div>
+              {/* 3) 하단 박스: 상세 구성품 이미지 (관리자 product_components 연동) — 이미지·가격 행 아래 전체 너비 */}
               {components.length > 0 && (
                 <div className="border-t border-slate-100 bg-slate-50/50 px-4 py-4 sm:px-6 sm:py-5">
                   <p className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">Состав набора</p>

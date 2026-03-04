@@ -177,7 +177,7 @@ export const SkinTest: React.FC = () => {
               >
                 Зарегистрироваться! Всего 10 секунд!
               </Link>
-              <Link to="/" className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-600 sm:text-sm">
+              <Link to="/" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90">
                 <BackArrow /> На главную
               </Link>
             </div>
@@ -199,7 +199,7 @@ export const SkinTest: React.FC = () => {
               >
                 В профиль
               </Link>
-              <Link to="/" className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-600 sm:text-sm">
+              <Link to="/" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90">
                 <BackArrow /> На главную
               </Link>
             </div>
@@ -232,7 +232,7 @@ export const SkinTest: React.FC = () => {
             </button>
             <Link
               to="/"
-              className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-600 sm:text-sm"
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"
             >
               <BackArrow /> На главную
             </Link>
@@ -269,7 +269,7 @@ export const SkinTest: React.FC = () => {
               <button
                 type="button"
                 onClick={handleProfilePrev}
-                className="mt-3 flex items-center justify-center gap-1 text-sm text-slate-500 hover:text-slate-700 sm:mt-4"
+                className="mt-3 flex items-center justify-center gap-1.5 text-sm font-medium text-brand hover:opacity-90 sm:mt-4"
               >
                 <BackArrow />
                 Предыдущий шаг
@@ -346,7 +346,7 @@ export const SkinTest: React.FC = () => {
             <button
               type="button"
               onClick={handlePrev}
-              className="mt-2 flex items-center justify-center gap-1 text-sm text-slate-500 hover:text-slate-700 disabled:invisible sm:mt-3"
+              className="mt-2 flex items-center justify-center gap-1.5 text-sm font-medium text-brand hover:opacity-90 disabled:invisible sm:mt-3"
               disabled={questionIndex === 0}
             >
               <BackArrow />
@@ -355,7 +355,7 @@ export const SkinTest: React.FC = () => {
             <button
               type="button"
               onClick={handleBackToProfile}
-              className="mt-1 flex items-center justify-center gap-1 text-sm text-slate-500 hover:text-slate-700 sm:mt-2"
+              className="mt-1 flex items-center justify-center gap-1.5 text-sm font-medium text-brand hover:opacity-90 sm:mt-2"
             >
               <BackArrow />
               Несколько вопросов перед тестом
@@ -470,9 +470,9 @@ export const SkinTest: React.FC = () => {
             )}
             <Link
               to="/"
-              className="text-center text-sm text-slate-500 hover:text-slate-700"
+              className="inline-flex items-center justify-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"
             >
-              На главную
+              <BackArrow /> На главную
             </Link>
           </div>
         </div>
