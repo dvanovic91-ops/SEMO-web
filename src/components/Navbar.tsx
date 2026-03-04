@@ -20,14 +20,20 @@ const NAV_LINKS = [
   { to: '/support', label: 'Support' },
 ] as const;
 
+function formatPrice(price: number): string {
+  return `${price.toLocaleString('ru-RU')} руб.`;
+}
+
 export const Navbar: React.FC = () => {
-  const { totalCount } = useCart();
+  const { items, total, totalCount } = useCart();
   const { isLoggedIn, userId } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [telegramLinked, setTelegramLinked] = useState(false);
   const prevTelegramLinkedRef = useRef<boolean | null>(null);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const notificationRef = useRef<HTMLDivElement>(null);
+  const [cartPopoverOpen, setCartPopoverOpen] = useState(false);
+  const cartRef = useRef<HTMLDivElement>(null);
 
   const notifications: { id: string; type: 'info' | 'order'; title: string; body: string; date: string }[] = [
     {
@@ -89,7 +95,7 @@ export const Navbar: React.FC = () => {
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, [fetchTelegramLinked]);
 
-  // 알림 열려 있을 때 바깥 영역 클릭하면 닫기 (동일 클릭으로 열린 직후에는 닫히지 않도록 다음 틱에 리스너 등록)
+  // 알림 열려 있을 때 바깥 영역 클릭하면 닫기
   useEffect(() => {
     if (!notificationOpen) return;
     const onDocClick = (e: MouseEvent) => {
@@ -103,6 +109,21 @@ export const Navbar: React.FC = () => {
       document.removeEventListener('click', onDocClick);
     };
   }, [notificationOpen]);
+
+  // 장바구니 팝오버 바깥 클릭 시 닫기
+  useEffect(() => {
+    if (!cartPopoverOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (cartRef.current && !cartRef.current.contains(e.target as Node)) {
+        setCartPopoverOpen(false);
+      }
+    };
+    const t = setTimeout(() => document.addEventListener('click', onDocClick), 0);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener('click', onDocClick);
+    };
+  }, [cartPopoverOpen]);
 
   return (
     <>
@@ -130,22 +151,60 @@ export const Navbar: React.FC = () => {
           </nav>
 
           <div ref={notificationRef} className="relative flex items-center gap-2">
-            <Link
-              to="/cart"
-              aria-label="Корзина"
-              className="relative flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:border-brand hover:text-brand"
-            >
-              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
-                <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
-                <line x1="3" y1="6" x2="21" y2="6" />
-                <path d="M16 10a4 4 0 0 1-8 0" />
-              </svg>
-              {totalCount > 0 && (
-                <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-brand px-1 text-xs font-semibold text-white">
-                  {totalCount > 99 ? '99+' : totalCount}
-                </span>
+            <div ref={cartRef} className="relative">
+              <button
+                type="button"
+                aria-label="Корзина"
+                onClick={() => setCartPopoverOpen((v) => !v)}
+                className="relative flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:border-brand hover:text-brand"
+              >
+                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
+                  <line x1="3" y1="6" x2="21" y2="6" />
+                  <path d="M16 10a4 4 0 0 1-8 0" />
+                </svg>
+                {totalCount > 0 && (
+                  <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-brand px-1 text-xs font-semibold text-white">
+                    {totalCount > 99 ? '99+' : totalCount}
+                  </span>
+                )}
+              </button>
+              {cartPopoverOpen && (
+                <div className="absolute right-0 top-11 z-30 w-80 max-w-[85vw] rounded-xl border border-slate-200 bg-white shadow-xl">
+                  <div className="border-b border-slate-100 px-4 py-2">
+                    <p className="text-xs font-semibold text-slate-800">Корзина</p>
+                  </div>
+                  <div className="max-h-64 overflow-auto px-3 py-2">
+                    {items.length === 0 ? (
+                      <p className="py-3 text-center text-xs text-slate-500">Пока пусто</p>
+                    ) : (
+                      <ul className="space-y-2">
+                        {items.map((it) => (
+                          <li key={it.id} className="flex justify-between gap-2 text-xs text-slate-700">
+                            <span className="min-w-0 truncate">{it.name}</span>
+                            <span className="shrink-0">
+                              {it.quantity} × {formatPrice(it.price)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  {items.length > 0 && (
+                    <div className="border-t border-slate-100 px-4 py-2">
+                      <p className="mb-2 text-right text-sm font-semibold text-slate-900">Итого: {formatPrice(total)}</p>
+                      <Link
+                        to="/cart"
+                        onClick={() => setCartPopoverOpen(false)}
+                        className="block w-full rounded-full bg-brand py-2 text-center text-xs font-medium text-white hover:bg-brand/90"
+                      >
+                        Перейти в корзину
+                      </Link>
+                    </div>
+                  )}
+                </div>
               )}
-            </Link>
+            </div>
             <button
               type="button"
               aria-label="Уведомления"

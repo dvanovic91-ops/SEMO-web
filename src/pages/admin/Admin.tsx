@@ -49,6 +49,7 @@ function formatNumber(n: number): string {
   return n.toLocaleString('en-US', { maximumFractionDigits: 0 });
 }
 
+/** 쇼핑(Beauty Box) 카드 박스 색상: brand=주황, sky=연하늘(패밀리) */
 type Product = {
   id: string;
   name: string;
@@ -61,6 +62,7 @@ type Product = {
   is_active: boolean | null;
   stock?: number | null;
   detail_description?: string | null;
+  box_theme?: 'brand' | 'sky' | null;
 };
 
 type ProductComponent = {
@@ -212,7 +214,7 @@ export const Admin: React.FC = () => {
         setError(null);
         const { data: prodData } = await supabase
           .from('products')
-          .select('id, name, category, description, image_url, image_urls, rrp_price, prp_price, is_active, stock, detail_description')
+          .select('id, name, category, description, image_url, image_urls, rrp_price, prp_price, is_active, stock, detail_description, box_theme')
           .order('name');
         const prodList = (prodData as Product[]) ?? [];
         setProducts(prodList);
@@ -409,6 +411,7 @@ export const Admin: React.FC = () => {
         is_active: selectedProduct.is_active ?? true,
         stock: selectedProduct.stock ?? 0,
         detail_description: selectedProduct.detail_description ?? null,
+        box_theme: selectedProduct.box_theme ?? 'brand',
       };
       let productId = selectedProduct.id;
       if (selectedProduct.id) {
@@ -439,7 +442,7 @@ export const Admin: React.FC = () => {
       }
       const { data: prodData } = await supabase
         .from('products')
-        .select('id, name, category, description, image_url, image_urls, rrp_price, prp_price, is_active, stock, detail_description')
+        .select('id, name, category, description, image_url, image_urls, rrp_price, prp_price, is_active, stock, detail_description, box_theme')
         .order('name');
       if (prodData) setProducts(prodData as Product[]);
       const { data: compData } = await supabase
@@ -735,8 +738,9 @@ export const Admin: React.FC = () => {
   };
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10">
-      <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="min-h-screen bg-amber-50/95">
+      <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10">
+        <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
           관리자
         </h1>
@@ -995,6 +999,7 @@ export const Admin: React.FC = () => {
                     is_active: true,
                     stock: 0,
                     detail_description: null,
+                    box_theme: 'brand',
                   })
                 }
                 className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 hover:border-brand hover:text-brand"
@@ -1187,6 +1192,17 @@ export const Admin: React.FC = () => {
                     value={selectedProduct.category ?? ''}
                     onChange={(e) => handleProductField('category', e.target.value)}
                   />
+                </div>
+                <div>
+                  <label className={labelClass}>제품 박스 색상 (Beauty Box 메뉴 카드)</label>
+                  <select
+                    className={inputClass}
+                    value={selectedProduct.box_theme ?? 'brand'}
+                    onChange={(e) => handleProductField('box_theme', e.target.value as 'brand' | 'sky')}
+                  >
+                    <option value="brand">주황색 (기본)</option>
+                    <option value="sky">연하늘색 (패밀리 케어)</option>
+                  </select>
                 </div>
                 <div>
                   <label className={labelClass}>설명 (목록용 짧은 설명)</label>
@@ -1484,31 +1500,42 @@ export const Admin: React.FC = () => {
                       onMouseLeave={stopPreviewScroll}
                       className="mt-3 max-h-80 overflow-auto rounded-lg border border-slate-200 bg-white p-4 text-sm"
                     >
-                      <p className="mb-2 text-xs font-semibold uppercase text-slate-400">상품 상세 페이지 예시</p>
-                      <h3 className="text-lg font-semibold text-slate-900">{selectedProduct.name || '(상품명)'}</h3>
-                      <div className="relative mt-2 aspect-[4/3] w-full max-w-xs overflow-hidden rounded-lg bg-slate-100">
-                        {selectedProduct.image_url ? (
-                          <img src={selectedProduct.image_url} alt="" className="h-full w-full object-contain p-2" />
-                        ) : (
-                          <span className="absolute right-2 top-2 text-[10px] text-slate-400">Изображение не загружено</span>
-                        )}
-                      </div>
-                      {selectedProduct.description && (
-                        <p className="mt-1 line-clamp-1 text-slate-600">{selectedProduct.description}</p>
-                      )}
-                      <p className="mt-2 line-clamp-2 text-slate-700">{selectedProduct.description || '—'}</p>
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        {selectedProduct.rrp_price != null && (
-                          <span className={selectedProduct.prp_price != null ? 'text-slate-500 line-through' : 'text-slate-600'}>
-                            {formatNumber(Number(selectedProduct.rrp_price))} руб.
+                      <p className="mb-2 text-xs font-semibold uppercase text-slate-400">Beauty Box 카드 예시</p>
+                      <div
+                        className={`rounded-xl border px-4 py-4 ${
+                          (selectedProduct.box_theme ?? 'brand') === 'sky'
+                            ? 'border-sky-200 bg-sky-50/60'
+                            : 'border-brand/20 bg-brand-soft/25'
+                        }`}
+                      >
+                        <h3 className="text-base font-semibold text-slate-900">{selectedProduct.name || '(상품명)'}</h3>
+                        <div className="relative mt-2 aspect-[4/3] w-full max-w-xs overflow-hidden rounded-lg bg-slate-100">
+                          {selectedProduct.image_url ? (
+                            <img src={selectedProduct.image_url} alt="" className="h-full w-full object-contain p-2" />
+                          ) : (
+                            <span className="absolute right-2 top-2 text-[10px] text-slate-400">Изображение не загружено</span>
+                          )}
+                        </div>
+                        <p className="mt-1 line-clamp-1 text-slate-600">{selectedProduct.description || '—'}</p>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          {selectedProduct.rrp_price != null && (
+                            <span className={selectedProduct.prp_price != null ? 'text-slate-500 line-through' : 'text-slate-600'}>
+                              {formatNumber(Number(selectedProduct.rrp_price))} руб.
+                            </span>
+                          )}
+                          <span className="font-semibold text-slate-900">
+                            {selectedProduct.prp_price != null || selectedProduct.rrp_price != null
+                              ? `${formatNumber(Number(selectedProduct.prp_price ?? selectedProduct.rrp_price ?? 0))} руб.`
+                              : '—'}
                           </span>
-                        )}
-                        <span className="font-semibold text-slate-900">
-                          {selectedProduct.prp_price != null || selectedProduct.rrp_price != null
-                            ? `${formatNumber(Number(selectedProduct.prp_price ?? selectedProduct.rrp_price ?? 0))} руб.`
-                            : '—'}
-                        </span>
-                        <span className="rounded-full bg-brand px-3 py-1 text-xs font-medium text-white">В корзину</span>
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-medium text-white ${
+                              (selectedProduct.box_theme ?? 'brand') === 'sky' ? 'bg-sky-600' : 'bg-brand'
+                            }`}
+                          >
+                            В корзину
+                          </span>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -1528,7 +1555,8 @@ export const Admin: React.FC = () => {
         </section>
       )}
 
-    </main>
+      </main>
+    </div>
   );
 };
 

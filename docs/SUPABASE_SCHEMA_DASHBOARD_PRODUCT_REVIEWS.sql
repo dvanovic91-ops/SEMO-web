@@ -11,6 +11,8 @@
 alter table public.products add column if not exists stock int default 0;
 alter table public.products add column if not exists detail_description text;
 alter table public.products add column if not exists image_urls jsonb default '[]';
+-- 쇼핑(Beauty Box) 카드 색상: 'brand'(주황) | 'sky'(연하늘, 패밀리)
+alter table public.products add column if not exists box_theme text default 'brand';
 
 -- ---------- product_views (상품별 조회수: 상세 페이지 진입 시 1건 기록) ----------
 create table if not exists public.product_views (

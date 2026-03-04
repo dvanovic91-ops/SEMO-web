@@ -51,18 +51,19 @@ export const Shop: React.FC = () => {
       if (!slotData?.length) return;
 
       const productIds = [...new Set((slotData as { product_id: string | null }[]).map((s) => s.product_id).filter(Boolean))] as string[];
-      let productsMap: Record<string, { rrp_price: number | null; prp_price: number | null; image_url: string | null; image_urls: string[] }> = {};
+      let productsMap: Record<string, { rrp_price: number | null; prp_price: number | null; image_url: string | null; image_urls: string[]; box_theme?: string | null }> = {};
       if (productIds.length > 0) {
         const { data: prodData } = await supabase
           .from('products')
-          .select('id, rrp_price, prp_price, image_url, image_urls')
+          .select('id, rrp_price, prp_price, image_url, image_urls, box_theme')
           .in('id', productIds);
-        (prodData ?? []).forEach((p: { id: string; rrp_price: number | null; prp_price: number | null; image_url: string | null; image_urls?: string[] | null }) => {
+        (prodData ?? []).forEach((p: { id: string; rrp_price: number | null; prp_price: number | null; image_url: string | null; image_urls?: string[] | null; box_theme?: string | null }) => {
           productsMap[p.id] = {
             rrp_price: p.rrp_price,
             prp_price: p.prp_price,
             image_url: p.image_url ?? null,
             image_urls: Array.isArray(p.image_urls) ? p.image_urls : [],
+            box_theme: p.box_theme ?? null,
           };
         });
       }
@@ -81,6 +82,7 @@ export const Shop: React.FC = () => {
             : imageUrl
             ? [imageUrl]
             : []) ?? [];
+        const isFamily = product?.box_theme === 'sky' || (product?.box_theme != null ? false : s.slot_index >= 4);
         return {
           id: productId ?? `slot-${s.slot_index}`,
           name: s.title ?? `Слот ${s.slot_index + 1}`,
@@ -90,7 +92,7 @@ export const Shop: React.FC = () => {
           imageUrls,
           productId,
           linkUrl: s.link_url ?? null,
-          isFamily: s.slot_index >= 4,
+          isFamily,
         };
       });
       if (list.length >= 3) setItems(list);
