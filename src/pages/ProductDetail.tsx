@@ -106,12 +106,14 @@ export const ProductDetail: React.FC = () => {
       setComponents([]);
       setReviews([]);
       setLoading(false);
+      prevIdRef.current = '';
       return;
     }
 
     if (!supabase) {
       setProduct(null);
       setLoading(false);
+      prevIdRef.current = '';
       return;
     }
 
@@ -144,10 +146,9 @@ export const ProductDetail: React.FC = () => {
           const { data: compData, error: compErr } = await supabase
             .from('product_components')
             .select('id, sort_order, name, image_url, image_urls, description')
-            .eq('product_id', currentId)
-            .order('sort_order');
+            .eq('product_id', currentId);
           if (!compErr && compData && Array.isArray(compData)) {
-            compList = compData as Component[];
+            compList = (compData as Component[]).slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
           }
         } catch (e) {
           console.warn('product_components 로드 실패:', e);
@@ -199,10 +200,7 @@ export const ProductDetail: React.FC = () => {
     };
 
     void load();
-    return () => {
-      cancelled = true;
-      if (currentId === (id ?? '')) prevIdRef.current = '';
-    };
+    return () => { cancelled = true; };
   }, [id]);
 
   const handleSubmitReview = async (e: React.FormEvent) => {
