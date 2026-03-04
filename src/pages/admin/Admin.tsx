@@ -212,21 +212,27 @@ export const Admin: React.FC = () => {
     const load = async () => {
       try {
         setError(null);
+        // 기본 스키마만 사용해 400 방지 (image_urls, stock, detail_description 없을 수 있음)
         const { data: prodData } = await supabase
           .from('products')
-          .select('id, name, category, description, image_url, image_urls, rrp_price, prp_price, is_active, stock, detail_description, box_theme')
-          .order('name');
-        const prodList = (prodData as Product[]) ?? [];
+          .select('id, name, category, description, image_url, rrp_price, prp_price, is_active');
+        const raw = (prodData as (Product & { image_urls?: string[]; stock?: number; detail_description?: string | null })[]) ?? [];
+        const prodList = raw.slice().sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')).map((p) => ({
+          ...p,
+          image_urls: p.image_urls ?? (p.image_url ? [p.image_url] : []),
+          stock: p.stock ?? null,
+          detail_description: p.detail_description ?? null,
+        })) as Product[];
         setProducts(prodList);
 
         const { data: slotData } = await supabase
           .from('main_layout_slots')
-          .select('id, slot_index, title, description, image_url, product_id, link_url')
-          .order('slot_index');
+          .select('id, slot_index, title, description, image_url, product_id, link_url');
+        const slotsSorted = ((slotData ?? []) as { id: number; slot_index: number; title: string | null; description: string | null; image_url: string | null; product_id: string | null; link_url: string | null }[]).slice().sort((a, b) => a.slot_index - b.slot_index);
 
-        if (slotData && slotData.length > 0) {
+        if (slotsSorted.length > 0) {
           const filled = [0, 1, 2, 3, 4].map((i) => {
-            const found = slotData.find((s) => s.slot_index === i);
+            const found = slotsSorted.find((s) => s.slot_index === i);
             if (!found) return emptySlot(i);
             return {
               id: found.id,
@@ -266,9 +272,10 @@ export const Admin: React.FC = () => {
         const totalRevenueCents = (orderData ?? []).reduce((s, o) => s + (o.total_cents ?? 0), 0);
         const orderCount = orderData?.length ?? 0;
 
+        // 기본 스키마만 (stock 컬럼 없을 수 있음)
         const { data: prodData } = await supabase
           .from('products')
-          .select('id, name, stock');
+          .select('id, name');
         const productIds = (prodData ?? []).map((p) => p.id);
         let viewCounts: Record<string, number> = {};
         if (productIds.length > 0) {
@@ -285,7 +292,7 @@ export const Admin: React.FC = () => {
         setDashboardKpi({
           totalRevenueCents,
           orderCount,
-          products: (prodData ?? []).map((p) => ({
+          products: (prodData ?? []).map((p: { id: string; name?: string | null; stock?: number | null }) => ({
             id: p.id,
             name: p.name ?? '',
             stock: p.stock ?? 0,
@@ -310,9 +317,10 @@ export const Admin: React.FC = () => {
       .from('product_components')
       .select('id, product_id, sort_order, name, image_url, image_urls, description')
       .eq('product_id', selectedProduct.id)
-      .order('sort_order')
       .then(({ data }) => {
-        const rows = (data as (Omit<ProductComponent, 'image_urls'> & { image_urls?: string[] | null })[]) ?? [];
+        const rows = ((data as (Omit<ProductComponent, 'image_urls'> & { image_urls?: string[] | null })[]) ?? []).sort(
+          (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
+        );
         setComponents(
           rows.map((r) => ({
             ...r,
@@ -336,14 +344,11 @@ export const Admin: React.FC = () => {
       try {
         const [{ data: viewData }, { data: reviewData }] = await Promise.all([
           supabase.from('product_views').select('id').eq('product_id', productId),
-          supabase
-            .from('product_reviews')
-            .select('id, rating, body, created_at')
-            .eq('product_id', productId)
-            .order('created_at', { ascending: false }),
+          supabase.from('product_reviews').select('id, rating, body, created_at').eq('product_id', productId),
         ]);
+        const reviewsSorted = ((reviewData ?? []) as { id: string; rating: number; body: string | null; created_at: string }[]).slice().sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
         const viewCount = viewData?.length ?? 0;
-        const reviewRows = (reviewData as ProductReviewSummary[] | null) ?? [];
+        const reviewRows = reviewsSorted as ProductReviewSummary[];
         const reviewCount = reviewRows.length;
         const avgRating =
           reviewCount > 0
@@ -395,23 +400,20 @@ export const Admin: React.FC = () => {
     setSavingProduct(true);
     setError(null);
     try {
+      // 기본 스키마만 전송해 400 방지 (image_urls, stock, detail_description 컬럼 없을 수 있음)
       const mainImages = Array.isArray(selectedProduct.image_urls) && selectedProduct.image_urls.length
         ? selectedProduct.image_urls
         : selectedProduct.image_url
         ? [selectedProduct.image_url]
         : [];
-      const payload = {
+      const payload: Record<string, unknown> = {
         name: selectedProduct.name,
         category: selectedProduct.category,
         description: selectedProduct.description,
         image_url: mainImages[0] ?? null,
-        image_urls: mainImages,
         rrp_price: selectedProduct.rrp_price,
         prp_price: selectedProduct.prp_price,
         is_active: selectedProduct.is_active ?? true,
-        stock: selectedProduct.stock ?? 0,
-        detail_description: selectedProduct.detail_description ?? null,
-        box_theme: selectedProduct.box_theme ?? 'brand',
       };
       let productId = selectedProduct.id;
       if (selectedProduct.id) {
@@ -442,16 +444,25 @@ export const Admin: React.FC = () => {
       }
       const { data: prodData } = await supabase
         .from('products')
-        .select('id, name, category, description, image_url, image_urls, rrp_price, prp_price, is_active, stock, detail_description, box_theme')
-        .order('name');
-      if (prodData) setProducts(prodData as Product[]);
+        .select('id, name, category, description, image_url, rrp_price, prp_price, is_active');
+      if (prodData && Array.isArray(prodData)) {
+        const raw = prodData as (Product & { image_urls?: string[]; stock?: number; detail_description?: string | null })[];
+        const list = raw.slice().sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')).map((p) => ({
+          ...p,
+          image_urls: p.image_urls ?? (p.image_url ? [p.image_url] : []),
+          stock: p.stock ?? null,
+          detail_description: p.detail_description ?? null,
+        })) as Product[];
+        setProducts(list);
+      }
       const { data: compData } = await supabase
         .from('product_components')
         .select('id, product_id, sort_order, name, image_url, image_urls, description')
-        .eq('product_id', productId)
-        .order('sort_order');
-      if (compData) {
-        const rows = compData as (Omit<ProductComponent, 'image_urls'> & { image_urls?: string[] | null })[];
+        .eq('product_id', productId);
+      if (compData && Array.isArray(compData)) {
+        const rows = (compData as (Omit<ProductComponent, 'image_urls'> & { image_urls?: string[] | null })[]).sort(
+          (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
+        );
         setComponents(
           rows.map((r) => ({
             ...r,
@@ -701,12 +712,12 @@ export const Admin: React.FC = () => {
       if (insErr) throw insErr;
       const { data: slotData } = await supabase
         .from('main_layout_slots')
-        .select('id, slot_index, title, description, image_url, product_id, link_url')
-        .order('slot_index');
-      if (slotData?.length) {
+        .select('id, slot_index, title, description, image_url, product_id, link_url');
+      const slotsSortedAfterSave = ((slotData ?? []) as { id: number; slot_index: number; title: string | null; description: string | null; image_url: string | null; product_id: string | null; link_url: string | null }[]).slice().sort((a, b) => a.slot_index - b.slot_index);
+      if (slotsSortedAfterSave.length > 0) {
         setSlots(
           [0, 1, 2, 3, 4].map((i) => {
-            const found = slotData.find((s) => s.slot_index === i);
+            const found = slotsSortedAfterSave.find((s) => s.slot_index === i);
             if (!found) return emptySlot(i);
             return {
               id: found.id,
@@ -719,7 +730,7 @@ export const Admin: React.FC = () => {
             };
           })
         );
-        const slotProductIds = slotData.map((s) => s.product_id).filter(Boolean) as string[];
+        const slotProductIds = slotsSortedAfterSave.map((s) => s.product_id).filter(Boolean) as string[];
         const restIds = products.map((p) => p.id).filter((id) => !slotProductIds.includes(id));
         setOrderedProductIds([...slotProductIds, ...restIds]);
       }
@@ -738,7 +749,7 @@ export const Admin: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-amber-50/95">
+    <div className="min-h-screen bg-brand-soft/90">
       <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10">
         <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
@@ -876,7 +887,7 @@ export const Admin: React.FC = () => {
               </select>
             </div>
             {USE_MOCK_DASHBOARD && chartData.length > 0 ? (
-              <div className="h-[320px] w-full">
+              <div className="h-[320px] min-h-[280px] w-full min-w-0">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartData} margin={{ top: 20, right: 20, left: 10, bottom: 20 }}>
                     <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="#64748b" />
@@ -1203,6 +1214,7 @@ export const Admin: React.FC = () => {
                     <option value="brand">주황색 (기본)</option>
                     <option value="sky">연하늘색 (패밀리 케어)</option>
                   </select>
+                  <p className="mt-0.5 text-[10px] text-slate-500">DB에 box_theme 컬럼 추가 후 저장됩니다. 현재는 슬롯 5번째만 연하늘색.</p>
                 </div>
                 <div>
                   <label className={labelClass}>설명 (목록용 짧은 설명)</label>

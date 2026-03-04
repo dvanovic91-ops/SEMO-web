@@ -121,9 +121,10 @@ export const ProductDetail: React.FC = () => {
 
     const load = async () => {
       try {
+        // 기본 스키마만 사용해 400 방지 (detail_description, image_urls, stock 없을 수 있음)
         const { data: prodData, error: prodErr } = await supabase
           .from('products')
-          .select('id, name, description, detail_description, image_url, image_urls, rrp_price, prp_price, stock')
+          .select('id, name, description, image_url, rrp_price, prp_price')
           .eq('id', currentId)
           .single();
 
@@ -138,7 +139,19 @@ export const ProductDetail: React.FC = () => {
           loadingIdRef.current = null;
           return;
         }
-        setProduct((prev) => (prev?.id === (prodData as Product).id ? prev : (prodData as Product)));
+        const row = prodData as Product & { detail_description?: string | null; image_urls?: string[] | null; stock?: number | null };
+        const productRow: Product = {
+          id: row.id,
+          name: row.name,
+          description: row.description,
+          detail_description: row.detail_description ?? null,
+          image_url: row.image_url,
+          image_urls: Array.isArray(row.image_urls) ? row.image_urls : (row.image_url ? [row.image_url] : []),
+          rrp_price: row.rrp_price,
+          prp_price: row.prp_price,
+          stock: row.stock ?? null,
+        };
+        setProduct((prev) => (prev?.id === productRow.id ? prev : productRow));
 
         try {
           await supabase.from('product_views').insert({ product_id: currentId });
@@ -165,9 +178,9 @@ export const ProductDetail: React.FC = () => {
           const { data: reviewData } = await supabase
             .from('product_reviews')
             .select('id, user_id, rating, body, created_at, profiles(name, email)')
-            .eq('product_id', currentId)
-            .order('created_at', { ascending: false });
-          reviewsList = (reviewData as Review[]) ?? [];
+            .eq('product_id', currentId);
+          const raw = (reviewData as Review[]) ?? [];
+          reviewsList = raw.slice().sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
         } catch (_) {
           reviewsList = [];
         }
@@ -207,6 +220,7 @@ export const ProductDetail: React.FC = () => {
     void load();
     return () => {
       cancelled = true;
+      /* 다음 진입 시 같은 id도 다시 로드되도록 ref 초기화 */
       loadingIdRef.current = null;
     };
   }, [id]);
@@ -263,9 +277,9 @@ export const ProductDetail: React.FC = () => {
       const { data: reviewData } = await supabase
         .from('product_reviews')
         .select('id, user_id, rating, body, created_at, profiles(name, email)')
-        .eq('product_id', id)
-        .order('created_at', { ascending: false });
-      const reviewsList = (reviewData as Review[]) ?? [];
+        .eq('product_id', id);
+      const raw = (reviewData as Review[]) ?? [];
+      const reviewsList = raw.slice().sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
       const reviewIds = reviewsList.map((r) => r.id);
       let photosMap: Record<string, { image_url: string }[]> = {};
       if (reviewIds.length > 0) {

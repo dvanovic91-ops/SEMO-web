@@ -26,9 +26,9 @@ export const ProfileTestResults: React.FC = () => {
       .from('skin_test_results')
       .select('id, skin_type, completed_at')
       .eq('user_id', userId)
-      .order('completed_at', { ascending: false })
       .then(({ data }) => {
-        setList((data as TestResultRow[]) ?? []);
+        const sorted = ((data ?? []) as { id: string; skin_type: string | null; completed_at: string }[]).slice().sort((a, b) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime());
+        setList(sorted as TestResultRow[]);
       })
       .catch(() => setList([]))
       .finally(() => setLoading(false));

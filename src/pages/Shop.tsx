@@ -46,29 +46,29 @@ export const Shop: React.FC = () => {
     (async () => {
       const { data: slotData } = await supabase
         .from('main_layout_slots')
-        .select('slot_index, title, description, image_url, product_id, link_url')
-        .order('slot_index');
-      if (!slotData?.length) return;
+        .select('slot_index, title, description, image_url, product_id, link_url');
+      const slots = ((slotData ?? []) as { slot_index: number; title: string | null; description: string | null; image_url: string | null; product_id: string | null; link_url: string | null }[]).slice().sort((a, b) => a.slot_index - b.slot_index);
+      if (!slots.length) return;
 
-      const productIds = [...new Set((slotData as { product_id: string | null }[]).map((s) => s.product_id).filter(Boolean))] as string[];
-      let productsMap: Record<string, { rrp_price: number | null; prp_price: number | null; image_url: string | null; image_urls: string[]; box_theme?: string | null }> = {};
+      const productIds = [...new Set(slots.map((s) => s.product_id).filter(Boolean))] as string[];
+      let productsMap: Record<string, { rrp_price: number | null; prp_price: number | null; image_url: string | null; image_urls: string[] }> = {};
+      // 기본 스키마만 사용해 400 방지 (image_urls 없을 수 있음)
       if (productIds.length > 0) {
         const { data: prodData } = await supabase
           .from('products')
-          .select('id, rrp_price, prp_price, image_url, image_urls, box_theme')
+          .select('id, rrp_price, prp_price, image_url')
           .in('id', productIds);
-        (prodData ?? []).forEach((p: { id: string; rrp_price: number | null; prp_price: number | null; image_url: string | null; image_urls?: string[] | null; box_theme?: string | null }) => {
+        (prodData ?? []).forEach((p: { id: string; rrp_price: number | null; prp_price: number | null; image_url: string | null; image_urls?: string[] | null }) => {
           productsMap[p.id] = {
             rrp_price: p.rrp_price,
             prp_price: p.prp_price,
             image_url: p.image_url ?? null,
-            image_urls: Array.isArray(p.image_urls) ? p.image_urls : [],
-            box_theme: p.box_theme ?? null,
+            image_urls: Array.isArray(p.image_urls) && p.image_urls.length ? p.image_urls : (p.image_url ? [p.image_url] : []),
           };
         });
       }
 
-      const list: ShopItem[] = slotData.map((s: { slot_index: number; title: string | null; image_url: string | null; product_id: string | null; link_url: string | null }) => {
+      const list: ShopItem[] = slots.map((s: { slot_index: number; title: string | null; image_url: string | null; product_id: string | null; link_url: string | null }) => {
         const productId = s.product_id ?? null;
         const product = productId ? productsMap[productId] : null;
         const prp = product?.prp_price != null ? Number(product.prp_price) : null;
@@ -82,7 +82,7 @@ export const Shop: React.FC = () => {
             : imageUrl
             ? [imageUrl]
             : []) ?? [];
-        const isFamily = product?.box_theme === 'sky' || (product?.box_theme != null ? false : s.slot_index >= 4);
+        const isFamily = s.slot_index >= 4;
         return {
           id: productId ?? `slot-${s.slot_index}`,
           name: s.title ?? `Слот ${s.slot_index + 1}`,
