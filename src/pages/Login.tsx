@@ -14,7 +14,7 @@ const inputClass =
 
 export const Login: React.FC = () => {
   const navigate = useNavigate();
-  const { isLoggedIn, initialized } = useAuth();
+  const { isLoggedIn, initialized, applySession } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMeChecked] = useState(true);
@@ -59,8 +59,9 @@ export const Login: React.FC = () => {
     setPasswordError(null);
     setLoginError(null);
 
+    const trimmedEmail = email.trim();
     let hasError = false;
-    if (!email) {
+    if (!trimmedEmail) {
       setEmailError('Введите email.');
       hasError = true;
     }
@@ -77,10 +78,16 @@ export const Login: React.FC = () => {
     setRememberMe(rememberMe);
     setLoginLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: trimmedEmail,
+        password,
+      });
       if (error) {
-        setPasswordError('Неверный email или пароль.');
+        setLoginError(error.message || 'Неверный email или пароль.');
         return;
+      }
+      if (data?.session) {
+        await applySession(data.session);
       }
       navigate('/', { replace: true });
     } finally {

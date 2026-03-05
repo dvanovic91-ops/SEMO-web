@@ -12,7 +12,7 @@ export const About: React.FC = () => {
         About SEMO
       </h1>
       <p className="mt-8 text-lg leading-relaxed text-slate-600">
-        SEMO beauty-box — это персональный подбор корейской уходовой косметики с доставкой из Кореи в Россию.
+        SEMO box — это персональный подбор корейской уходовой косметики с доставкой из Кореи в Россию.
         Пройдите тест по типу кожи, получите рекомендации и закажите бокс, созданный под вас.
       </p>
       <p className="mt-6 text-base leading-relaxed text-slate-600">

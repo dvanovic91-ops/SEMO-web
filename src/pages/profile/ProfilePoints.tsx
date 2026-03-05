@@ -4,9 +4,8 @@ import { BackArrow } from '../../components/BackArrow';
 import { useAuth } from '../../context/AuthContext';
 import { getProfile } from '../../lib/profileStorage';
 import { supabase } from '../../lib/supabase';
-import { USE_MOCK_POINTS, mockPointBalance, mockPointHistory } from '../../data/mocks';
 
-/** 포인트 내역 — 잔액은 프로필과 동일 소스(DB 우선), 내역은 목업 또는 향후 API */
+/** 포인트 내역 — 잔액은 DB(profiles.points) 우선, 내역은 향후 API 연동 예정 */
 export const ProfilePoints: React.FC = () => {
   const { userEmail, userId, isLoggedIn, initialized } = useAuth();
   const [dbPoints, setDbPoints] = useState<number | null>(null);
@@ -68,8 +67,8 @@ export const ProfilePoints: React.FC = () => {
   }, [refreshPoints]);
 
   const localProfile = userEmail ? getProfile(userEmail) : null;
-  const points = dbPoints !== null ? dbPoints : (USE_MOCK_POINTS ? mockPointBalance : (localProfile?.points ?? 0));
-  const history = USE_MOCK_POINTS ? mockPointHistory : [];
+  const points = dbPoints !== null ? dbPoints : (localProfile?.points ?? 0);
+  const history: { id: string; label: string; amount: number; date: string }[] = [];
 
   if (!initialized) return null;
   if (!isLoggedIn) return <Navigate to="/login" replace />;
@@ -91,7 +90,7 @@ export const ProfilePoints: React.FC = () => {
       </header>
 
       <ul className="space-y-3">
-        {history.length === 0 && !USE_MOCK_POINTS && (
+        {history.length === 0 && (
           <p className="text-sm text-slate-500">Пока нет записей.</p>
         )}
         {history.map((item) => (

@@ -13,7 +13,8 @@ const inputClass =
 const labelClass = 'mb-1 block text-sm font-medium text-slate-700';
 const hintClass = 'text-[11px] text-slate-500 font-normal';
 
-const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** 이메일 형식: 로컬부(영문·숫자·._%+-), @, 도메인(하이픈 포함 예: semo-box.ru), TLD 2자 이상 */
+const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 
 function normalizeLatin(value: string): string {
   // 여권용 FIO: 라틴 문자, пробел, -, ' 만 허용
@@ -56,11 +57,12 @@ export const Register: React.FC = () => {
   const [addressSearch, setAddressSearch] = useState('');
 
   const handleEmailBlur = () => {
-    if (!email) {
+    const trimmed = email.trim();
+    if (!trimmed) {
       setEmailError(false);
       return;
     }
-    setEmailError(!emailRegex.test(email));
+    setEmailError(!emailRegex.test(trimmed));
   };
 
   const handleSendCode = () => {
@@ -76,12 +78,12 @@ export const Register: React.FC = () => {
     setSubmitError(null);
     setSubmitSuccess(null);
 
+    const trimmedEmail = email.trim().toLowerCase();
     let hasError = false;
-    if (email && !emailRegex.test(email)) {
+    if (!trimmedEmail) {
       setEmailError(true);
       hasError = true;
-    }
-    if (!email) {
+    } else if (!emailRegex.test(trimmedEmail)) {
       setEmailError(true);
       hasError = true;
     }
@@ -103,7 +105,7 @@ export const Register: React.FC = () => {
     setSubmitting(true);
     try {
       const { error } = await supabase.auth.signUp({
-        email,
+        email: trimmedEmail,
         password,
         options: {
           data: {
@@ -116,13 +118,11 @@ export const Register: React.FC = () => {
         return;
       }
       setSubmitSuccess('Регистрация прошла. Теперь войдите с email и паролем.');
-      // 이메일을 로컬에 저장해 다음에 자동 완성
       try {
-        localStorage.setItem('userEmail', email);
+        localStorage.setItem('userEmail', trimmedEmail);
       } catch {
         // ignore
       }
-      // 로그인 화면으로 보내기
       setTimeout(() => navigate('/login'), 1500);
     } finally {
       setSubmitting(false);

@@ -11,7 +11,8 @@ import {
   YAxis,
 } from 'recharts';
 import { useAuth } from '../../context/AuthContext';
-import { USE_MOCK_DASHBOARD, type DashboardPeriodType } from '../../data/mocks';
+/** 대시보드 매출 기간: 일/주/월/기간 */
+type DashboardPeriodType = 'day' | 'week' | 'month' | 'range';
 import { deleteMappingForTypes, fetchMapping, saveMapping } from '../../lib/skinTypeSlotMapping';
 import { supabase } from '../../lib/supabase';
 import { ALL_SKIN_TYPES } from '../../config/skinTypeRecommendations';
@@ -1996,12 +1997,10 @@ export const Admin: React.FC = () => {
               <div>
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-400">매출</p>
                 <p className="mt-1 text-2xl font-semibold text-slate-900">
-                  {USE_MOCK_DASHBOARD
-                    ? formatNumber(revenueChartData.reduce((s, d) => s + d.revenue, 0)) + ' ₽'
-                    : formatNumber((dashboardKpi?.totalRevenueCents ?? 0) / 100) + ' ₽'}
+                  {formatNumber((dashboardKpi?.totalRevenueCents ?? 0) / 100) + ' ₽'}
                 </p>
                 <p className="mt-0.5 text-xs text-slate-500">
-                  {USE_MOCK_DASHBOARD ? '그래프 합계 (목업)' : '주문 합계'}
+                  주문 합계
                 </p>
               </div>
               <div className="text-right">

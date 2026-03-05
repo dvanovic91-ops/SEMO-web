@@ -9,7 +9,7 @@ export const Footer: React.FC = () => {
       <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs text-slate-400">
-            © {year} SEMO beauty-box. All rights reserved.
+            © {year} SEMO box. All rights reserved.
           </p>
           <p className="text-xs text-slate-400" title="Версия">
             v{APP_VERSION}

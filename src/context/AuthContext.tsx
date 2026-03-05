@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
+import type { Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 
 const STORAGE_KEY = 'userEmail';
@@ -14,6 +15,8 @@ interface AuthContextValue {
   isLoggedIn: boolean;
   initialized: boolean;
   isAdmin: boolean;
+  /** 로그인 성공 직후 세션 반영용. session 넘기면 즉시 적용 후 네비만 함 */
+  applySession: (session: Session | null) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -47,74 +50,69 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const applySession = useCallback(async (session: Session | null) => {
+    if (session?.user) {
+      setUserEmailState(session.user.email ?? null);
+      setUserId(session.user.id);
+      const meta = session.user.user_metadata ?? {};
+      const displayName =
+        (typeof meta.nickname === 'string' && meta.nickname.trim()) ||
+        (typeof meta.full_name === 'string' && meta.full_name.trim()) ||
+        (typeof meta.name === 'string' && meta.name.trim()) ||
+        (session.user.email ? session.user.email.split('@')[0] : '') ||
+        'Гость';
+      try {
+        const { data: existing } = await supabase
+          .from('profiles')
+          .select('name')
+          .eq('id', session.user.id)
+          .single();
+        const hasName = !!existing?.name?.trim();
+        if (!hasName) {
+          await supabase.from('profiles').upsert(
+            { id: session.user.id, name: displayName.trim() || null },
+            { onConflict: 'id' }
+          );
+        }
+      } catch {
+        // ignore
+      }
+      try {
+        const { data } = await supabase
+          .from('profiles')
+          .select('is_admin')
+          .eq('id', session.user.id)
+          .single();
+        setIsAdmin(!!data?.is_admin);
+      } catch {
+        setIsAdmin(false);
+      }
+      try {
+        const raw = localStorage.getItem('semo_anon_result');
+        if (raw) {
+          const data = JSON.parse(raw) as { skin_type: string };
+          if (data?.skin_type) {
+            supabase
+              .from('skin_test_results')
+              .insert({ user_id: session.user.id, skin_type: data.skin_type })
+              .then(() => localStorage.removeItem('semo_anon_result'))
+              .catch(() => {});
+          }
+        }
+      } catch {
+        // ignore
+      }
+    } else {
+      setUserEmailState(null);
+      setUserId(null);
+      setIsAdmin(false);
+    }
+    setInitialized(true);
+  }, []);
+
   useEffect(() => {
     if (supabase) {
       let cancelled = false;
-      const applySession = async (session: { user: { email?: string | null; id: string; user_metadata?: Record<string, unknown> } } | null) => {
-        try {
-        if (cancelled) return;
-        if (session?.user) {
-          setUserEmailState(session.user.email ?? null);
-          setUserId(session.user.id);
-          // 프로필 이름: 가입 시에만 세팅. 이미 있으면 개인정보에서 바꾼 값 유지.
-          const meta = session.user.user_metadata ?? {};
-          const displayName =
-            (typeof meta.nickname === 'string' && meta.nickname.trim()) ||
-            (typeof meta.full_name === 'string' && meta.full_name.trim()) ||
-            (typeof meta.name === 'string' && meta.name.trim()) ||
-            (session.user.email ? session.user.email.split('@')[0] : '') ||
-            'Гость';
-          try {
-            const { data: existing } = await supabase
-              .from('profiles')
-              .select('name')
-              .eq('id', session.user.id)
-              .single();
-            const hasName = !!existing?.name?.trim();
-            if (!hasName) {
-              await supabase.from('profiles').upsert(
-                { id: session.user.id, name: displayName.trim() || null },
-                { onConflict: 'id' }
-              );
-            }
-          } catch {
-            // RLS/테이블 없음 등 무시
-          }
-          try {
-            const { data } = await supabase
-              .from('profiles')
-              .select('is_admin')
-              .eq('id', session.user.id)
-              .single();
-            if (!cancelled) setIsAdmin(!!data?.is_admin);
-          } catch {
-            if (!cancelled) setIsAdmin(false);
-          }
-          /* 에러 나도 앱이 멈추지 않도록 initialized는 아래에서 무조건 true로 설정 */
-          try {
-            const raw = localStorage.getItem('semo_anon_result');
-            if (raw) {
-              const data = JSON.parse(raw) as { skin_type: string };
-              if (data?.skin_type) {
-                supabase
-                  .from('skin_test_results')
-                  .insert({ user_id: session.user.id, skin_type: data.skin_type })
-                  .then(() => localStorage.removeItem('semo_anon_result'))
-                  .catch(() => {});
-              }
-            }
-          } catch {
-            // ignore
-          }
-        } else {
-          setUserEmailState(null);
-          setUserId(null);
-        }
-        } finally {
-          if (!cancelled) setInitialized(true);
-        }
-      };
-
       const timeout = window.setTimeout(() => {
         if (!cancelled) {
           cancelled = true;
@@ -142,30 +140,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
         if (cancelled) return;
-        if (session?.user) {
-          setUserEmailState(session.user.email ?? null);
-          setUserId(session.user.id);
-          void applySession(session);
-          try {
-            const raw = localStorage.getItem('semo_anon_result');
-            if (raw) {
-              const data = JSON.parse(raw) as { skin_type: string };
-              if (data?.skin_type) {
-                supabase
-                  .from('skin_test_results')
-                  .insert({ user_id: session.user.id, skin_type: data.skin_type })
-                  .then(() => localStorage.removeItem('semo_anon_result'))
-                  .catch(() => {});
-              }
-            }
-          } catch {
-            // ignore
-          }
-        } else {
-          setUserEmailState(null);
-          setUserId(null);
-          setIsAdmin(false);
-        }
+        void applySession(session);
       });
 
       return () => {
@@ -178,7 +153,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setInitialized(true);
     }
     return undefined;
-  }, []);
+  }, [applySession]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -188,8 +163,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isLoggedIn: !!userEmail,
       initialized,
       isAdmin,
+      applySession,
     }),
-    [userEmail, userId, initialized, isAdmin, setUserEmail]
+    [userEmail, userId, initialized, isAdmin, setUserEmail, applySession]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

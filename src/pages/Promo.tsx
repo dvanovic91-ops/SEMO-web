@@ -39,7 +39,7 @@ export const Promo: React.FC = () => {
         Текущие акции
       </h1>
       <p className="mb-8 text-slate-600">
-        Специальные предложения и события SEMO beauty-box
+        Специальные предложения и события SEMO box
       </p>
 
       {loading ? (

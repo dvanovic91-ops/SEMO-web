@@ -141,9 +141,8 @@ export const Navbar: React.FC = () => {
       {/* 상단: 좌측 로고·중앙 메뉴·우측 아이콘 여백 확대 */}
       <header className="sticky top-0 z-20 border-b border-slate-100 bg-white/80 backdrop-blur-md">
         <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between gap-4 pl-2 pr-4 sm:h-16 sm:pl-4 sm:pr-6 lg:pl-6 lg:pr-8">
-          <Link to="/" className="flex shrink-0 items-center gap-2">
-            <span className="font-semibold tracking-[0.2em] text-brand">SEMO</span>
-            <span className="font-light tracking-[0.2em] text-slate-800">beauty-box</span>
+          <Link to="/" className="flex shrink-0 items-center" aria-label="SEMO box">
+            <span className="font-semibold tracking-[0.2em] text-brand">SEMO box</span>
           </Link>
 
           {/* 데스크톱 메뉴 — md 이상, 중앙 정렬 */}
