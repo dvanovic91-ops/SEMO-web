@@ -16,7 +16,7 @@ import { BackArrow } from '../components/BackArrow';
 
 const MAX_TEST_COUNT = 2;
 /** 어드민 이메일 — 웹에서도 테스트 횟수 제한 없음 (봇 ADMIN_IDS와 별도) */
-const ADMIN_EMAILS = ['admin@semo-beautybox.com'];
+const ADMIN_EMAILS = ['admin@semo-box.ru', 'admin@semo-beautybox.com'];
 /** 테스트 횟수 제한 없음 (해당 이메일만) */
 const UNLIMITED_TEST_EMAILS = ['dvanovic91@gmail.com'];
 

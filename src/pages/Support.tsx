@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 
 /** 지원 메일 수신 주소 — .env의 VITE_SUPPORT_EMAIL로 변경 가능 */
 const SUPPORT_RECIPIENT_EMAIL =
-  import.meta.env.VITE_SUPPORT_EMAIL ?? 'support@semo-beautybox.com';
+  import.meta.env.VITE_SUPPORT_EMAIL ?? 'admin@semo-box.ru';
 
 const REQUEST_TYPES = [
   { value: '', label: 'Выберите тип запроса' },

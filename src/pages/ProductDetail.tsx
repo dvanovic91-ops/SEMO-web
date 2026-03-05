@@ -82,7 +82,7 @@ const FALLBACK_PRODUCTS: Record<string, Product> = {
 
 export const ProductDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { isLoggedIn, userId, isAdmin } = useAuth();
+  const { isLoggedIn, userId, canGrantPermission } = useAuth();
   const { addItem } = useCart();
 
   const [product, setProduct] = useState<Product | null>(null);
@@ -120,7 +120,7 @@ export const ProductDetail: React.FC = () => {
   }, [reviewToast]);
 
   /** 리뷰 삭제: 작성자 본인 또는 관리자만 가능 */
-  const canDeleteReview = (r: Review) => (userId && r.user_id === userId) || isAdmin;
+  const canDeleteReview = (r: Review) => (userId && r.user_id === userId) || canGrantPermission;
 
   const handleReviewFilesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;

@@ -18,7 +18,19 @@ type ShopItem = {
   boxTheme?: 'brand' | 'sky' | null;
 };
 
-/** 카탈로그는 오직 main_layout_slots 조회 결과만 표시. 폴백 5개 사용 안 함 */
+/** DB에 슬롯/상품이 없거나 조회 실패 시 보여줄 폴백 제품 5개 (제품목록 빈 화면 방지) */
+const FALLBACK_SHOP_ITEMS: ShopItem[] = [1, 2, 3, 4, 5].map((i) => ({
+  id: `slot-${i - 1}`,
+  name: `Слот ${i}`,
+  price: 12000,
+  originalPrice: 13000,
+  imageUrl: null,
+  imageUrls: [],
+  productId: `type-${i}` as string | null,
+  linkUrl: null,
+  boxTheme: i >= 4 ? ('sky' as const) : ('brand' as const),
+}));
+
 const VISIBLE = 3;
 const itemWidthPercent = 100 / VISIBLE;
 
@@ -45,12 +57,12 @@ export const Shop: React.FC = () => {
           .select('slot_index, title, description, image_url, product_id, link_url');
         if (slotErr) {
           console.warn('[Shop] main_layout_slots:', slotErr.message);
-          setItems([]);
+          setItems(FALLBACK_SHOP_ITEMS);
           return;
         }
         const slots = ((slotData ?? []) as { slot_index: number; title: string | null; description: string | null; image_url: string | null; product_id: string | null; link_url: string | null }[]).slice().sort((a, b) => a.slot_index - b.slot_index);
         if (!slots.length) {
-          setItems([]);
+          setItems(FALLBACK_SHOP_ITEMS);
           return;
         }
 
@@ -119,7 +131,7 @@ export const Shop: React.FC = () => {
         setItems(list);
       } catch (e) {
         console.warn('[Shop] load error:', e);
-        setItems([]);
+        setItems(FALLBACK_SHOP_ITEMS);
       }
     })();
   }, []);

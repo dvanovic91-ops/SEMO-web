@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 
 type Props = {
   images: string[];
@@ -8,17 +8,34 @@ type Props = {
 export const ShopCardImage: React.FC<Props> = ({ images, name }) => {
   const [index, setIndex] = useState(0);
   const touchStartX = useRef(0);
+  /** 항상 최신 images 참조 — 데이터 로드 후 마우스가 이미 카드 위에 있어도 호버 시 전환되도록 */
+  const imagesRef = useRef(images);
+  imagesRef.current = images;
 
   const hasMultiple = images.length > 1;
 
+  /** 호버 시점의 images 길이를 ref로 확인해, 로드 지연으로 처음에 1장이었어도 나중에 2장이면 전환 */
   const startHover = () => {
-    if (!hasMultiple) return;
-    setIndex(1); // 마우스 오버 시 두 번째 이미지로 고정
+    if (imagesRef.current.length <= 1) return;
+    setIndex(1);
   };
 
   const endHover = () => {
-    setIndex(0); // 마우스 아웃 시 첫 번째 이미지로 복귀
+    setIndex(0);
   };
+
+  /** images가 바뀌었을 때 인덱스 보정(1장 이하로 줄어들면 0으로) */
+  useEffect(() => {
+    if (images.length <= 1) setIndex(0);
+    else if (index >= images.length) setIndex(0);
+  }, [images]);
+
+  /** 두 번째 이미지 미리 로드 — 호버 시 깜빡임 없이 바로 전환 */
+  useEffect(() => {
+    if (images.length < 2) return;
+    const img = new Image();
+    img.src = images[1];
+  }, [images]);
 
   const onTouchStart = (e: React.TouchEvent) => {
     if (!hasMultiple) return;

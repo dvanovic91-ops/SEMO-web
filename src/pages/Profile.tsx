@@ -14,6 +14,8 @@ export const Profile: React.FC = () => {
   const { userEmail, userId, setUserEmail, isLoggedIn, initialized, isAdmin } = useAuth();
   const [gradeTooltipOpen, setGradeTooltipOpen] = useState(false);
   const [dbProfile, setDbProfile] = useState<{ name: string | null; grade: string; points: number; telegram_id: string | null } | null>(null);
+  /** 연동 성공 시 토스트 (다른 탭에서 연동 후 돌아왔을 때) */
+  const [telegramLinkedToast, setTelegramLinkedToast] = useState(false);
   /** 회원 등급: basic(일반) / premium(프리미엄) / family(가족) — 주문 누계 기준으로 계산 */
   const [membershipTier, setMembershipTier] = useState<'basic' | 'premium' | 'family'>('basic');
   const [testResultCount, setTestResultCount] = useState<number | null>(null);
@@ -42,6 +44,10 @@ export const Profile: React.FC = () => {
         if (prev !== undefined && prev && !nextTelegramId) {
           console.warn('Telegram state changed! (Profile) — was linked, now unlinked. Check DB or network.');
         }
+        if (prev !== undefined && !prev && nextTelegramId) {
+          setTelegramLinkedToast(true);
+          setTimeout(() => setTelegramLinkedToast(false), 3000);
+        }
         prevTelegramIdRef.current = nextTelegramId;
 
         setDbProfile(
@@ -66,10 +72,14 @@ export const Profile: React.FC = () => {
       });
   }, [userId]);
 
+  // userId 있을 때만 프로필 조회. 조회 전에 null로 비우지 않음 — 실패 시 이전 연동 상태(텔레그램 등) 유지
   useEffect(() => {
-    setDbProfile(null);
+    if (!userId) {
+      setDbProfile(null);
+      return;
+    }
     refreshProfile();
-  }, [refreshProfile]);
+  }, [refreshProfile, userId]);
 
   // 테스트 결과 건수 + 마지막 결과 타입 집계 (개인정보창 카드에 표시)
   useEffect(() => {
@@ -351,6 +361,12 @@ export const Profile: React.FC = () => {
           <BackArrow /> На главную
         </Link>
       </p>
+
+      {telegramLinkedToast && (
+        <div className="fixed bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-sky-600 px-5 py-2.5 text-sm font-medium text-white shadow-lg md:bottom-8" role="status" aria-live="polite">
+          Telegram привязан. Аккаунт успешно связан.
+        </div>
+      )}
     </main>
   );
 };

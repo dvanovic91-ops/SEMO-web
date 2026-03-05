@@ -126,6 +126,11 @@ export const ProfileEdit: React.FC = () => {
   /** 페이지 진입 시 세션 재검사 — 없으면 로그인으로 보냄 */
   const [sessionChecked, setSessionChecked] = useState(false);
   const [redirectToLogin, setRedirectToLogin] = useState(false);
+  /** Telegram 연동 성공 시 토스트 (연동 되었습니다) */
+  const [telegramLinkedToast, setTelegramLinkedToast] = useState(false);
+  /** Telegram 링크 열린 뒤 연동 완료 감지용 폴링 */
+  const [pollingForTelegram, setPollingForTelegram] = useState(false);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const safeUserEmail = userEmail ?? '';
   const profile = safeUserEmail ? getProfile(safeUserEmail) : null;
@@ -181,6 +186,11 @@ export const ProfileEdit: React.FC = () => {
     loadProfileFromDb();
   }, [loadProfileFromDb, userId]);
 
+  // focus=phone 이면 연동 목적 진입 → 편집 모드 자동 켜서 전화 입력·"Подтвердить в Telegram" 바로 사용 가능
+  useEffect(() => {
+    if (searchParams.get('focus') === 'phone') setEditing(true);
+  }, [searchParams]);
+
   useEffect(() => {
     const onVisibility = () => {
       if (document.visibilityState === 'visible') loadProfileFromDb();
@@ -188,6 +198,37 @@ export const ProfileEdit: React.FC = () => {
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, [loadProfileFromDb]);
+
+  // Telegram 링크 연 뒤 연동 완료될 때까지 폴링; 연동되면 토스트 표시 후 폴링 중단
+  useEffect(() => {
+    if (!pollingForTelegram || !supabase || !userId) return;
+    const maxUntil = Date.now() + 2 * 60 * 1000;
+    const tick = () => {
+      if (Date.now() > maxUntil) {
+        if (pollingRef.current) clearInterval(pollingRef.current);
+        pollingRef.current = null;
+        setPollingForTelegram(false);
+        return;
+      }
+      supabase.from('profiles').select('telegram_id').eq('id', userId).single().then(({ data }) => {
+        if (data?.telegram_id) {
+          if (pollingRef.current) clearInterval(pollingRef.current);
+          pollingRef.current = null;
+          setPollingForTelegram(false);
+          setTelegramLinked(true);
+          setTelegramLinkedToast(true);
+          setTimeout(() => setTelegramLinkedToast(false), 3000);
+          loadProfileFromDb();
+        }
+      });
+    };
+    tick();
+    pollingRef.current = setInterval(tick, 3000);
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    };
+  }, [pollingForTelegram, userId, supabase]);
 
   // 폼 초기값 — userEmail/profile 기반 (모든 훅은 위에서만 호출)
   useEffect(() => {
@@ -297,10 +338,11 @@ export const ProfileEdit: React.FC = () => {
         .select('token')
         .single();
       if (error || !data?.token) {
-        setPhoneError('Не удалось создать ссылку для Telegram.');
+        setPhoneError('Не удалось создать ссылку для Telegram. Проверьте доступ к link_tokens (RLS).');
         return;
       }
       window.open(`https://t.me/My_SEMO_Beautybot?start=link_${data.token}`, '_blank');
+      setPollingForTelegram(true);
     } catch {
       setPhoneError('Не удалось подтвердить номер. Попробуйте позже.');
     }
@@ -545,6 +587,12 @@ export const ProfileEdit: React.FC = () => {
         <p className="mt-8 text-center">
           <Link to="/profile" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> Profile</Link>
         </p>
+
+        {telegramLinkedToast && (
+          <div className="fixed bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-sky-600 px-5 py-2.5 text-sm font-medium text-white shadow-lg md:bottom-8" role="status" aria-live="polite">
+            Telegram привязан. Аккаунт успешно связан.
+          </div>
+        )}
       </main>
     </ProfileEditErrorBoundary>
   );

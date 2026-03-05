@@ -46,22 +46,8 @@ export const Navbar: React.FC = () => {
     }
   }, [location.pathname]);
 
-  const notifications: { id: string; type: 'info' | 'order'; title: string; body: string; date: string }[] = [
-    {
-      id: 'n1',
-      type: 'info',
-      title: 'Новая коллекция Beauty Box',
-      body: 'Открыта предзаказ весна/лето 2026. Количество ограничено.',
-      date: '04.03.2026',
-    },
-    {
-      id: 'n2',
-      type: 'order',
-      title: 'Статус заказа',
-      body: 'Ваш последний заказ обрабатывается. Уведомим, когда передадим в доставку.',
-      date: '03.03.2026',
-    },
-  ];
+  /** 알림 목록 — 실제 연동 전까지 비어 있음 */
+  const notifications: { id: string; type: 'info' | 'order'; title: string; body: string; date: string }[] = [];
 
   const fetchTelegramLinked = useCallback(() => {
     if (!isLoggedIn || !userId || !supabase) {
@@ -142,7 +128,8 @@ export const Navbar: React.FC = () => {
       <header className="sticky top-0 z-20 border-b border-slate-100 bg-white/80 backdrop-blur-md">
         <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between gap-4 pl-2 pr-4 sm:h-16 sm:pl-4 sm:pr-6 lg:pl-6 lg:pr-8">
           <Link to="/" className="flex shrink-0 items-center" aria-label="SEMO box">
-            <span className="font-semibold tracking-[0.2em] text-brand">SEMO box</span>
+            <span className="font-semibold tracking-[0.2em] text-brand">SEMO </span>
+            <span className="font-semibold tracking-[0.2em] text-slate-800">box</span>
           </Link>
 
           {/* 데스크톱 메뉴 — md 이상, 중앙 정렬 */}

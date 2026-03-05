@@ -235,8 +235,11 @@ const emptySlot = (index: number): Slot => ({
   link_url: '',
 });
 
+/** 개발자 계정 이메일 — RLS 안내 문구에 사용 */
+const DEVELOPER_EMAILS = ['dvanovic91@gmail.com', 'dvavnovic91@gmail.com'];
+
 export const Admin: React.FC = () => {
-  const { isLoggedIn, initialized, isAdmin } = useAuth();
+  const { isLoggedIn, initialized, isAdmin, canGrantPermission, canGrantAdminRole, userEmail } = useAuth();
   const [tab, setTab] = useState<'dashboard' | 'products' | 'skinMatch' | 'promo' | 'orders' | 'activityLogs' | 'cartAbandonment' | 'reviewManagement' | 'members'>('dashboard');
 
   const [products, setProducts] = useState<Product[]>([]);
@@ -319,6 +322,12 @@ export const Admin: React.FC = () => {
 
   /** 주문 탭: 목록 + 수령인 정보 수정. is_test=true면 가짜 주문 → 나중에 일괄 삭제 가능. inn/passport는 주문 시점 스냅샷 */
   type OrderRow = { id: string; order_number?: string | null; created_at: string; total_cents: number; points_used?: number | null; status: string; receiver_name: string | null; receiver_phone: string | null; shipping_address: string | null; tracking_url?: string | null; items?: unknown; snapshot_items?: unknown; is_test?: boolean; inn?: string | null; passport_series?: string | null; passport_number?: string | null };
+  /** 가짜 주문(데모) — DB에 주문이 없을 때 목록에 표시. 사용자가 만들어 둔 데모용 */
+  const FAKE_ORDERS_DEMO: OrderRow[] = [
+    { id: 'demo-order-1', order_number: 'ORD-DEMO-001', created_at: new Date().toISOString(), total_cents: 45000, points_used: 0, status: 'completed', receiver_name: 'Тест Получатель', receiver_phone: '+7 999 123 4567', shipping_address: 'Москва, ул. Тестовая, 1', tracking_url: null, is_test: true },
+    { id: 'demo-order-2', order_number: 'ORD-DEMO-002', created_at: new Date(Date.now() - 86400000).toISOString(), total_cents: 32000, points_used: 500, status: 'shipped', receiver_name: 'Демо Имя', receiver_phone: null, shipping_address: 'Санкт-Петербург', tracking_url: null, is_test: true },
+    { id: 'demo-order-3', order_number: 'ORD-DEMO-003', created_at: new Date(Date.now() - 172800000).toISOString(), total_cents: 28000, points_used: null, status: 'pending', receiver_name: null, receiver_phone: null, shipping_address: null, tracking_url: null, is_test: true },
+  ];
   const [ordersList, setOrdersList] = useState<OrderRow[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<OrderRow | null>(null);
@@ -389,6 +398,8 @@ export const Admin: React.FC = () => {
     skin_completed_at?: string | null;
     tier: 'basic' | 'premium' | 'family';
     order_count: number;
+    is_manager?: boolean;
+    is_admin?: boolean;
   };
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
@@ -397,6 +408,9 @@ export const Admin: React.FC = () => {
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
   const [ordersFilterUserId, setOrdersFilterUserId] = useState<string | null>(null);
   const [specialCouponAmount, setSpecialCouponAmount] = useState<number>(100);
+  /** 회원 역할 변경 후 목록 다시 불러오기용 */
+  const [membersRefreshTrigger, setMembersRefreshTrigger] = useState(0);
+  const [updatingRoleUserId, setUpdatingRoleUserId] = useState<string | null>(null);
 
   /** 저장 성공 토스트 3초 후 자동 숨김 */
   useEffect(() => {
@@ -422,23 +436,26 @@ export const Admin: React.FC = () => {
         setMembersLoading(true);
         setMembersError(null);
 
-        // 1) 기본 프로필 목록
+        // 1) 기본 프로필 목록 (역할: is_manager, is_admin 포함)
         const { data: profilesData, error: profilesError } = await supabase
           .from('profiles')
-          .select('id, email, name, grade, points, telegram_id, created_at')
+          .select('id, email, name, grade, points, telegram_id, created_at, is_manager, is_admin')
           .order('created_at', { ascending: true });
 
         if (profilesError) {
           console.error('[Admin] profiles select 실패:', profilesError);
           setMembers([]);
+          const devHint = userEmail && DEVELOPER_EMAILS.includes(userEmail.trim().toLowerCase())
+            ? ' Supabase SQL Editor에서 docs/SUPABASE_PROFILES_ADMIN_RLS.sql 전체 실행 후, 본인 프로필(profiles)에 is_admin = true 인지 확인하세요.'
+            : '';
           setMembersError(
-            '회원 목록을 불러오지 못했습니다. Supabase profiles 테이블 RLS에서 관리자 조회 정책이 있는지 확인하세요.'
+            '회원 목록을 불러오지 못했습니다. Supabase profiles 테이블 RLS에서 관리자 조회 정책이 있는지 확인하세요.' + devHint
           );
           return;
         }
 
         const profilesSafe =
-          (profilesData as { id: string; email: string | null; name: string | null; grade: string | null; points: number | null; telegram_id: string | null; created_at: string }[]) ??
+          (profilesData as { id: string; email: string | null; name: string | null; grade: string | null; points: number | null; telegram_id: string | null; created_at: string; is_manager?: boolean | null; is_admin?: boolean | null }[]) ??
           [];
         const userIds = profilesSafe.map((p) => p.id);
 
@@ -541,6 +558,8 @@ export const Admin: React.FC = () => {
             skin_completed_at: skinLatestMap.get(p.id)?.completed_at ?? null,
             tier,
             order_count: agg?.count ?? 0,
+            is_manager: p.is_manager ?? false,
+            is_admin: p.is_admin ?? false,
           };
         });
 
@@ -548,7 +567,10 @@ export const Admin: React.FC = () => {
         setSelectedMemberIds([]);
       } catch (e) {
         console.error('[Admin] 회원 목록 로드 중 오류:', e);
-        setMembersError('회원 목록을 불러오지 못했습니다. 콘솔(F12) 오류를 확인하세요.');
+        const devHint = userEmail && DEVELOPER_EMAILS.includes(userEmail.trim().toLowerCase())
+          ? ' Supabase SQL Editor에서 docs/SUPABASE_PROFILES_ADMIN_RLS.sql 실행 후, profiles.is_admin = true 인지 확인하세요.'
+          : '';
+        setMembersError('회원 목록을 불러오지 못했습니다. 콘솔(F12) 오류를 확인하세요.' + devHint);
         setMembers([]);
       } finally {
         setMembersLoading(false);
@@ -556,7 +578,7 @@ export const Admin: React.FC = () => {
     };
 
     void loadMembers();
-  }, [tab, supabase, isAdmin]);
+  }, [tab, supabase, isAdmin, membersRefreshTrigger]);
 
   /** 실제 주문 기준 기간별 매출 시계열 (일/주/월, 상품 필터 적용). 목업 없이 항상 실제 데이터 사용 */
   const revenueChartDataReal = useMemo(() => {
@@ -717,32 +739,35 @@ export const Admin: React.FC = () => {
         const rangeStartIso = rangeStart.toISOString();
         const rangeEndIso = rangeEnd.toISOString();
 
+        // 실제 주문만 매출·주문 수에 반영 (is_test 가짜 주문 제외)
         let ordersList: OrderForChart[] = [];
         let ordersQuery = supabase
           .from('orders')
-          .select('id, created_at, total_cents, items, snapshot_items')
+          .select('id, created_at, total_cents, items, snapshot_items, is_test')
           .gte('created_at', rangeStartIso)
           .lte('created_at', rangeEndIso);
         const { data: orderData, error: orderErr } = await ordersQuery;
+        const excludeTest = (rows: { is_test?: boolean | null }[] | null) =>
+          (rows ?? []).filter((o) => o.is_test !== true) as OrderForChart[];
         if (orderErr) {
           const { data: orderDataMin } = await supabase
             .from('orders')
-            .select('id, created_at, total_cents')
+            .select('id, created_at, total_cents, is_test')
             .gte('created_at', rangeStartIso)
             .lte('created_at', rangeEndIso);
-          ordersList = (orderDataMin ?? []) as OrderForChart[];
+          ordersList = excludeTest(orderDataMin ?? []);
         } else {
-          ordersList = (orderData ?? []) as OrderForChart[];
+          ordersList = excludeTest(orderData ?? []);
         }
         const totalRevenueCents = ordersList.reduce((s, o) => s + (o.total_cents ?? 0), 0);
         const orderCount = ordersList.length;
         setOrdersForChart(ordersList);
 
-        // 누계용: 기간 필터 없이 전체 주문·조회·리뷰 조회
+        // 누계용: 전체 주문 중 실제 주문만 (가짜 주문 제외)
         const { data: orderDataAll } = await supabase
           .from('orders')
-          .select('id, created_at, total_cents, items, snapshot_items');
-        const ordersListAllTime = (orderDataAll ?? []) as OrderForChart[];
+          .select('id, created_at, total_cents, items, snapshot_items, is_test');
+        const ordersListAllTime = excludeTest(orderDataAll ?? []);
         const totalRevenueCentsAllTime = ordersListAllTime.reduce((s, o) => s + (o.total_cents ?? 0), 0);
 
         const { data: prodData } = await supabase
@@ -1019,20 +1044,23 @@ export const Admin: React.FC = () => {
                 q3
                   .then(({ data: data3, error: err3 }) => {
                     if (err3) {
-                      setOrdersList([]);
+                      setOrdersList(FAKE_ORDERS_DEMO);
                     } else {
-                      setOrdersList((data3 as OrderRow[]) ?? []);
+                      const list = (data3 as OrderRow[]) ?? [];
+                      setOrdersList(list.length > 0 ? list : FAKE_ORDERS_DEMO);
                     }
                   })
                   .finally(() => setOrdersLoading(false));
                 return;
               }
-              setOrdersList((data2 as OrderRow[]) ?? []);
+              const list2 = (data2 as OrderRow[]) ?? [];
+              setOrdersList(list2.length > 0 ? list2 : FAKE_ORDERS_DEMO);
             })
             .finally(() => setOrdersLoading(false));
           return;
         }
-        setOrdersList((data as OrderRow[]) ?? []);
+        const list = (data as OrderRow[]) ?? [];
+        setOrdersList(list.length > 0 ? list : FAKE_ORDERS_DEMO);
       })
       .finally(() => setOrdersLoading(false));
   }, [tab]);
@@ -1271,9 +1299,33 @@ export const Admin: React.FC = () => {
     void loadStats();
   }, [supabase, isAdmin, tab, selectedProduct?.id]);
 
+  // 회원 역할 변경 (관리자만): 회원 / 매니저(보기전용) / 관리자
+  const handleUpdateMemberRole = async (memberId: string, role: 'member' | 'manager' | 'admin') => {
+    if (!supabase || !canGrantPermission) return;
+    if (role === 'admin' && !canGrantAdminRole) return;
+    try {
+      setUpdatingRoleUserId(memberId);
+      setMembersError(null);
+      const is_manager = role === 'manager';
+      const is_admin = role === 'admin';
+      const { error } = await supabase.from('profiles').update({ is_manager, is_admin, updated_at: new Date().toISOString() }).eq('id', memberId);
+      if (error) {
+        setMembersError(error.message || '역할 변경에 실패했습니다.');
+        return;
+      }
+      setSaveSuccessAt(Date.now());
+      setMembersRefreshTrigger((t) => t + 1);
+    } catch (e) {
+      console.error('[Admin] 역할 변경 오류:', e);
+      setMembersError('역할 변경 중 오류가 발생했습니다.');
+    } finally {
+      setUpdatingRoleUserId(null);
+    }
+  };
+
   // 특별 멤버십 쿠폰 수동 지급 버튼 액션 (선택 회원 + 선택 금액)
   const handleGrantMembershipCoupons = async () => {
-    if (!supabase || !isAdmin) return;
+    if (!supabase || !canGrantPermission) return;
     try {
       setGrantingCoupons(true);
       setMembersError(null);
@@ -1310,7 +1362,7 @@ export const Admin: React.FC = () => {
 
   // 분기 멤버십 쿠폰 일괄 지급 (기존 로직 유지)
   const handleGrantQuarterCoupons = async () => {
-    if (!supabase || !isAdmin) return;
+    if (!supabase || !canGrantPermission) return;
     try {
       setGrantingCoupons(true);
       setMembersError(null);
@@ -1347,7 +1399,7 @@ export const Admin: React.FC = () => {
   };
 
   const handleSaveProduct = async () => {
-    if (!supabase || !selectedProduct) return;
+    if (!supabase || !selectedProduct || !canGrantPermission) return;
     setSavingProduct(true);
     setError(null);
     try {
@@ -1463,7 +1515,7 @@ export const Admin: React.FC = () => {
 
   /** 오른쪽 상품 추가/수정에서 선택한 상품을 DB에서 완전 삭제 (구성품·슬롯 참조 함께 정리) */
   const handleDeleteProduct = async () => {
-    if (!supabase || !selectedProduct?.id) return;
+    if (!supabase || !selectedProduct?.id || !canGrantPermission) return;
     if (!window.confirm('이 상품을 완전히 삭제하시겠습니까? 슬롯·구성품 정보도 함께 삭제됩니다.')) return;
     setSavingProduct(true);
     setError(null);
@@ -1598,22 +1650,7 @@ export const Admin: React.FC = () => {
           ? ({ ...prev, image_url: next[0] ?? null, image_urls: next } as Product)
           : prev
       );
-
-      // 업로드 후 바로 DB 저장 → "저장되었습니다" 토스트만 표시
-      if (supabase && selectedProduct.id) {
-        const { error: upErr } = await supabase
-          .from('products')
-          .update({ image_url: next[0] ?? null, image_urls: next })
-          .eq('id', selectedProduct.id);
-        if (upErr) {
-          setError(upErr.message);
-          window.alert('이미지 저장 실패: ' + upErr.message);
-        } else {
-          setSaveSuccessAt(Date.now());
-        }
-      } else {
-        setSaveSuccessAt(Date.now());
-      }
+      // 썸네일은 로컬 상태만 갱신. 저장 버튼 누를 때 함께 저장됨 (자동 저장/토스트 없음)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
@@ -1732,7 +1769,7 @@ export const Admin: React.FC = () => {
 
   /** 상품 목록 순서(orderedProductIds) 기준으로 슬롯 1~5 저장 — main_layout_slots에 반영 */
   const handleSaveSlotOrder = async () => {
-    if (!supabase) return;
+    if (!supabase || !canGrantPermission) return;
     setSavingSlots(true);
     setError(null);
     try {
@@ -1793,7 +1830,7 @@ export const Admin: React.FC = () => {
 
   /** 리뷰 관리: 리뷰 삭제 (관리자) */
   const handleReviewDelete = async (reviewId: string) => {
-    if (!supabase || reviewActionLoading) return;
+    if (!supabase || reviewActionLoading || !canGrantPermission) return;
     if (!window.confirm('이 리뷰를 삭제할까요? 사진도 함께 삭제됩니다.')) return;
     setReviewActionLoading(reviewId);
     try {
@@ -1811,7 +1848,7 @@ export const Admin: React.FC = () => {
 
   /** 리뷰 관리: 포인트 지급 (200 일반 / 500 특별) 후 review_reward_points 저장 */
   const handleReviewReward = async (reviewId: string, points: 200 | 500) => {
-    if (!supabase || reviewActionLoading) return;
+    if (!supabase || reviewActionLoading || !canGrantPermission) return;
     const row = reviewManagementList.find((r) => r.id === reviewId);
     if (!row || row.review_reward_points > 0) return;
     if (!window.confirm(`${points} 포인트를 지급할까요? (${row.user_name ?? row.user_email ?? row.user_id})`)) return;
@@ -1835,7 +1872,7 @@ export const Admin: React.FC = () => {
 
   /** 리뷰 관리: 대댓글(admin_reply) 저장 */
   const handleReviewReplySave = async (reviewId: string, text: string) => {
-    if (!supabase || reviewActionLoading) return;
+    if (!supabase || reviewActionLoading || !canGrantPermission) return;
     setReviewActionLoading(reviewId);
     try {
       const { error } = await supabase.from('product_reviews').update({ admin_reply: text.trim() || null }).eq('id', reviewId);
@@ -1854,7 +1891,7 @@ export const Admin: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-brand-soft/40">
-      <main className="relative mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-10">
+      <main className="relative mx-auto max-w-[96rem] px-4 py-8 sm:px-6 sm:py-10">
         <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
           관리자
@@ -2243,7 +2280,7 @@ export const Admin: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleSaveSlotOrder}
-                  disabled={savingSlots}
+                  disabled={savingSlots || !canGrantPermission}
                   className="rounded-full bg-brand px-4 py-1.5 text-xs font-medium text-white hover:bg-brand/90 disabled:opacity-50"
                 >
                   {savingSlots ? '저장 중…' : '슬롯 순서 저장'}
@@ -2456,7 +2493,7 @@ export const Admin: React.FC = () => {
                     <button
                       type="button"
                       onClick={handleDeleteProduct}
-                      disabled={savingProduct}
+                      disabled={savingProduct || !canGrantPermission}
                       className="rounded-full border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
                     >
                       제품 삭제
@@ -2465,7 +2502,7 @@ export const Admin: React.FC = () => {
                   <button
                     type="button"
                     onClick={handleSaveProduct}
-                    disabled={savingProduct}
+                    disabled={savingProduct || !canGrantPermission}
                     className="rounded-full bg-brand px-4 py-1.5 text-xs font-medium text-white hover:bg-brand/90 disabled:opacity-60"
                   >
                     {savingProduct ? '저장 중…' : '저장'}
@@ -3076,6 +3113,7 @@ export const Admin: React.FC = () => {
                 <button
                   type="button"
                   onClick={async () => {
+                    if (!canGrantPermission) return;
                     setSkinMatchSaving(true);
                     setError(null);
                     const slotByType: Record<string, number> = {};
@@ -3120,7 +3158,7 @@ export const Admin: React.FC = () => {
                     }).catch(() => {});
                     setSkinMatchSaving(false);
                   }}
-                  disabled={skinMatchSaving}
+                  disabled={skinMatchSaving || !canGrantPermission}
                   className="w-full rounded-full border border-brand bg-brand-soft/30 py-2 text-sm font-medium text-brand hover:bg-brand-soft/50 disabled:opacity-50"
                 >
                   {skinMatchSaving ? '저장 중…' : '매칭 저장'}
@@ -3134,18 +3172,14 @@ export const Admin: React.FC = () => {
       {tab === 'promo' && (
         <section className="mt-4">
           <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <h2 className="mb-2 text-sm font-semibold text-slate-900">프로모 배너</h2>
-            <p className="mb-4 text-xs text-slate-500">
-              상단 메뉴 «Promo» 클릭 시 전용 페이지로 이동해 큰 배너로 노출됩니다. 드래그로 순서를 바꾼 뒤 «순서 저장»을 누르세요. 제목·이미지(URL 또는 파일 업로드)·종료일을 입력하고 저장하세요.
-              Supabase: <code className="rounded bg-slate-100 px-1">promos</code> 테이블, <code className="rounded bg-slate-100 px-1">promos</code> Storage 버킷(Public) 필요.
-            </p>
+            <h2 className="mb-3 text-sm font-semibold text-slate-900">프로모 배너</h2>
             {promosLoading ? (
               <p className="py-8 text-center text-sm text-slate-500">불러오는 중…</p>
             ) : (
               <>
-                <ul className="mb-4 space-y-2">
+                <div className="mb-4 flex flex-wrap gap-4">
                   {promos.map((p, index) => (
-                    <li
+                    <div
                       key={p.id}
                       draggable
                       onDragStart={(e) => {
@@ -3169,61 +3203,61 @@ export const Admin: React.FC = () => {
                           // ignore
                         }
                       }}
-                      className="flex cursor-grab items-center gap-3 rounded-lg border border-slate-200 bg-slate-50/50 p-3 active:cursor-grabbing"
+                      className="flex w-[180px] shrink-0 cursor-grab flex-col rounded-lg border border-slate-200 bg-slate-50/50 p-2 active:cursor-grabbing"
                     >
-                      <span className="shrink-0 text-slate-400" title="드래그하여 순서 변경">⋮⋮</span>
-                      <div className="min-h-12 w-24 shrink-0 overflow-hidden rounded bg-slate-200">
+                      <span className="mb-1 shrink-0 text-slate-400" title="드래그하여 순서 변경">⋮⋮</span>
+                      <div className="aspect-video w-full shrink-0 overflow-hidden rounded bg-slate-200">
                         {p.image_url ? (
                           <img src={p.image_url} alt="" className="h-full w-full object-cover" />
                         ) : (
                           <span className="flex h-full items-center justify-center text-xs text-slate-400">이미지 없음</span>
                         )}
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium text-slate-800">{p.title || '—'}</p>
-                        <p className="text-xs text-slate-500">
-                          {p.end_at ? `~ ${new Date(p.end_at).toLocaleDateString('ru-RU')}` : '종료일 미설정'}
-                        </p>
+                      <div className="mt-2 flex justify-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedPromo(p);
+                            setPromoForm({
+                              title: p.title,
+                              image_url: p.image_url ?? '',
+                              end_at: p.end_at ? p.end_at.slice(0, 10) : '',
+                            });
+                          }}
+                          className="rounded px-2 py-1 text-xs text-sky-600 hover:bg-sky-50"
+                        >
+                          수정
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (!window.confirm('이 프로모를 삭제하시겠습니까?')) return;
+                            if (!supabase) return;
+                            const { error } = await supabase.from('promos').delete().eq('id', p.id);
+                            if (error) {
+                              window.alert('삭제 실패: ' + error.message);
+                              return;
+                            }
+                            setPromos((prev) => prev.filter((pr) => pr.id !== p.id));
+                            setSaveSuccessAt(Date.now());
+                          }}
+                          className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+                        >
+                          삭제
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedPromo(p);
-                          setPromoForm({
-                            title: p.title,
-                            image_url: p.image_url ?? '',
-                            end_at: p.end_at ? p.end_at.slice(0, 10) : '',
-                          });
-                        }}
-                        className="shrink-0 rounded px-2 py-1 text-xs text-slate-600 hover:bg-slate-200"
-                      >
-                        수정
-                      </button>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          if (!window.confirm('이 프로모를 삭제하시겠습니까?')) return;
-                          if (!supabase) return;
-                          const { error } = await supabase.from('promos').delete().eq('id', p.id);
-                          if (error) {
-                            window.alert('삭제 실패: ' + error.message);
-                            return;
-                          }
-                          setPromos((prev) => prev.filter((pr) => pr.id !== p.id));
-                          setSaveSuccessAt(Date.now());
-                        }}
-                        className="shrink-0 rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
-                      >
-                        삭제
-                      </button>
-                    </li>
+                      <p className="mt-2 truncate text-center text-sm font-medium text-slate-800">{p.title || '—'}</p>
+                      <p className="text-center text-xs text-slate-500">
+                        {p.end_at ? `~ ${new Date(p.end_at).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })}` : '종료일 미설정'}
+                      </p>
+                    </div>
                   ))}
-                </ul>
+                </div>
                 <div className="mb-4 flex gap-2">
                   <button
                     type="button"
                     onClick={async () => {
-                      if (!supabase || promosSaving) return;
+                      if (!supabase || promosSaving || !canGrantPermission) return;
                       setPromosSaving(true);
                       setError(null);
                       try {
@@ -3237,7 +3271,7 @@ export const Admin: React.FC = () => {
                         setPromosSaving(false);
                       }
                     }}
-                    disabled={promosSaving || promos.length === 0}
+                    disabled={promosSaving || promos.length === 0 || !canGrantPermission}
                     className="rounded-full bg-brand px-4 py-1.5 text-xs font-medium text-white hover:bg-brand/90 disabled:opacity-50"
                   >
                     {promosSaving ? '저장 중…' : '순서 저장'}
@@ -3298,9 +3332,10 @@ export const Admin: React.FC = () => {
                       <p className="mt-1 text-xs text-slate-400">* 권장 배너 크기: {PROMO_BANNER_RECOMMENDED}</p>
                     </div>
                     <div>
-                      <label className="mb-1 block text-xs font-medium text-slate-600">종료일 (까지)</label>
+                      <label className="mb-1 block text-xs font-medium text-slate-600">종료일 (까지, 연·월·일 4·2·2자, 오늘 이후만)</label>
                       <input
                         type="date"
+                        min={new Date().toISOString().slice(0, 10)}
                         className="w-full rounded border border-slate-200 px-3 py-2 text-sm"
                         value={promoForm.end_at}
                         onChange={(e) => setPromoForm((f) => ({ ...f, end_at: e.target.value }))}
@@ -3310,9 +3345,14 @@ export const Admin: React.FC = () => {
                       <button
                         type="button"
                         onClick={async () => {
-                          if (!supabase) return;
+                          if (!supabase || !canGrantPermission) return;
                           if (!promoForm.title.trim()) {
                             window.alert('제목을 입력하세요.');
+                            return;
+                          }
+                          const today = new Date().toISOString().slice(0, 10);
+                          if (promoForm.end_at && promoForm.end_at < today) {
+                            window.alert('종료일은 오늘 이후만 입력할 수 있습니다.');
                             return;
                           }
                           setPromosSaving(true);
@@ -3342,7 +3382,7 @@ export const Admin: React.FC = () => {
                             setPromosSaving(false);
                           }
                         }}
-                        disabled={promosSaving}
+                        disabled={promosSaving || !canGrantPermission}
                         className="rounded-full bg-brand px-4 py-1.5 text-xs font-medium text-white hover:bg-brand/90 disabled:opacity-50"
                       >
                         {selectedPromo ? '수정 저장' : '추가'}
@@ -3369,7 +3409,7 @@ export const Admin: React.FC = () => {
       )}
 
       {tab === 'orders' && (
-        <section className="mt-4 space-y-4">
+        <section className="mt-4 w-full min-w-0 space-y-4 xl:max-w-[96rem]">
           {/* 포인트 정책 요약 테이블: 관리자 주문 탭 상단에 정리 */}
           <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
             <h2 className="border-b border-slate-100 px-4 py-3 text-xs font-semibold text-slate-900">포인트 정책 요약</h2>
@@ -3428,9 +3468,9 @@ export const Admin: React.FC = () => {
             <p className="mb-3 text-[11px] text-slate-500">
               주문을 클릭하면 수령인(ФИО)·전화·배송 주소를 수정할 수 있습니다. 고객이 나중에 수령인 정보 변경을 요청할 때 여기서 수정하세요. 금액은 포인트 사용 반영 후 결제금액입니다.
             </p>
-            {/* 주문 상태·배송 레전드: 결제 관련(좌) / 배송 관련(우) 좌우 구분 */}
-            <div className="mb-3 flex flex-nowrap items-center gap-6 rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2.5">
-              <div className="flex shrink-0 flex-nowrap items-center gap-2">
+            {/* 주문 상태·배송 레전드: 결제 관련(좌) / 배송 관련(우). flex-wrap으로 환불 등이 잘리지 않게 */}
+            <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2.5 sm:gap-6">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[11px] font-semibold text-slate-600">결제</span>
                 <span className="rounded bg-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-700 whitespace-nowrap" title="결제 대기">대기</span>
                 <span className="rounded bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-800 whitespace-nowrap" title="결제 완료">완료</span>
@@ -3439,7 +3479,7 @@ export const Admin: React.FC = () => {
                 <span className="rounded bg-violet-100 px-2 py-0.5 text-[11px] font-medium text-violet-800 whitespace-nowrap" title="환불 처리">환불</span>
               </div>
               <div className="h-4 w-px shrink-0 bg-slate-200" aria-hidden />
-              <div className="flex min-w-0 flex-nowrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[11px] font-semibold text-slate-600 shrink-0">배송</span>
                 <span className="rounded bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-800 whitespace-nowrap">제품준비</span>
                 <span className="rounded bg-indigo-100 px-2 py-0.5 text-[11px] font-medium text-indigo-800 whitespace-nowrap">배송준비</span>
@@ -3452,8 +3492,8 @@ export const Admin: React.FC = () => {
             ) : ordersList.length === 0 ? (
               <p className="py-6 text-center text-xs text-slate-500">주문이 없습니다.</p>
             ) : (
-              <div className="w-full max-w-full overflow-hidden">
-                <table className="w-full text-left text-xs">
+              <div className="w-full max-w-full overflow-x-auto">
+                <table className="w-full min-w-[900px] text-left text-xs">
                   <thead>
                     <tr className="border-b border-slate-200 text-slate-600">
                       <th className="pb-1.5 pr-2 font-medium whitespace-nowrap">주문번호</th>
@@ -3467,7 +3507,7 @@ export const Admin: React.FC = () => {
                       <th className="min-w-[100px] pb-1.5 pr-2 font-medium whitespace-nowrap">전화</th>
                       <th className="min-w-[220px] pb-1.5 pr-2 font-medium whitespace-nowrap">배송지</th>
                       <th className="pb-1.5 pr-2 font-medium whitespace-nowrap">개인정보</th>
-                      <th className="min-w-[140px] pb-1.5 pl-2 font-medium whitespace-nowrap">조치</th>
+                      <th className="min-w-[160px] pb-1.5 pl-2 font-medium whitespace-nowrap">조치</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -3542,9 +3582,9 @@ export const Admin: React.FC = () => {
                             {(o.status === 'pending' || o.status === 'completed' || o.status === 'product_preparing' || o.status === 'shipping_soon') && (
                               <button
                                 type="button"
-                                disabled={orderStatusUpdating === o.id}
+                                disabled={orderStatusUpdating === o.id || !canGrantPermission}
                                 onClick={async () => {
-                                  if (!supabase) return;
+                                  if (!supabase || !canGrantPermission) return;
                                   if (!window.confirm('이 주문을 취소 처리하시겠습니까?')) return;
                                   setOrderStatusUpdating(o.id);
                                   try {
@@ -3567,14 +3607,14 @@ export const Admin: React.FC = () => {
                               <>
                                 <button
                                   type="button"
-                                  disabled={orderStatusUpdating === o.id}
+                                  disabled={orderStatusUpdating === o.id || !canGrantPermission}
                                   onClick={async () => {
-                                    if (!supabase) return;
+                                    if (!supabase || !canGrantPermission) return;
                                     setOrderStatusUpdating(o.id);
                                     try {
-                                      const { error } = await supabase.from('orders').update({ status: 'product_preparing' }).eq('id', o.id);
+                                      const { error } = await supabase.from('orders').update({ status: 'shipping_soon' }).eq('id', o.id);
                                       if (error) throw error;
-                                      setOrdersList((prev) => prev.map((ord) => (ord.id === o.id ? { ...ord, status: 'product_preparing' } : ord)));
+                                      setOrdersList((prev) => prev.map((ord) => (ord.id === o.id ? { ...ord, status: 'shipping_soon' } : ord)));
                                     } catch (err) {
                                       console.error(err);
                                       window.alert(err instanceof Error ? err.message : '상태 변경 실패');
@@ -3582,15 +3622,15 @@ export const Admin: React.FC = () => {
                                       setOrderStatusUpdating(null);
                                     }
                                   }}
-                                  className="rounded border border-blue-300 px-2 py-0.5 text-[11px] text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+                                  className="rounded border border-indigo-300 px-2 py-0.5 text-[11px] text-indigo-700 hover:bg-indigo-50 disabled:opacity-50 whitespace-nowrap"
                                 >
-                                  제품준비
+                                  배송준비
                                 </button>
                                 <button
                                   type="button"
-                                  disabled={orderStatusUpdating === o.id}
+                                  disabled={orderStatusUpdating === o.id || !canGrantPermission}
                                   onClick={async () => {
-                                    if (!supabase) return;
+                                    if (!supabase || !canGrantPermission) return;
                                     if (!window.confirm('이 주문을 환불 처리하시겠습니까? (상태만 "환불"로 변경됩니다. 실제 결제 취소는 PG에서 별도 진행하세요.)')) return;
                                     setOrderStatusUpdating(o.id);
                                     try {
@@ -3613,9 +3653,9 @@ export const Admin: React.FC = () => {
                             {o.status === 'product_preparing' && (
                               <button
                                 type="button"
-                                disabled={orderStatusUpdating === o.id}
+                                disabled={orderStatusUpdating === o.id || !canGrantPermission}
                                 onClick={async () => {
-                                  if (!supabase) return;
+                                  if (!supabase || !canGrantPermission) return;
                                   setOrderStatusUpdating(o.id);
                                   try {
                                     const { error } = await supabase.from('orders').update({ status: 'shipping_soon' }).eq('id', o.id);
@@ -3636,9 +3676,9 @@ export const Admin: React.FC = () => {
                             {o.status === 'shipping_soon' && (
                               <button
                                 type="button"
-                                disabled={orderStatusUpdating === o.id}
+                                disabled={orderStatusUpdating === o.id || !canGrantPermission}
                                 onClick={async () => {
-                                  if (!supabase) return;
+                                  if (!supabase || !canGrantPermission) return;
                                   if (!window.confirm('발송 처리하시겠습니까? (고객에게 배송중으로 보입니다. 트래킹 URL은 수령인 수정 모달에서 추후 입력 가능합니다.)')) return;
                                   setOrderStatusUpdating(o.id);
                                   try {
@@ -3660,9 +3700,9 @@ export const Admin: React.FC = () => {
                             {o.status === 'shipped' && (
                               <button
                                 type="button"
-                                disabled={orderStatusUpdating === o.id}
+                                disabled={orderStatusUpdating === o.id || !canGrantPermission}
                                 onClick={async () => {
-                                  if (!supabase) return;
+                                  if (!supabase || !canGrantPermission) return;
                                   setOrderStatusUpdating(o.id);
                                   try {
                                     const { error } = await supabase.from('orders').update({ status: 'delivered' }).eq('id', o.id);
@@ -3692,15 +3732,20 @@ export const Admin: React.FC = () => {
         </section>
       )}
 
-      {tab === 'members' && (
-        <section className="mt-4 space-y-4">
+      {tab === 'members' && (() => {
+        const adminList = members.filter((m) => m.is_admin || m.is_manager);
+        const regularMembers = members.filter((m) => !m.is_admin && !m.is_manager);
+        const selectedRegularIds = selectedMemberIds.filter((id) => regularMembers.some((m) => m.id === id));
+        return (
+        <section className="mt-4 space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-sm font-semibold text-slate-900">가입회원 관리</h2>
               <p className="mt-1 text-[11px] text-slate-500">
-                최근 가입한 순으로 회원을 보여줍니다. 등급·포인트·스킨 테스트 여부·텔레그램 연동 상태를 한눈에 확인할 수 있습니다.
+                관리자 명단과 일반 회원을 구분해 표시합니다. 등급·포인트·스킨 테스트·텔레그램 연동을 확인할 수 있습니다.
               </p>
             </div>
+            {canGrantPermission && (
             <div className="flex flex-wrap items-center justify-end gap-2">
               <button
                 type="button"
@@ -3734,6 +3779,7 @@ export const Admin: React.FC = () => {
                 </button>
               </div>
             </div>
+            )}
           </div>
 
           {membersError && (
@@ -3742,24 +3788,126 @@ export const Admin: React.FC = () => {
             </div>
           )}
 
+          {/* 좌: 관리자 명단 / 우: 포인트&쿠폰 정책 — 내용 높이만큼만 */}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {/* 관리자 명단: 절반 폭, 왼쪽 */}
+            {adminList.length > 0 ? (
+              <div className="flex flex-col rounded-xl border border-slate-200 bg-slate-50/50 p-4">
+                <h3 className="mb-3 shrink-0 text-xs font-semibold text-slate-800">관리자 명단</h3>
+                <div className="min-h-0 flex-1 overflow-x-auto">
+                  <table className="min-w-full text-xs">
+                    <thead className="border-b border-slate-200 text-slate-600">
+                      <tr>
+                        <th className="whitespace-nowrap px-3 py-1.5 text-left font-medium">회원</th>
+                        <th className="whitespace-nowrap px-3 py-1.5 text-left font-medium">역할</th>
+                        {canGrantPermission && (
+                          <th className="whitespace-nowrap px-3 py-1.5 text-left font-medium">권한 변경</th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {adminList.map((m) => (
+                        <tr key={m.id} className="border-t border-slate-100">
+                          <td className="whitespace-nowrap px-3 py-2">
+                            <div className="flex flex-col">
+                              <span className="font-medium text-slate-900">{m.name || '—'}</span>
+                              <span className="text-[11px] text-slate-500">{m.email || '—'}</span>
+                            </div>
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2">
+                            <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${m.is_admin ? 'bg-brand/20 text-brand' : 'bg-slate-200 text-slate-700'}`}>
+                              {m.is_admin ? '관리자' : '매니저(보기전용)'}
+                            </span>
+                          </td>
+                          {canGrantPermission && (
+                            <td className="whitespace-nowrap px-3 py-2">
+                              {(() => {
+                                const isDeveloperMember = m.email && DEVELOPER_EMAILS.includes(m.email.trim().toLowerCase());
+                                return isDeveloperMember ? (
+                                  <span className="inline-block rounded border border-slate-200 bg-slate-100 px-2 py-1 text-[11px] text-slate-500 cursor-not-allowed" title="개발자 계정은 권한 변경 불가">
+                                    관리자
+                                  </span>
+                                ) : (
+                                  <select
+                                    value={m.is_admin ? 'admin' : 'manager'}
+                                    onChange={(e) => handleUpdateMemberRole(m.id, e.target.value as 'member' | 'manager' | 'admin')}
+                                    disabled={updatingRoleUserId === m.id}
+                                    className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700 disabled:opacity-50"
+                                  >
+                                    <option value="member">회원</option>
+                                    <option value="manager">매니저(보기전용)</option>
+                                    <option value="admin" disabled={!canGrantAdminRole}>관리자</option>
+                                  </select>
+                                );
+                              })()}
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col rounded-xl border border-slate-200 bg-slate-50/50 p-4">
+                <h3 className="mb-3 shrink-0 text-xs font-semibold text-slate-800">관리자 명단</h3>
+                <p className="text-[11px] text-slate-500">등록된 관리자가 없습니다.</p>
+              </div>
+            )}
+
+            {/* 포인트(좌) & 쿠폰지급 규정(우): 내용 높이만큼만 */}
+            <div className="flex flex-col rounded-xl border border-slate-200 bg-white overflow-hidden">
+              <div className="grid min-h-0 flex-1 grid-cols-1 border-b border-slate-100 sm:grid-cols-2">
+                <div className="flex flex-col border-b border-slate-100 sm:border-b-0 sm:border-r border-slate-100">
+                  <h3 className="shrink-0 border-b border-slate-100 px-4 py-3 text-xs font-semibold text-slate-900">포인트 &amp; 쿠폰 정책</h3>
+                  <div className="flex-1 overflow-auto px-4 py-2">
+                    <h4 className="pb-1 text-[11px] font-semibold text-slate-700">포인트 정책 요약</h4>
+                    <ul className="space-y-1 text-[11px] text-slate-600">
+                      <li>테스트 완료 300 pt</li>
+                      <li>텔레그램 연동 200 pt (연동 시 1회, 재연동 시 중복 X)</li>
+                      <li>결제 시 포인트 사용 최대 1000 pt (주문 금액의 10% 한도)</li>
+                      <li>리뷰 포인트 (일반) 200 pt</li>
+                      <li>리뷰 포인트 (특별) 500 pt</li>
+                    </ul>
+                  </div>
+                </div>
+                <div className="flex flex-col">
+                  <h3 className="shrink-0 border-b border-slate-100 px-4 py-3 text-xs font-semibold text-slate-900">쿠폰지급 규정</h3>
+                  <div className="flex-1 overflow-auto px-4 py-2">
+                    <ul className="space-y-1 text-[11px] text-slate-600">
+                      <li>분기별 구독 회원 대상으로 쿠폰 일괄 지급 (분기 후 소멸)</li>
+                      <li className="pl-3">일반 100p, 프리미엄 200p, 가족등급 300p</li>
+                      <li>향후 바우처 개발하여 코드로 활성화</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 일반 회원 목록 */}
+          <div>
+            <h3 className="mb-2 text-xs font-semibold text-slate-800">일반 회원</h3>
           <div className="relative overflow-x-auto overflow-y-visible rounded-xl border border-slate-200 bg-white z-30">
             <table className="min-w-full text-xs">
               <thead className="border-b border-slate-100 bg-slate-50/70">
                 <tr>
+                  {canGrantPermission && (
                   <th className="whitespace-nowrap px-3 py-2 text-center font-medium text-slate-700">
                     <input
                       type="checkbox"
                       className="h-3 w-3 rounded border-slate-300 text-brand focus:ring-brand"
-                      checked={members.length > 0 && selectedMemberIds.length === members.length}
+                      checked={regularMembers.length > 0 && selectedRegularIds.length === regularMembers.length}
                       onChange={(e) => {
                         if (e.target.checked) {
-                          setSelectedMemberIds(members.map((m) => m.id));
+                          setSelectedMemberIds(regularMembers.map((m) => m.id));
                         } else {
-                          setSelectedMemberIds([]);
+                          setSelectedMemberIds((prev) => prev.filter((id) => !regularMembers.some((m) => m.id === id)));
                         }
                       }}
                     />
                   </th>
+                  )}
                   <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-slate-700">회원</th>
                   <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-slate-700">회원등급</th>
                   <th className="whitespace-nowrap px-3 py-2 text-right font-medium text-slate-700">보유 포인트</th>
@@ -3768,27 +3916,29 @@ export const Admin: React.FC = () => {
                   <th className="whitespace-nowrap px-3 py-2 text-center font-medium text-slate-700">텔레그램</th>
                   <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-slate-700">가입일</th>
                   <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-slate-700">마지막 방문</th>
+                  {canGrantPermission && <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-slate-700">권한</th>}
                   <th className="whitespace-nowrap px-3 py-2 text-center font-medium text-slate-700">조치</th>
                 </tr>
               </thead>
               <tbody>
                 {membersLoading && (
                   <tr>
-                    <td colSpan={10} className="px-3 py-6 text-center text-[11px] text-slate-500">
+                    <td colSpan={canGrantPermission ? 11 : 10} className="px-3 py-6 text-center text-[11px] text-slate-500">
                       회원 목록을 불러오는 중입니다…
                     </td>
                   </tr>
                 )}
-                {!membersLoading && members.length === 0 && (
+                {!membersLoading && regularMembers.length === 0 && (
                   <tr>
-                    <td colSpan={10} className="px-3 py-6 text-center text-[11px] text-slate-500">
-                      등록된 회원이 없습니다.
+                    <td colSpan={canGrantPermission ? 11 : 10} className="px-3 py-6 text-center text-[11px] text-slate-500">
+                      등록된 일반 회원이 없습니다.
                     </td>
                   </tr>
                 )}
                 {!membersLoading &&
-                  members.map((m) => (
+                  regularMembers.map((m) => (
                     <tr key={m.id} className="border-t border-slate-100">
+                      {canGrantPermission && (
                       <td className="whitespace-nowrap px-3 py-2 text-center">
                         <input
                           type="checkbox"
@@ -3801,6 +3951,7 @@ export const Admin: React.FC = () => {
                           }}
                         />
                       </td>
+                      )}
                       <td className="whitespace-nowrap px-3 py-2 text-slate-800">
                         <div className="flex flex-col">
                           <span className="text-xs font-medium text-slate-900">{m.name || '—'}</span>
@@ -3857,6 +4008,20 @@ export const Admin: React.FC = () => {
                       <td className="whitespace-nowrap px-3 py-2 text-slate-700">
                         {m.last_visit_at ? new Date(m.last_visit_at).toLocaleString('ru-RU') : '—'}
                       </td>
+                      {canGrantPermission && (
+                      <td className="whitespace-nowrap px-3 py-2">
+                        <select
+                          value="member"
+                          onChange={(e) => handleUpdateMemberRole(m.id, e.target.value as 'member' | 'manager' | 'admin')}
+                          disabled={updatingRoleUserId === m.id}
+                          className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700 disabled:opacity-50"
+                        >
+                          <option value="member">회원</option>
+                          <option value="manager">매니저</option>
+                          {canGrantAdminRole && <option value="admin">관리자</option>}
+                        </select>
+                      </td>
+                      )}
                       <td className="whitespace-nowrap px-3 py-2 text-center">
                         <div className="flex flex-wrap items-center justify-center gap-1">
                           <button
@@ -3886,8 +4051,10 @@ export const Admin: React.FC = () => {
               </tbody>
             </table>
           </div>
+          </div>
         </section>
-      )}
+        );
+      })()}
 
       {tab === 'activityLogs' && (
         <section className="mt-4">
