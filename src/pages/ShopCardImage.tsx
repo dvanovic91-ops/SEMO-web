@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 
 type Props = {
   images: string[];
@@ -7,32 +7,17 @@ type Props = {
 
 export const ShopCardImage: React.FC<Props> = ({ images, name }) => {
   const [index, setIndex] = useState(0);
-  const timerRef = useRef<number | null>(null);
   const touchStartX = useRef(0);
-
-  useEffect(() => {
-    return () => {
-      if (timerRef.current != null) {
-        window.clearInterval(timerRef.current);
-      }
-    };
-  }, []);
 
   const hasMultiple = images.length > 1;
 
   const startHover = () => {
-    if (!hasMultiple || timerRef.current != null) return;
-    timerRef.current = window.setInterval(() => {
-      setIndex((prev) => (prev + 1) % images.length);
-    }, 1200);
+    if (!hasMultiple) return;
+    setIndex(1); // 마우스 오버 시 두 번째 이미지로 고정
   };
 
   const endHover = () => {
-    if (timerRef.current != null) {
-      window.clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-    setIndex(0);
+    setIndex(0); // 마우스 아웃 시 첫 번째 이미지로 복귀
   };
 
   const onTouchStart = (e: React.TouchEvent) => {
@@ -56,7 +41,7 @@ export const ShopCardImage: React.FC<Props> = ({ images, name }) => {
   if (!images.length) {
     return (
       <div
-        className="mt-4 flex aspect-square w-full items-center justify-center overflow-hidden rounded-lg border border-slate-200/80 bg-white/80"
+        className="mt-2 flex aspect-square w-full items-center justify-center overflow-hidden rounded-lg border border-slate-200/80 bg-white/80"
         style={{ minHeight: '180px' }}
       >
         <span className="text-base font-medium text-brand">{name}</span>
@@ -66,7 +51,7 @@ export const ShopCardImage: React.FC<Props> = ({ images, name }) => {
 
   return (
     <div
-      className="mt-4 flex aspect-square w-full items-center justify-center overflow-hidden rounded-lg border border-slate-200/80 bg-white/80"
+      className="mt-2 flex aspect-square w-full items-center justify-center overflow-hidden rounded-lg border border-slate-200/80 bg-white/80"
       style={{ minHeight: '180px' }}
       onMouseEnter={startHover}
       onMouseLeave={endHover}

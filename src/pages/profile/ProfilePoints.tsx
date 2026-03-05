@@ -10,12 +10,16 @@ import { USE_MOCK_POINTS, mockPointBalance, mockPointHistory } from '../../data/
 export const ProfilePoints: React.FC = () => {
   const { userEmail, userId, isLoggedIn, initialized } = useAuth();
   const [dbPoints, setDbPoints] = useState<number | null>(null);
+  const [coupons, setCoupons] = useState<
+    { id: string; amount: number; expires_at: string; used_at: string | null; tier?: string | null; quarter_label?: string | null }[]
+  >([]);
   const currentUserIdRef = useRef<string | null>(null);
   currentUserIdRef.current = userId;
 
   const refreshPoints = useCallback(() => {
     if (!supabase || !userId) {
       setDbPoints(null);
+      setCoupons([]);
       return;
     }
     const requestedUserId = userId;
@@ -31,6 +35,23 @@ export const ProfilePoints: React.FC = () => {
       .catch(() => {
         if (currentUserIdRef.current !== requestedUserId) return;
         setDbPoints(null);
+      });
+
+    supabase
+      .from('membership_coupons')
+      .select('id, amount, expires_at, used_at, tier, quarter_label')
+      .eq('user_id', requestedUserId)
+      .order('expires_at', { ascending: true })
+      .then(({ data }) => {
+        if (currentUserIdRef.current !== requestedUserId) return;
+        setCoupons(
+          (data as { id: string; amount: number; expires_at: string; used_at: string | null; tier?: string | null; quarter_label?: string | null }[]) ??
+            [],
+        );
+      })
+      .catch(() => {
+        if (currentUserIdRef.current !== requestedUserId) return;
+        setCoupons([]);
       });
   }, [userId]);
 
@@ -88,6 +109,47 @@ export const ProfilePoints: React.FC = () => {
           </li>
         ))}
       </ul>
+
+      <section className="mt-8">
+        <h2 className="text-sm font-semibold text-slate-900">Купоны по уровню участника</h2>
+        {coupons.length === 0 ? (
+          <p className="mt-2 text-sm text-slate-500">Пока нет купонов.</p>
+        ) : (
+          <ul className="mt-3 space-y-3">
+            {coupons.map((c) => {
+              const now = new Date();
+              const expires = new Date(c.expires_at);
+              const isUsed = !!c.used_at;
+              const isExpired = !isUsed && expires.getTime() < now.getTime();
+              const statusText = isUsed
+                ? 'Использован'
+                : isExpired
+                ? 'Истёк'
+                : `Действует до ${expires.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}`;
+              return (
+                <li
+                  key={c.id}
+                  className="flex items-center justify-between rounded-xl border border-slate-100 bg-white px-4 py-3 text-sm"
+                >
+                  <div>
+                    <p className="font-medium text-slate-800">
+                      Купон {c.amount} ₽ {c.tier ? `(${c.tier})` : ''}
+                    </p>
+                    <p className="text-xs text-slate-500">{c.quarter_label ?? ''}</p>
+                  </div>
+                  <span
+                    className={
+                      isUsed ? 'text-slate-400 text-xs' : isExpired ? 'text-slate-400 text-xs' : 'text-emerald-600 text-xs font-medium'
+                    }
+                  >
+                    {statusText}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
     </main>
   );
 };

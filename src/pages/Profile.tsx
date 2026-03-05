@@ -14,6 +14,10 @@ export const Profile: React.FC = () => {
   const { userEmail, userId, setUserEmail, isLoggedIn, initialized, isAdmin } = useAuth();
   const [gradeTooltipOpen, setGradeTooltipOpen] = useState(false);
   const [dbProfile, setDbProfile] = useState<{ name: string | null; grade: string; points: number; telegram_id: string | null } | null>(null);
+  /** 회원 등급: basic(일반) / premium(프리미엄) / family(가족) — 주문 누계 기준으로 계산 */
+  const [membershipTier, setMembershipTier] = useState<'basic' | 'premium' | 'family'>('basic');
+  const [testResultCount, setTestResultCount] = useState<number | null>(null);
+  const [lastSkinType, setLastSkinType] = useState<string | null>(null);
   const prevTelegramIdRef = useRef<string | null | undefined>(undefined);
   const currentUserIdRef = useRef<string | null>(null);
   currentUserIdRef.current = userId;
@@ -67,6 +71,64 @@ export const Profile: React.FC = () => {
     refreshProfile();
   }, [refreshProfile]);
 
+  // 테스트 결과 건수 + 마지막 결과 타입 집계 (개인정보창 카드에 표시)
+  useEffect(() => {
+    if (!supabase || !userId) {
+      setTestResultCount(null);
+      setLastSkinType(null);
+      return;
+    }
+    supabase
+      .from('skin_test_results')
+      .select('id, skin_type, completed_at', { count: 'exact' })
+      .eq('user_id', userId)
+      .then(({ data, count }) => {
+        setTestResultCount(count ?? (data?.length ?? 0));
+        if (data && data.length > 0) {
+          const sorted = (data as { id: string; skin_type: string | null; completed_at: string }[])
+            .slice()
+            .sort((a, b) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime());
+          setLastSkinType(sorted[0].skin_type ?? null);
+        } else {
+          setLastSkinType(null);
+        }
+      })
+      .catch(() => {
+        setTestResultCount(0);
+        setLastSkinType(null);
+      });
+  }, [userId]);
+
+  // 주문 누계 기준 등급 계산: 완료된(배송완료/구매확정) 주문만 집계, 테스트 주문 제외
+  useEffect(() => {
+    if (!supabase || !userId) {
+      setMembershipTier('basic');
+      return;
+    }
+    supabase
+      .from('orders')
+      .select('total_cents, status, is_test')
+      .eq('user_id', userId)
+      .in('status', ['delivered', 'confirmed'])
+      .then(({ data }) => {
+        const rows = (data ?? []) as { total_cents?: number | null; status?: string | null; is_test?: boolean | null }[];
+        const sumCents = rows
+          .filter((o) => !o.is_test)
+          .reduce((acc, o) => acc + (o.total_cents ?? 0), 0);
+        const sumRub = sumCents / 100;
+        if (sumRub >= 100_000) {
+          setMembershipTier('family');
+        } else if (sumRub >= 35_000) {
+          setMembershipTier('premium');
+        } else {
+          setMembershipTier('basic');
+        }
+      })
+      .catch(() => {
+        setMembershipTier('basic');
+      });
+  }, [userId]);
+
   // 다른 탭에서 Telegram 연동 후 돌아오면 프로필(연동 여부·포인트) 다시 불러오기
   useEffect(() => {
     const onVisibility = () => {
@@ -94,7 +156,20 @@ export const Profile: React.FC = () => {
     window.location.href = '/login';
   };
 
-  const gradeTooltipText = 'Обычный участник, Премиум участник';
+  // 누적 결제액 기준 등급 표시·툴팁 텍스트
+  const gradeLabel = useMemo(() => {
+    if (membershipTier === 'family') return 'Семейный участник';
+    if (membershipTier === 'premium') return 'Премиум участник';
+    return 'Обычный участник';
+  }, [membershipTier]);
+
+  const gradeTooltipText = useMemo(() => {
+    return [
+      'Обычный: 100 бонусных баллов каждый квартал (срок действия 3 месяца).',
+      'Премиум: от 35 000 ₽ подтверждённых заказов, 200 баллов каждый квартал.',
+      'Семейный: от 100 000 ₽ подтверждённых заказов, 300 баллов каждый квартал. При возврате заказа начисленные баллы могут быть скорректированы.',
+    ].join(' ');
+  }, []);
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-10 md:py-14">
@@ -128,22 +203,27 @@ export const Profile: React.FC = () => {
             <p className="text-base font-medium text-slate-800 sm:text-lg">
               Здравствуйте, {profile?.name || (userEmail ? userEmail.split('@')[0] : 'SEMO клиент')}!
             </p>
-            <div className="relative mt-1">
-              <button
-                type="button"
-                onClick={() => setGradeTooltipOpen((v) => !v)}
-                onBlur={() => setGradeTooltipOpen(false)}
-                className="text-sm text-brand hover:underline"
+            <div
+              className="relative mt-1 inline-flex items-center gap-1 text-sm text-brand"
+              onMouseEnter={() => setGradeTooltipOpen(true)}
+              onMouseLeave={() => setGradeTooltipOpen(false)}
+            >
+              <span>{gradeLabel}</span>
+              <span
+                className="flex h-4 w-4 items-center justify-center rounded-full border border-brand/40 bg-brand-soft/40 text-[10px] text-brand"
+                aria-label="Информация о статусе"
                 title={gradeTooltipText}
               >
-                {profile?.grade ?? 'Обычный участник'}, подписка SEMO 2026!
-              </button>
+                i
+              </span>
               {gradeTooltipOpen && (
                 <div
-                  className="absolute left-0 top-full z-10 mt-1 max-w-xs rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 shadow-lg"
+                  className="absolute left-0 top-full z-10 mt-1 inline-block rounded-lg border border-amber-100 bg-yellow-50 px-3 py-2 text-xs text-slate-700 shadow-lg"
                   role="tooltip"
                 >
-                  {gradeTooltipText}
+                  <p className="whitespace-nowrap">• Обычный: 100 баллов каждый квартал (3 месяца действия).</p>
+                  <p className="mt-1 whitespace-nowrap">• Премиум: от 35 000 ₽ подтверждённых заказов, 200 баллов/квартал.</p>
+                  <p className="mt-1 whitespace-nowrap">• Семейный: от 100 000 ₽ подтверждённых заказов, 300 баллов/квартал.</p>
                 </div>
               )}
             </div>
@@ -223,7 +303,15 @@ export const Profile: React.FC = () => {
           </span>
           <div>
             <p className="text-sm font-medium text-slate-800">Результаты тестов</p>
-            <p className="mt-1 text-xs text-slate-500">Последние результаты типа кожи</p>
+            <p className="mt-1 text-xs text-slate-500">
+              {testResultCount !== null
+                ? testResultCount === 0
+                  ? 'Пройдите тест типа кожи'
+                  : lastSkinType
+                  ? `Последний результат: ${lastSkinType} · всего ${testResultCount}`
+                  : `Последние результаты: ${testResultCount}`
+                : 'Последние результаты типа кожи'}
+            </p>
           </div>
         </Link>
 

@@ -24,12 +24,28 @@ type Component = {
   image_url: string | null;
   image_urls?: string[] | null;
   description: string | null;
+  /** 상세 «Подробнее о составе» 블록 배치 */
+  layout?: 'image_left' | 'image_right';
 };
 
 /** 구성품 이미지 URL 배열 (image_urls 우선, 없으면 [image_url]) */
 function getComponentImageUrls(comp: Component): string[] {
   if (comp.image_urls && Array.isArray(comp.image_urls) && comp.image_urls.length > 0) return comp.image_urls;
   return comp.image_url ? [comp.image_url] : [];
+}
+
+/** 주문에 해당 상품(product_id)이 포함되어 있는지 확인 (orders.items / snapshot_items 기준) */
+function orderContainsProduct(
+  order: { items?: { id?: string | null }[] | null; snapshot_items?: { id?: string | null }[] | null },
+  productId: string,
+): boolean {
+  const lists = [order.items, order.snapshot_items];
+  for (const list of lists) {
+    if (Array.isArray(list)) {
+      if (list.some((it) => it && it.id && String(it.id) === productId)) return true;
+    }
+  }
+  return false;
 }
 
 type Review = {
@@ -66,7 +82,7 @@ const FALLBACK_PRODUCTS: Record<string, Product> = {
 
 export const ProductDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { isLoggedIn, userId } = useAuth();
+  const { isLoggedIn, userId, isAdmin } = useAuth();
   const { addItem } = useCart();
 
   const [product, setProduct] = useState<Product | null>(null);
@@ -80,12 +96,74 @@ export const ProductDetail: React.FC = () => {
   const [reviewPhotoFiles, setReviewPhotoFiles] = useState<File[]>([]);
   const [submittingReview, setSubmittingReview] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
+  const [deletingReviewId, setDeletingReviewId] = useState<string | null>(null);
+  /** 이 상품을 실제 구매한 주문 id (있을 때만 리뷰 작성 가능) */
+  const [reviewOrderId, setReviewOrderId] = useState<string | null>(null);
+  /** 리뷰/사진 업로드 토스트: uploading | success | error (러시아어 메시지) */
+  const [reviewToast, setReviewToast] = useState<{ type: 'uploading' | 'success' | 'error'; message: string } | null>(null);
+  /** 리뷰 섹션 인포 툴팁 토글 */
+  const [reviewInfoOpen, setReviewInfoOpen] = useState(false);
 
-  const [heroIndex, setHeroIndex] = useState(0);
-  const heroTimerRef = useRef<number | null>(null);
-  const heroTouchStartX = useRef(0);
+  const reviewFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const BUCKET_REVIEW_PHOTOS = 'review-photos';
+  /** 리뷰 사진 1장당 최대 5MB (Supabase 기본 50MB여도, 폼에서 과도한 원본 업로드 방지) */
+  const MAX_REVIEW_PHOTO_BYTES = 5 * 1024 * 1024;
+  /** 리뷰당 최대 사진 개수 (UX 안내 텍스트·밸리데이션 공통 사용) */
+  const MAX_REVIEW_PHOTOS = 3;
+
+  // 토스트 자동 숨김 (3초)
+  useEffect(() => {
+    if (!reviewToast) return;
+    const t = window.setTimeout(() => setReviewToast(null), 3000);
+    return () => window.clearTimeout(t);
+  }, [reviewToast]);
+
+  /** 리뷰 삭제: 작성자 본인 또는 관리자만 가능 */
+  const canDeleteReview = (r: Review) => (userId && r.user_id === userId) || isAdmin;
+
+  const handleReviewFilesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files?.length) return;
+    const valid: File[] = [];
+    const tooBig: string[] = [];
+    for (let i = 0; i < files.length; i++) {
+      if (files[i].size > MAX_REVIEW_PHOTO_BYTES) tooBig.push(files[i].name);
+      else valid.push(files[i]);
+    }
+    if (tooBig.length > 0) {
+      setReviewToast({ type: 'error', message: `Файл слишком большой. Макс. 5 МБ.` });
+      setReviewError(tooBig.length === 1 ? `«${tooBig[0]}» — больше 5 МБ.` : `${tooBig.length} файлов больше 5 МБ.`);
+    }
+    if (valid.length > 0) {
+      setReviewPhotoFiles((prev) => {
+        const next = [...prev, ...valid];
+        if (next.length > MAX_REVIEW_PHOTOS) {
+          setReviewToast({ type: 'error', message: `Макс. ${MAX_REVIEW_PHOTOS} фото.` });
+          return next.slice(0, MAX_REVIEW_PHOTOS);
+        }
+        setReviewError(null);
+        return next;
+      });
+    }
+    e.target.value = '';
+  };
+  const handleDeleteReview = async (reviewId: string) => {
+    if (!supabase || !id) return;
+    if (!window.confirm('Удалить этот отзыв?')) return;
+    setDeletingReviewId(reviewId);
+    setReviewError(null);
+    try {
+      await supabase.from('review_photos').delete().eq('review_id', reviewId);
+      const { error } = await supabase.from('product_reviews').delete().eq('id', reviewId);
+      if (error) throw error;
+      setReviews((prev) => prev.filter((r) => r.id !== reviewId));
+    } catch (e) {
+      setReviewError(e instanceof Error ? e.message : 'Не удалось удалить отзыв.');
+    } finally {
+      setDeletingReviewId(null);
+    }
+  };
   const loadingTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -132,7 +210,7 @@ export const ProductDetail: React.FC = () => {
       try {
         const { data: prodData, error: prodErr } = await supabase
           .from('products')
-          .select('id, name, description, image_url, rrp_price, prp_price')
+          .select('id, name, description, image_url, image_urls, rrp_price, prp_price')
           .eq('id', currentId)
           .single();
 
@@ -142,7 +220,10 @@ export const ProductDetail: React.FC = () => {
             window.clearTimeout(loadingTimeoutRef.current);
             loadingTimeoutRef.current = null;
           }
-          const errMsg = prodErr?.message ?? 'Товар не найден';
+          // PGRST116 = no rows for .single() → 상품 없음
+          const errMsg = (prodErr?.code === 'PGRST116' || prodErr?.message?.includes('0 rows'))
+            ? 'Товар не найден'
+            : (prodErr?.message ?? 'Товар не найден');
           setLoadError(errMsg);
           setProduct(null);
           setComponents([]);
@@ -162,6 +243,7 @@ export const ProductDetail: React.FC = () => {
           stock: row.stock ?? null,
         };
         setProduct((prev) => (prev?.id === productRow.id ? prev : productRow));
+        setLoadError(null);
 
         try {
           await supabase.from('product_views').insert({ product_id: currentId });
@@ -183,7 +265,6 @@ export const ProductDetail: React.FC = () => {
         if (cancelled || currentId !== (id ?? '')) return;
         setComponents((prev) => (prev.length === compList.length && compList.length === 0 ? prev : compList));
 
-        // profiles 조인 제거 → 400 방지 (조인 실패 시 대체로 작성자명만 'Пользователь' 표시)
         let reviewsList: Review[] = [];
         try {
           const { data: reviewData } = await supabase
@@ -194,6 +275,19 @@ export const ProductDetail: React.FC = () => {
           reviewsList = raw.slice().sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
         } catch (_) {
           reviewsList = [];
+        }
+        const userIds = [...new Set(reviewsList.map((r) => r.user_id).filter(Boolean))] as string[];
+        let profilesMap: Record<string, { name: string | null; email: string | null }> = {};
+        if (userIds.length > 0) {
+          try {
+            const { data: profileData } = await supabase
+              .from('profiles')
+              .select('id, name, email')
+              .in('id', userIds);
+            (profileData ?? []).forEach((p: { id: string; name: string | null; email: string | null }) => {
+              profilesMap[p.id] = { name: p.name ?? null, email: p.email ?? null };
+            });
+          } catch (_) {}
         }
         const reviewIds = reviewsList.map((r) => r.id);
         let photosMap: Record<string, { image_url: string }[]> = {};
@@ -209,10 +303,39 @@ export const ProductDetail: React.FC = () => {
             });
           } catch (_) {}
         }
+
+        // 이 상품을 실제 구매한 주문이 있는지 확인 (로그인 사용자 기준)
+        let foundOrderId: string | null = null;
+        if (userId) {
+          try {
+            const { data: orderData } = await supabase
+              .from('orders')
+              .select('id, items, snapshot_items, status, created_at')
+              .eq('user_id', userId)
+              .order('created_at', { ascending: false });
+            const rows = (orderData ?? []) as { id: string; items?: { id?: string | null }[] | null; snapshot_items?: { id?: string | null }[] | null; status?: string | null }[];
+            const okStatuses = new Set(['completed', 'product_preparing', 'shipping_soon', 'shipped', 'delivered', 'confirmed']);
+            for (const o of rows) {
+              if (o.status && !okStatuses.has(o.status)) continue;
+              if (orderContainsProduct(o, currentId)) {
+                foundOrderId = o.id;
+                break;
+              }
+            }
+          } catch (_) {
+            foundOrderId = null;
+          }
+        }
+
         if (cancelled || currentId !== (id ?? '')) return;
         setReviews(
-          reviewsList.map((r) => ({ ...r, review_photos: photosMap[r.id] ?? [] })),
+          reviewsList.map((r) => ({
+            ...r,
+            profiles: r.user_id ? profilesMap[r.user_id] ?? null : null,
+            review_photos: photosMap[r.id] ?? [],
+          })),
         );
+        setReviewOrderId(foundOrderId);
       } catch (e) {
         if (loadingTimeoutRef.current != null) {
           window.clearTimeout(loadingTimeoutRef.current);
@@ -240,12 +363,16 @@ export const ProductDetail: React.FC = () => {
         loadingTimeoutRef.current = null;
       }
     };
-  }, [id]);
+  }, [id, userId]);
 
   const handleSubmitReview = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!userId || !id || !supabase || !isUuid(id)) {
       setReviewError('Войдите, чтобы оставить отзыв.');
+      return;
+    }
+    if (!reviewOrderId) {
+      setReviewError('Оставить отзыв можно только после покупки набора.');
       return;
     }
     if (reviewBody.trim().length === 0) {
@@ -256,15 +383,20 @@ export const ProductDetail: React.FC = () => {
     setReviewError(null);
     try {
       const uploadedUrls: string[] = [];
+      if (reviewPhotoFiles.length > 0) {
+        setReviewToast({ type: 'uploading', message: 'Загрузка…' });
+      }
       for (let i = 0; i < reviewPhotoFiles.length; i++) {
         const file = reviewPhotoFiles[i];
-        const ext = file.name.split('.').pop() || 'jpg';
-        const path = `${userId}/${Date.now()}_${i}.${ext}`;
+        const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+        const safeExt = /^[a-z0-9]+$/i.test(ext) ? ext : 'jpg';
+        const path = `${userId}/${Date.now()}_${i}.${safeExt}`;
         const { error: upErr } = await supabase.storage
           .from(BUCKET_REVIEW_PHOTOS)
-          .upload(path, file, { cacheControl: '3600', upsert: false });
+          .upload(path, file, { cacheControl: '3600', upsert: false, contentType: file.type || `image/${safeExt}` });
         if (upErr) {
-          setReviewError('Не удалось загрузить фото.');
+          setReviewToast({ type: 'error', message: 'Ошибка загрузки.' });
+          setReviewError(upErr.message || 'Не удалось загрузить фото.');
           setSubmittingReview(false);
           return;
         }
@@ -275,7 +407,7 @@ export const ProductDetail: React.FC = () => {
 
       const { data: reviewRow, error: revErr } = await supabase
         .from('product_reviews')
-        .insert({ product_id: id, user_id: userId, rating: reviewRating, body: reviewBody.trim() })
+        .insert({ product_id: id, user_id: userId, order_id: reviewOrderId, rating: reviewRating, body: reviewBody.trim() })
         .select('id')
         .single();
       if (revErr) throw revErr;
@@ -297,6 +429,14 @@ export const ProductDetail: React.FC = () => {
         .eq('product_id', id);
       const raw = (reviewData as Review[]) ?? [];
       const reviewsList = raw.slice().sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      const userIds = [...new Set(reviewsList.map((r) => r.user_id).filter(Boolean))] as string[];
+      let profilesMap: Record<string, { name: string | null; email: string | null }> = {};
+      if (userIds.length > 0) {
+        const { data: profileData } = await supabase.from('profiles').select('id, name, email').in('id', userIds);
+        (profileData ?? []).forEach((p: { id: string; name: string | null; email: string | null }) => {
+          profilesMap[p.id] = { name: p.name ?? null, email: p.email ?? null };
+        });
+      }
       const reviewIds = reviewsList.map((r) => r.id);
       let photosMap: Record<string, { image_url: string }[]> = {};
       if (reviewIds.length > 0) {
@@ -310,10 +450,16 @@ export const ProductDetail: React.FC = () => {
         });
       }
       setReviews(
-        reviewsList.map((r) => ({ ...r, review_photos: photosMap[r.id] ?? [] })),
+        reviewsList.map((r) => ({
+          ...r,
+          profiles: r.user_id ? profilesMap[r.user_id] ?? null : null,
+          review_photos: photosMap[r.id] ?? [],
+        })),
       );
+      setReviewToast({ type: 'success', message: 'Отзыв отправлен.' });
     } catch (err) {
-      setReviewError('Не удалось отправить отзыв.');
+      setReviewToast({ type: 'error', message: 'Ошибка. Не удалось отправить отзыв.' });
+      setReviewError(err instanceof Error ? err.message : 'Не удалось отправить отзыв.');
     } finally {
       setSubmittingReview(false);
     }
@@ -321,7 +467,19 @@ export const ProductDetail: React.FC = () => {
 
   const handleAddToCart = () => {
     if (!product) return;
-    addItem({ id: product.id, name: product.name, price: Number(product.prp_price ?? product.rrp_price ?? 0) });
+    const thumb =
+      (Array.isArray(product.image_urls) && product.image_urls.length
+        ? product.image_urls[0]
+        : product.image_url) ?? null;
+    const prp = product.prp_price != null ? Number(product.prp_price) : null;
+    const rrp = product.rrp_price != null ? Number(product.rrp_price) : null;
+    addItem({
+      id: product.id,
+      name: product.name,
+      price: prp ?? rrp ?? 0,
+      imageUrl: thumb,
+      originalPrice: prp != null && rrp != null ? rrp : undefined,
+    });
   };
 
   /* 제미나이 제안: setLoading 제거, !product && !loadError 일 때만 로딩 UI (단순 조건 하나) */
@@ -357,49 +515,6 @@ export const ProductDetail: React.FC = () => {
     return single ? [single] : [];
   })();
   const hasDiscount = (product?.prp_price != null) && (product?.rrp_price != null);
-  const hasHeroMultiple = mainImages.length > 1;
-  const safeHeroIndex = mainImages.length > 0 ? Math.min(Math.max(0, heroIndex), mainImages.length - 1) : 0;
-
-  useEffect(() => {
-    return () => {
-      if (heroTimerRef.current != null) {
-        window.clearInterval(heroTimerRef.current);
-      }
-    };
-  }, []);
-
-  const startHeroHover = () => {
-    if (!hasHeroMultiple || mainImages.length === 0 || heroTimerRef.current != null) return;
-    heroTimerRef.current = window.setInterval(() => {
-      setHeroIndex((prev) => (prev + 1) % mainImages.length);
-    }, 1200);
-  };
-
-  const endHeroHover = () => {
-    if (heroTimerRef.current != null) {
-      window.clearInterval(heroTimerRef.current);
-      heroTimerRef.current = null;
-    }
-    setHeroIndex(0);
-  };
-
-  const onHeroTouchStart = (e: React.TouchEvent) => {
-    if (!hasHeroMultiple) return;
-    heroTouchStartX.current = e.touches[0].clientX;
-  };
-
-  const onHeroTouchEnd = (e: React.TouchEvent) => {
-    if (!hasHeroMultiple) return;
-    const dx = e.changedTouches[0].clientX - heroTouchStartX.current;
-    if (Math.abs(dx) < 30) return;
-    e.stopPropagation();
-    setHeroIndex((prev) => {
-      if (dx < 0) {
-        return (prev + 1) % mainImages.length;
-      }
-      return (prev - 1 + mainImages.length) % mainImages.length;
-    });
-  };
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
@@ -413,18 +528,14 @@ export const ProductDetail: React.FC = () => {
             {product?.name ?? '—'}
           </h1>
 
-          {/* 썸네일(최대 3장) + 그 밑 상세 설명 한 줄 */}
+          {/* 썸네일 대표 이미지 */}
           <div className="mt-6">
             <div
               className="relative aspect-[4/3] w-full max-w-xl overflow-hidden rounded-2xl bg-slate-100 ring-1 ring-slate-200/50"
-              onMouseEnter={startHeroHover}
-              onMouseLeave={endHeroHover}
-              onTouchStart={onHeroTouchStart}
-              onTouchEnd={onHeroTouchEnd}
             >
               {mainImages.length > 0 ? (
                 <img
-                  src={mainImages[safeHeroIndex]}
+                  src={mainImages[0]}
                   alt={product?.name ?? ''}
                   className="h-full w-full object-contain p-4 sm:p-6"
                 />
@@ -434,18 +545,12 @@ export const ProductDetail: React.FC = () => {
                 </div>
               )}
             </div>
-            {product?.description && (
-              <p className="mt-2 line-clamp-1 text-sm text-slate-600">{product.description}</p>
-            )}
           </div>
 
-          {/* 대표 설명 1~2줄 (관리자 description) + 줄긋는가격 밑 정가, 오른쪽 장바구니 */}
+          {/* 가격 + 장바구니 */}
           <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0 flex-1 sm:w-full">
-              {product?.description && (
-                <p className="line-clamp-2 text-sm text-slate-700">{product.description}</p>
-              )}
-              <div className="mt-2 flex w-full flex-col gap-0.5 sm:items-center">
+              <div className="flex w-full flex-col gap-0.5 sm:items-center">
                 {product?.rrp_price != null && (
                   <span className={hasDiscount ? 'text-sm text-slate-500 line-through' : 'text-sm text-slate-500'}>
                     {formatPrice(Number(product.rrp_price))}
@@ -484,7 +589,7 @@ export const ProductDetail: React.FC = () => {
                             {firstImg ? (
                               <img
                                 src={firstImg}
-                                alt={comp.name ?? `Элемент ${idx + 1}`}
+                                alt={comp.name ?? ''}
                                 className="h-full w-full object-cover"
                               />
                             ) : (
@@ -501,9 +606,11 @@ export const ProductDetail: React.FC = () => {
                               {imgs.length > 4 && <span className="text-[10px] text-slate-400">+{imgs.length - 4}</span>}
                             </div>
                           )}
-                          <p className="mt-1.5 line-clamp-2 text-center text-[11px] font-medium text-slate-700 sm:text-xs">
-                            {comp.name ?? `№${idx + 1}`}
-                          </p>
+                          {comp.name && (
+                            <p className="mt-1.5 line-clamp-2 text-center text-[11px] font-medium text-slate-700 sm:text-xs">
+                              {comp.name}
+                            </p>
+                          )}
                         </div>
                       );
                     })}
@@ -525,24 +632,39 @@ export const ProductDetail: React.FC = () => {
         {components.length > 0 && (
           <section id="product-components">
             <h2 className="mb-3 text-lg font-semibold text-slate-900">Подробнее о составе</h2>
-            <ul className="space-y-3">
+            <ul className="space-y-6">
               {components.map((comp, idx) => {
                 const imgs = getComponentImageUrls(comp);
-                return (
-                  <li key={comp.id} className="flex gap-4 rounded-xl border border-slate-100 bg-white p-4">
-                    {imgs.length > 0 && (
-                      <div className="flex shrink-0 gap-1">
-                        {imgs.map((src, i) => (
-                          <div key={i} className="h-20 w-20 overflow-hidden rounded-lg bg-slate-100">
-                            <img src={src} alt={comp.name ?? `Элемент ${idx + 1}`} className="h-full w-full object-cover" />
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium text-slate-800">{comp.name ?? `Элемент ${idx + 1}`}</p>
-                      {comp.description && <p className="mt-1 text-sm text-slate-600">{comp.description}</p>}
+                const layout = comp.layout ?? 'image_left';
+                const imageBlock =
+                  imgs.length > 0 ? (
+                    <div className="relative aspect-[4/3] w-full min-w-0 shrink-0 overflow-hidden rounded-xl bg-slate-100 sm:max-w-md">
+                      <img
+                        src={imgs[0]}
+                        alt={comp.name ?? ''}
+                        className="h-full w-full object-contain p-4"
+                      />
                     </div>
+                  ) : null;
+                const textBlock = (
+                  <div className="min-w-0 flex-1">
+                    {comp.name && <p className="font-medium text-slate-800">{comp.name}</p>}
+                    {comp.description && <p className={comp.name ? 'mt-2 whitespace-pre-line text-sm text-slate-600' : 'whitespace-pre-line text-sm text-slate-600'}>{comp.description}</p>}
+                  </div>
+                );
+                return (
+                  <li key={comp.id} className="flex flex-col gap-4 rounded-xl border border-slate-100 bg-white p-4 sm:flex-row sm:items-stretch sm:gap-6">
+                    {layout === 'image_left' ? (
+                      <>
+                        {imageBlock}
+                        {textBlock}
+                      </>
+                    ) : (
+                      <>
+                        {textBlock}
+                        {imageBlock}
+                      </>
+                    )}
                   </li>
                 );
               })}
@@ -556,18 +678,38 @@ export const ProductDetail: React.FC = () => {
           <ul className="space-y-4">
             {reviews.map((r) => (
               <li key={r.id} className="rounded-xl border border-slate-100 bg-slate-50/30 p-4">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-slate-800">
-                    {r.profiles?.name
-                      ? r.profiles.name
-                      : r.profiles?.email
-                      ? r.profiles.email.split('@')[0]
-                      : 'Покупатель'}
-                  </span>
-                  <span className="text-amber-500">{'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}</span>
-                  <span className="text-xs text-slate-400">
-                    {new Date(r.created_at).toLocaleDateString('ru-RU')}
-                  </span>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-slate-800">
+                      {r.profiles?.name?.trim()
+                        ? r.profiles.name.trim()
+                        : r.profiles?.email
+                        ? r.profiles.email.split('@')[0] || 'Гость'
+                        : 'Гость'}
+                    </span>
+                    <span className="text-amber-500">{'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}</span>
+                    <span className="text-xs text-slate-400">
+                      {new Date(r.created_at).toLocaleDateString('ru-RU')}
+                    </span>
+                  </div>
+                  {canDeleteReview(r) && (
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteReview(r.id)}
+                      disabled={deletingReviewId === r.id}
+                      className="rounded border border-slate-200 p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                      title="Удалить"
+                      aria-label="Удалить"
+                    >
+                      {deletingReviewId === r.id ? (
+                        <span className="text-xs">…</span>
+                      ) : (
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      )}
+                    </button>
+                  )}
                 </div>
                 {r.body && <p className="mt-2 text-sm text-slate-700">{r.body}</p>}
                 {r.review_photos?.length ? (
@@ -585,77 +727,125 @@ export const ProductDetail: React.FC = () => {
           {reviews.length === 0 && <p className="text-sm text-slate-500">Пока нет отзывов.</p>}
 
           {isLoggedIn && id && isUuid(id) ? (
+            reviewOrderId ? (
+            <>
             <form onSubmit={handleSubmitReview} className="mt-6 rounded-xl border border-slate-200 bg-white p-4">
-              <div className="mb-3 flex items-start justify-between gap-3">
+              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <h3 className="text-sm font-semibold text-slate-800">Оставить отзыв</h3>
-                <p className="max-w-xs text-right text-[11px] font-medium text-amber-600">
-                  Оставьте отзыв — мы начислим 300 бонусных баллов для следующей покупки.
-                  <br />
-                  Особенно полезные отзывы, которые помогают другим, получают 500 баллов.
+                <div className="flex items-center justify-start gap-2 text-xs sm:text-sm font-semibold text-slate-700 sm:justify-end">
+                  <span>Фотоотзыв и бонусные баллы 🎁</span>
+                  <div
+                    className="relative inline-flex items-center"
+                    onMouseEnter={() => setReviewInfoOpen(true)}
+                    onMouseLeave={() => setReviewInfoOpen(false)}
+                  >
+                    <span
+                      className="flex h-5 w-5 items-center justify-center rounded-full border border-amber-300 bg-amber-50 text-[11px] text-amber-700"
+                      aria-label="Информация о бонусных баллах"
+                    >
+                      i
+                    </span>
+                    {reviewInfoOpen && (
+                      <div className="absolute right-0 top-full z-20 mt-1 inline-block rounded-lg border border-amber-100 bg-yellow-50 px-4 py-2 text-[11px] text-slate-700 shadow-lg">
+                        <p className="whitespace-nowrap">• Искренние, подробные отзывы получают бонусные баллы (до 500 pt). ⭐</p>
+                        <p className="mt-1 whitespace-nowrap">• Неподходящие материалы могут быть удалены без предупреждения. ⚠️</p>
+                        <p className="mt-1 whitespace-nowrap">• Авторские права на отзывы принадлежат SEMO. ©</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className="mb-3">
+                <div className="mb-1 flex items-center justify-between gap-3">
+                  <label className="text-xs font-medium text-slate-600">Текст отзыва</label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-slate-600">Оценка</span>
+                    <select
+                      value={reviewRating}
+                      onChange={(e) => setReviewRating(Number(e.target.value))}
+                      className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm"
+                    >
+                      {[5, 4, 3, 2, 1].map((n) => (
+                        <option key={n} value={n}>{n} ★</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-200 px-3 py-2">
+                  {reviewPhotoFiles.length > 0 && (
+                    <div className="mb-2 flex flex-wrap gap-2">
+                      {reviewPhotoFiles.map((f, i) => (
+                        <div key={i} className="relative h-12 w-12 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                          <img
+                            src={URL.createObjectURL(f)}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setReviewPhotoFiles((prev) => prev.filter((_, j) => j !== i))}
+                            className="absolute right-0.5 top-0.5 rounded-full bg-white/80 px-1 text-[10px] text-slate-600 hover:bg-red-50 hover:text-red-600"
+                            aria-label="Удалить"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <textarea
+                    value={reviewBody}
+                    onChange={(e) => setReviewBody(e.target.value)}
+                    className="w-full border-0 bg-transparent px-1 pb-1 text-sm placeholder:text-slate-400 focus:outline-none"
+                    rows={3}
+                    placeholder="Поделитесь впечатлениями о наборе"
+                  />
+                </div>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  * До {MAX_REVIEW_PHOTOS} фото, 5 МБ каждое
                 </p>
               </div>
-              <div className="mb-3">
-                <label className="mb-1 block text-xs font-medium text-slate-600">Оценка</label>
-                <select
-                  value={reviewRating}
-                  onChange={(e) => setReviewRating(Number(e.target.value))}
-                  className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              <div className="mb-3 flex flex-col gap-2 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={() => reviewFileInputRef.current?.click()}
+                  className="flex-1 rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                 >
-                  {[5, 4, 3, 2, 1].map((n) => (
-                    <option key={n} value={n}>{n} ★</option>
-                  ))}
-                </select>
-              </div>
-              <div className="mb-3">
-                <label className="mb-1 block text-xs font-medium text-slate-600">Текст отзыва</label>
-                <textarea
-                  value={reviewBody}
-                  onChange={(e) => setReviewBody(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm placeholder:text-slate-400"
-                  rows={3}
-                  placeholder="Расскажите о товаре"
-                />
-              </div>
-              <div className="mb-3">
-                <label className="mb-1 block text-xs font-medium text-slate-600">Фото</label>
+                  Выбрать файлы
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingReview}
+                  className="flex-1 rounded-full bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand/90 disabled:opacity-60"
+                >
+                  {submittingReview ? 'Отправка…' : 'Отправить отзыв'}
+                </button>
                 <input
+                  ref={reviewFileInputRef}
                   type="file"
                   accept="image/*"
                   multiple
-                  onChange={(e) => {
-                    const files = e.target.files;
-                    if (files) setReviewPhotoFiles((prev) => [...prev, ...Array.from(files)]);
-                    e.target.value = '';
-                  }}
-                  className="w-full text-sm text-slate-600 file:mr-3 file:rounded-full file:border-0 file:bg-brand-soft/30 file:px-4 file:py-2 file:text-sm file:font-medium file:text-brand"
+                  onChange={handleReviewFilesChange}
+                  className="hidden"
                 />
-                {reviewPhotoFiles.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {reviewPhotoFiles.map((f, i) => (
-                      <span key={i} className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-700">
-                        {f.name}
-                        <button
-                          type="button"
-                          onClick={() => setReviewPhotoFiles((prev) => prev.filter((_, j) => j !== i))}
-                          className="text-slate-400 hover:text-red-600"
-                          aria-label="Удалить"
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
               </div>
               {reviewError && <p className="mb-2 text-sm text-red-600">{reviewError}</p>}
-              <button
-                type="submit"
-                disabled={submittingReview}
-                className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand/90 disabled:opacity-60"
-              >
-                {submittingReview ? 'Отправка…' : 'Отправить отзыв'}
-              </button>
             </form>
+            {/* 리뷰/사진 업로드 토스트 */}
+            {reviewToast && (
+              <div
+                role="alert"
+                className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-slate-800 px-4 py-2.5 text-sm font-medium text-white shadow-lg"
+              >
+                {reviewToast.message}
+              </div>
+            )}
+            </>
+            ) : (
+              <p className="mt-4 text-sm text-slate-500">
+                Оставить отзыв могут только покупатели этого набора. Оформите заказ, чтобы поделиться впечатлением.
+              </p>
+            )
           ) : !isLoggedIn ? (
             <p className="mt-4 text-sm text-slate-500">
               <Link to="/login" className="text-brand hover:underline">Войдите</Link>, чтобы оставить отзыв.

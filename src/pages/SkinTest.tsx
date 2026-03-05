@@ -9,6 +9,7 @@ import {
   calcSkinType,
   type SkinTypeInfo,
 } from '../data/skinTestData';
+import { getRecommendationPath } from '../config/skinTypeRecommendations';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { BackArrow } from '../components/BackArrow';
@@ -131,10 +132,6 @@ export const SkinTest: React.FC = () => {
     };
     setResult({ type, info, scores });
     if (userId) {
-      if (!isAdmin && (limitReached || (testCount !== null && testCount >= MAX_TEST_COUNT))) {
-        setStage('result');
-        return;
-      }
       if (supabase) {
         supabase.from('skin_test_results').insert({ user_id: userId, skin_type: type }).then(() => {
           setTestCount((c) => {
@@ -466,7 +463,7 @@ export const SkinTest: React.FC = () => {
               </>
             ) : (
               <Link
-                to="/product/type-1"
+                to={getRecommendationPath(result.type)}
                 className="rounded-full bg-brand py-4 text-center text-base font-semibold text-white transition hover:bg-brand/90"
               >
                 Смотреть товары

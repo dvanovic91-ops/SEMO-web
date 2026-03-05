@@ -96,8 +96,14 @@ export const Login: React.FC = () => {
         </h1>
       </header>
 
-      {/* 아이디/비밀번호 + Login 버튼 */}
-      <section className="space-y-5">
+      {/* 아이디/비밀번호 + Login 버튼 — 엔터 시 제출 */}
+      <form
+        className="space-y-5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          handleEmailLogin();
+        }}
+      >
         <div>
           <label htmlFor="email" className="mb-1 block text-sm font-medium text-slate-700">
             Email
@@ -137,8 +143,7 @@ export const Login: React.FC = () => {
           )}
         </div>
         <button
-          type="button"
-          onClick={handleEmailLogin}
+          type="submit"
           disabled={loginLoading}
           className="w-full rounded-full bg-brand py-3.5 text-base font-semibold text-white transition hover:bg-brand/90 disabled:opacity-60"
         >
@@ -147,7 +152,7 @@ export const Login: React.FC = () => {
         {loginError && (
           <p className="text-sm text-red-500">{loginError}</p>
         )}
-      </section>
+      </form>
 
       <label className="mt-6 flex cursor-pointer items-center gap-2">
         <input

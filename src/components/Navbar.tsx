@@ -1,4 +1,4 @@
-import { Link, NavLink } from 'react-router-dom';
+import { Link, NavLink, useLocation } from 'react-router-dom';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
@@ -13,19 +13,22 @@ const inactiveClass = 'text-slate-900 hover:text-brand';
 /** 텔레그램 봇 — 지원/поддержка 링크 */
 const TELEGRAM_BOT_URL = 'https://t.me/My_SEMO_Beautybot';
 
-const NAV_LINKS = [
+const NAV_LINKS: { to: string; label: string }[] = [
   { to: '/about', label: 'About SEMO' },
   { to: '/skin-test', label: 'Skin Type Test' },
+  { to: '/journey', label: 'Journey to SEMO' },
   { to: '/shop', label: 'Beauty Box' },
+  { to: '/promo', label: 'Promo' },
   { to: '/support', label: 'Support' },
-] as const;
+];
 
 function formatPrice(price: number): string {
   return `${price.toLocaleString('ru-RU')} руб.`;
 }
 
 export const Navbar: React.FC = () => {
-  const { items, total, totalCount } = useCart();
+  const location = useLocation();
+  const { items, total, totalCount, updateQuantity } = useCart();
   const { isLoggedIn, userId } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [telegramLinked, setTelegramLinked] = useState(false);
@@ -34,6 +37,14 @@ export const Navbar: React.FC = () => {
   const notificationRef = useRef<HTMLDivElement>(null);
   const [cartPopoverOpen, setCartPopoverOpen] = useState(false);
   const cartRef = useRef<HTMLDivElement>(null);
+
+  // 프로필(및 하위) 진입 시 알림·장바구니 팝오버 닫기
+  useEffect(() => {
+    if (location.pathname.startsWith('/profile')) {
+      setNotificationOpen(false);
+      setCartPopoverOpen(false);
+    }
+  }, [location.pathname]);
 
   const notifications: { id: string; type: 'info' | 'order'; title: string; body: string; date: string }[] = [
     {
@@ -127,35 +138,38 @@ export const Navbar: React.FC = () => {
 
   return (
     <>
-      {/* 상단: 데스크톱은 풀 메뉴, 모바일은 로고만 */}
+      {/* 상단: 좌측 로고·중앙 메뉴·우측 아이콘 여백 확대 */}
       <header className="sticky top-0 z-20 border-b border-slate-100 bg-white/80 backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4 sm:h-16 sm:px-6">
+        <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between gap-4 pl-2 pr-4 sm:h-16 sm:pl-4 sm:pr-6 lg:pl-6 lg:pr-8">
           <Link to="/" className="flex shrink-0 items-center gap-2">
             <span className="font-semibold tracking-[0.2em] text-brand">SEMO</span>
             <span className="font-light tracking-[0.2em] text-slate-800">beauty-box</span>
           </Link>
 
-          {/* 데스크톱 메뉴 — md 이상에서만 */}
-          <nav className="hidden flex-1 justify-center gap-6 self-end pb-1 md:flex lg:gap-8">
-            {NAV_LINKS.map(({ to, label }) => (
+          {/* 데스크톱 메뉴 — md 이상, 중앙 정렬 */}
+          <nav className="hidden flex-1 justify-center gap-5 self-end pb-1 md:flex lg:gap-7">
+            {NAV_LINKS.map((item) => (
               <NavLink
-                key={to}
-                to={to}
+                key={item.to}
+                to={item.to}
                 className={({ isActive }) =>
                   `${navLinkBase} ${isActive ? activeClass : inactiveClass}`
                 }
               >
-                {label}
+                {item.label}
               </NavLink>
             ))}
           </nav>
 
-          <div ref={notificationRef} className="relative flex items-center gap-2">
+          <div ref={notificationRef} className="relative flex shrink-0 items-center gap-2">
             <div ref={cartRef} className="relative">
               <button
                 type="button"
                 aria-label="Корзина"
-                onClick={() => setCartPopoverOpen((v) => !v)}
+                onClick={() => {
+                  setNotificationOpen(false);
+                  setCartPopoverOpen((v) => !v);
+                }}
                 className="relative flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:border-brand hover:text-brand"
               >
                 <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -170,7 +184,7 @@ export const Navbar: React.FC = () => {
                 )}
               </button>
               {cartPopoverOpen && (
-                <div className="absolute right-0 top-11 z-30 w-80 max-w-[85vw] rounded-xl border border-slate-200 bg-white shadow-xl">
+                <div className="absolute right-0 top-11 z-30 w-[26rem] max-w-[95vw] rounded-xl border border-slate-200 bg-white shadow-xl">
                   <div className="border-b border-slate-100 px-4 py-2">
                     <p className="text-xs font-semibold text-slate-800">Корзина</p>
                   </div>
@@ -180,11 +194,45 @@ export const Navbar: React.FC = () => {
                     ) : (
                       <ul className="space-y-2">
                         {items.map((it) => (
-                          <li key={it.id} className="flex justify-between gap-2 text-xs text-slate-700">
-                            <span className="min-w-0 truncate">{it.name}</span>
-                            <span className="shrink-0">
-                              {it.quantity} × {formatPrice(it.price)}
-                            </span>
+                          <li
+                            key={it.id}
+                            className="grid grid-cols-[2.75rem_minmax(0,5.5rem)_4.5rem_1fr] items-center gap-1.5 text-[11px] text-slate-700"
+                          >
+                            <div className="flex h-11 w-11 overflow-hidden rounded-full border border-slate-200 bg-slate-50">
+                              {it.imageUrl ? (
+                                <img src={it.imageUrl} alt={it.name} className="h-full w-full object-cover" />
+                              ) : (
+                                <span className="flex h-full w-full items-center justify-center text-[10px] text-slate-400">Слот</span>
+                              )}
+                            </div>
+                            <span className="min-w-0 truncate text-[13px]">{it.name}</span>
+                            <div className="flex w-[4.5rem] shrink-0 items-center justify-center gap-0.5">
+                              <button
+                                type="button"
+                                aria-label="Уменьшить"
+                                onClick={() => updateQuantity(it.id, it.quantity - 1)}
+                                className="flex h-6 w-6 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:border-brand hover:text-brand"
+                              >
+                                −
+                              </button>
+                              <span className="min-w-[1.25rem] text-center tabular-nums">{it.quantity}</span>
+                              <button
+                                type="button"
+                                aria-label="Увеличить"
+                                onClick={() => updateQuantity(it.id, it.quantity + 1)}
+                                className="flex h-6 w-6 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:border-brand hover:text-brand"
+                              >
+                                +
+                              </button>
+                            </div>
+                            <div className="min-w-[7rem] flex justify-end gap-1.5 whitespace-nowrap tabular-nums text-right">
+                              {it.originalPrice != null && it.originalPrice > 0 && (
+                                <span className="text-slate-400 line-through">
+                                  {formatPrice(it.originalPrice * it.quantity)}
+                                </span>
+                              )}
+                              <span className="font-semibold text-slate-900">{formatPrice(it.price * it.quantity)}</span>
+                            </div>
                           </li>
                         ))}
                       </ul>
@@ -193,13 +241,22 @@ export const Navbar: React.FC = () => {
                   {items.length > 0 && (
                     <div className="border-t border-slate-100 px-4 py-2">
                       <p className="mb-2 text-right text-sm font-semibold text-slate-900">Итого: {formatPrice(total)}</p>
-                      <Link
-                        to="/cart"
-                        onClick={() => setCartPopoverOpen(false)}
-                        className="block w-full rounded-full bg-brand py-2 text-center text-xs font-medium text-white hover:bg-brand/90"
-                      >
-                        Перейти в корзину
-                      </Link>
+                      <div className="flex gap-2">
+                        <Link
+                          to="/cart"
+                          onClick={() => setCartPopoverOpen(false)}
+                          className="flex-1 rounded-full border border-slate-200 bg-white py-2 text-center text-xs font-medium text-slate-700 transition-colors hover:border-brand hover:text-brand hover:bg-brand-soft/20 focus:outline-none focus:ring-2 focus:ring-brand/30"
+                        >
+                          В корзину
+                        </Link>
+                        <Link
+                          to="/checkout"
+                          onClick={() => setCartPopoverOpen(false)}
+                          className="flex-1 rounded-full bg-brand py-2 text-center text-xs font-medium text-white hover:bg-brand/90"
+                        >
+                          Оформить заказ
+                        </Link>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -208,7 +265,10 @@ export const Navbar: React.FC = () => {
             <button
               type="button"
               aria-label="Уведомления"
-              onClick={() => setNotificationOpen((v) => !v)}
+              onClick={() => {
+                setCartPopoverOpen(false);
+                setNotificationOpen((v) => !v);
+              }}
               className={`relative flex h-9 w-9 items-center justify-center rounded-full border bg-white text-slate-600 transition ${
                 notificationOpen ? 'border-brand text-brand' : 'border-slate-200 hover:border-brand hover:text-brand'
               }`}
@@ -234,7 +294,9 @@ export const Navbar: React.FC = () => {
             <Link
               to={isLoggedIn ? '/profile' : '/login'}
               aria-label={isLoggedIn ? 'Profile' : 'Личный кабинет'}
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:border-brand hover:text-brand"
+              className={`flex h-9 w-9 items-center justify-center rounded-full border bg-white shadow-sm transition ${
+                isLoggedIn ? 'border-2 border-[#0088cc] text-[#0088cc]' : 'border border-slate-200 text-slate-700 hover:border-brand hover:text-brand'
+              }`}
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.6">
                 <circle cx="12" cy="9" r="3.5" />
@@ -286,6 +348,7 @@ export const Navbar: React.FC = () => {
             )}
           </div>
         </div>
+
       </header>
 
       {/* 모바일 전용: 하단 고정 바 — 높이만 낮춤, 아이콘 크기 유지 */}
@@ -338,12 +401,18 @@ export const Navbar: React.FC = () => {
             <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
           </svg>
         </a>
-        <Link to={isLoggedIn ? '/profile' : '/login'} aria-label={isLoggedIn ? 'Profile' : 'Личный кабинет'} className="flex h-10 items-center justify-center px-3 text-slate-600">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.6">
-                <circle cx="12" cy="9" r="3.5" />
-                <path d="M6 19.5c1.4-2.3 3.3-3.5 6-3.5s4.6 1.2 6 3.5" />
-              </svg>
-            </Link>
+        <Link
+          to={isLoggedIn ? '/profile' : '/login'}
+          aria-label={isLoggedIn ? 'Profile' : 'Личный кабинет'}
+          className={`flex h-10 items-center justify-center px-3 ${
+            isLoggedIn ? 'text-[#0088cc] rounded-full border-2 border-[#0088cc]' : 'text-slate-600'
+          }`}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.6">
+            <circle cx="12" cy="9" r="3.5" />
+            <path d="M6 19.5c1.4-2.3 3.3-3.5 6-3.5s4.6 1.2 6 3.5" />
+          </svg>
+        </Link>
       </nav>
 
       {/* 모바일: 왼쪽 전체 메뉴 드로어 (햄버거 클릭 시) */}
@@ -369,16 +438,16 @@ export const Navbar: React.FC = () => {
               </button>
             </div>
             <nav className="flex flex-1 flex-col gap-0.5 overflow-auto p-4">
-              {NAV_LINKS.map(({ to, label }) => (
+              {NAV_LINKS.map((item) => (
                 <NavLink
-                  key={to}
-                  to={to}
+                  key={item.to}
+                  to={item.to}
                   onClick={() => setMobileMenuOpen(false)}
                   className={({ isActive }) =>
                     `rounded-xl px-4 py-3.5 text-base ${isActive ? 'bg-brand-soft/30 text-brand font-semibold' : 'text-slate-700 font-medium'}`
                   }
                 >
-                  {label}
+                  {item.label}
                 </NavLink>
               ))}
               <a
@@ -400,7 +469,11 @@ export const Navbar: React.FC = () => {
                   onClick={() => setMobileMenuOpen(false)}
                   className="flex flex-col items-center gap-2 rounded-xl px-4 py-3.5 text-slate-700"
                 >
-                  <span className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-slate-50">
+                  <span
+                    className={`flex h-10 w-10 items-center justify-center rounded-full ${
+                      isLoggedIn ? 'border-2 border-[#0088cc] text-[#0088cc]' : 'border border-slate-200 bg-slate-50'
+                    }`}
+                  >
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.6">
                       <circle cx="12" cy="9" r="3.5" />
                       <path d="M6 19.5c1.4-2.3 3.3-3.5 6-3.5s4.6 1.2 6 3.5" />

@@ -52,6 +52,7 @@ export const Register: React.FC = () => {
   const [fioLast, setFioLast] = useState('');
   const [fioFirst, setFioFirst] = useState('');
   const [fioMiddle, setFioMiddle] = useState('');
+  const [noPatronymic, setNoPatronymic] = useState(false);
   const [addressSearch, setAddressSearch] = useState('');
 
   const handleEmailBlur = () => {
@@ -367,9 +368,9 @@ export const Register: React.FC = () => {
                   id="lastName"
                   type="text"
                   placeholder="Ivanov"
-                  className={inputClass}
+                  className={`${inputClass} uppercase`}
                   value={fioLast}
-                  onChange={(e) => setFioLast(normalizeLatin(e.target.value))}
+                  onChange={(e) => setFioLast(normalizeLatin(e.target.value).toUpperCase())}
                 />
               </div>
               <div className="flex flex-col">
@@ -380,9 +381,9 @@ export const Register: React.FC = () => {
                   id="firstName"
                   type="text"
                   placeholder="Ivan"
-                  className={inputClass}
+                  className={`${inputClass} uppercase`}
                   value={fioFirst}
-                  onChange={(e) => setFioFirst(normalizeLatin(e.target.value))}
+                  onChange={(e) => setFioFirst(normalizeLatin(e.target.value).toUpperCase())}
                 />
               </div>
               <div className="flex flex-col">
@@ -393,10 +394,15 @@ export const Register: React.FC = () => {
                   id="patronymic"
                   type="text"
                   placeholder="Ivanovich"
-                  className={inputClass}
+                  className={`${inputClass} uppercase disabled:bg-slate-50 disabled:text-slate-400`}
                   value={fioMiddle}
-                  onChange={(e) => setFioMiddle(normalizeLatin(e.target.value))}
+                  onChange={(e) => setFioMiddle(normalizeLatin(e.target.value).toUpperCase())}
+                  disabled={noPatronymic}
                 />
+                <label className="mt-1.5 flex cursor-pointer items-center gap-1.5 text-xs text-slate-500">
+                  <input type="checkbox" checked={noPatronymic} onChange={(e) => { const v = e.target.checked; setNoPatronymic(v); if (v) setFioMiddle(''); }} className="h-3 w-3 rounded border-slate-300 text-brand focus:ring-brand" />
+                  <span>Нет отчества</span>
+                </label>
               </div>
             </div>
             <p className="mt-2 text-[11px] text-slate-500">

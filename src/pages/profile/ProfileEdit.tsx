@@ -121,6 +121,7 @@ export const ProfileEdit: React.FC = () => {
   const [pwSuccess, setPwSuccess] = useState(false);
   const [addressSearch, setAddressSearch] = useState('');
   const [phoneError, setPhoneError] = useState('');
+  const [noPatronymic, setNoPatronymic] = useState(false);
 
   /** 페이지 진입 시 세션 재검사 — 없으면 로그인으로 보냄 */
   const [sessionChecked, setSessionChecked] = useState(false);
@@ -207,6 +208,22 @@ export const ProfileEdit: React.FC = () => {
     }));
   }, [safeUserEmail, safeName]);
 
+  // 개인정보창 진입 시 localStorage(profileEdit)에서 배송 데이터 로드 — ФИО는 항상 대문자로, 부칭 없음 체크 유지
+  useEffect(() => {
+    const saved = loadSavedProfile();
+    if (Object.keys(saved).length === 0) return;
+    const up = (s: string) => (s ?? '').replace(/[^A-Za-z\s-']/g, '').toUpperCase();
+    const fioMiddleVal = up(saved.fioMiddle ?? '');
+    setNoPatronymic(!fioMiddleVal.trim());
+    setForm((prev) => ({
+      ...prev,
+      ...saved,
+      fioLast: up(saved.fioLast ?? prev?.fioLast ?? ''),
+      fioFirst: up(saved.fioFirst ?? prev?.fioFirst ?? ''),
+      fioMiddle: fioMiddleVal,
+    }));
+  }, []);
+
   useEffect(() => {
     if (!focusPhone || !(form?.email)) return;
     setEditing(true);
@@ -227,7 +244,7 @@ export const ProfileEdit: React.FC = () => {
 
   const handleChange = (key: string, value: string) => {
     let next = value ?? '';
-    if (key === 'fioLast' || key === 'fioFirst' || key === 'fioMiddle') next = normalizeLatin(next);
+    if (key === 'fioLast' || key === 'fioFirst' || key === 'fioMiddle') next = normalizeLatin(next).toUpperCase();
     setForm((prev) => ({ ...prev, [key]: next }));
   };
 
@@ -252,6 +269,13 @@ export const ProfileEdit: React.FC = () => {
       setEditing(false);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
+      // 결제 화면에서도 동일한 배송·부칭 정보 쓰도록 localStorage(profileEdit)에 저장
+      try {
+        const saved = loadSavedProfile();
+        localStorage.setItem('profileEdit', JSON.stringify({ ...saved, ...form }));
+      } catch {
+        // ignore
+      }
     } catch {
       // ignore
     }
@@ -439,8 +463,12 @@ export const ProfileEdit: React.FC = () => {
                     <input id="pe-fio-first" type="text" placeholder="Ivan" className={inputClass} {...inputProps('fioFirst')} />
                   </div>
                   <div>
-                    <label htmlFor="pe-fio-middle" className={labelClass}>Отчество <span className={hintClass}>(если есть)</span></label>
-                    <input id="pe-fio-middle" type="text" placeholder="Ivanovich" className={inputClass} {...inputProps('fioMiddle')} />
+                    <label htmlFor="pe-fio-middle" className={labelClass}>Отчество</label>
+                    <input id="pe-fio-middle" type="text" placeholder="Ivanovich" className={inputClass} {...inputProps('fioMiddle')} disabled={noPatronymic} />
+                    <label className="mt-1.5 flex cursor-pointer items-center gap-1.5 text-xs text-slate-500">
+                      <input type="checkbox" checked={noPatronymic} onChange={(e) => { const v = e.target.checked; setNoPatronymic(v); if (v) handleChange('fioMiddle', ''); }} className="h-3 w-3 rounded border-slate-300 text-brand focus:ring-brand" />
+                      <span>Нет отчества</span>
+                    </label>
                   </div>
                 </div>
                 <p className={`${fieldHintSpacing} ${hintClass}`}>* ФИО как в паспорте (латинскими буквами).</p>

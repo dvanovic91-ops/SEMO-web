@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { BackArrow } from '../../components/BackArrow';
+import { getRecommendationPath } from '../../config/skinTypeRecommendations';
 import { useAuth } from '../../context/AuthContext';
 import { SKIN_INFO } from '../../data/skinTestData';
 import { supabase } from '../../lib/supabase';
@@ -119,6 +120,14 @@ export const ProfileTestResultDetail: React.FC = () => {
               <span className="font-medium">Ограничения:</span> {info.avoid}
             </p>
           )}
+          <div className="mt-8">
+            <Link
+              to={getRecommendationPath(type)}
+              className="inline-block rounded-full bg-brand px-6 py-3 text-center text-sm font-semibold text-white transition hover:bg-brand/90"
+            >
+              Рекомендуемые товары
+            </Link>
+          </div>
         </div>
       ) : (
         <p className="rounded-xl border border-slate-100 bg-slate-50/50 px-4 py-6 text-slate-600">Тип кожи: {type}</p>

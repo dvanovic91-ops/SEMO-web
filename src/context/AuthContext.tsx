@@ -50,12 +50,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (supabase) {
       let cancelled = false;
-      const applySession = async (session: { user: { email?: string | null; id: string } } | null) => {
+      const applySession = async (session: { user: { email?: string | null; id: string; user_metadata?: Record<string, unknown> } } | null) => {
         try {
         if (cancelled) return;
         if (session?.user) {
           setUserEmailState(session.user.email ?? null);
           setUserId(session.user.id);
+          // 프로필 이름: 가입 시에만 세팅. 이미 있으면 개인정보에서 바꾼 값 유지.
+          const meta = session.user.user_metadata ?? {};
+          const displayName =
+            (typeof meta.nickname === 'string' && meta.nickname.trim()) ||
+            (typeof meta.full_name === 'string' && meta.full_name.trim()) ||
+            (typeof meta.name === 'string' && meta.name.trim()) ||
+            (session.user.email ? session.user.email.split('@')[0] : '') ||
+            'Гость';
+          try {
+            const { data: existing } = await supabase
+              .from('profiles')
+              .select('name')
+              .eq('id', session.user.id)
+              .single();
+            const hasName = !!existing?.name?.trim();
+            if (!hasName) {
+              await supabase.from('profiles').upsert(
+                { id: session.user.id, name: displayName.trim() || null },
+                { onConflict: 'id' }
+              );
+            }
+          } catch {
+            // RLS/테이블 없음 등 무시
+          }
           try {
             const { data } = await supabase
               .from('profiles')

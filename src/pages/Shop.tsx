@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
 import { supabase } from '../lib/supabase';
 import { ShopCardImage } from './ShopCardImage';
@@ -14,18 +14,11 @@ type ShopItem = {
   imageUrls: string[];
   productId: string | null;
   linkUrl: string | null;
-  isFamily?: boolean;
+  /** 카드 색상: sky 면 연하늘, 아니면 기본 주황 */
+  boxTheme?: 'brand' | 'sky' | null;
 };
 
-/** 폴백: DB 슬롯 없을 때 사용 */
-const FALLBACK_ITEMS: ShopItem[] = [
-  { id: 'type-1', name: 'Тип 1', price: 11000, originalPrice: 12000, imageUrl: null, imageUrls: [], productId: null, linkUrl: null, isFamily: false },
-  { id: 'type-2', name: 'Тип 2', price: 11000, originalPrice: 12000, imageUrl: null, imageUrls: [], productId: null, linkUrl: null, isFamily: false },
-  { id: 'type-3', name: 'Тип 3', price: 11000, originalPrice: 12000, imageUrl: null, imageUrls: [], productId: null, linkUrl: null, isFamily: false },
-  { id: 'type-4', name: 'Тип 4', price: 11000, originalPrice: 12000, imageUrl: null, imageUrls: [], productId: null, linkUrl: null, isFamily: false },
-  { id: 'family', name: 'Family care', price: 13000, originalPrice: 14000, imageUrl: null, imageUrls: [], productId: null, linkUrl: null, isFamily: true },
-];
-
+/** 카탈로그는 오직 main_layout_slots 조회 결과만 표시. 폴백 5개 사용 안 함 */
 const VISIBLE = 3;
 const itemWidthPercent = 100 / VISIBLE;
 
@@ -34,68 +27,100 @@ function formatPrice(price: number): string {
 }
 
 export const Shop: React.FC = () => {
-  const navigate = useNavigate();
   const { addItem } = useCart();
   const [showAddedToast, setShowAddedToast] = useState(false);
-  const [items, setItems] = useState<ShopItem[]>(FALLBACK_ITEMS);
+  const [items, setItems] = useState<ShopItem[]>([]);
   const [carouselIndex, setCarouselIndex] = useState(0);
   const touchStartX = useRef(0);
 
   useEffect(() => {
-    if (!supabase) return;
+    if (!supabase) {
+      setItems([]);
+      return;
+    }
     (async () => {
-      const { data: slotData } = await supabase
-        .from('main_layout_slots')
-        .select('slot_index, title, description, image_url, product_id, link_url');
-      const slots = ((slotData ?? []) as { slot_index: number; title: string | null; description: string | null; image_url: string | null; product_id: string | null; link_url: string | null }[]).slice().sort((a, b) => a.slot_index - b.slot_index);
-      if (!slots.length) return;
+      try {
+        const { data: slotData, error: slotErr } = await supabase
+          .from('main_layout_slots')
+          .select('slot_index, title, description, image_url, product_id, link_url');
+        if (slotErr) {
+          console.warn('[Shop] main_layout_slots:', slotErr.message);
+          setItems([]);
+          return;
+        }
+        const slots = ((slotData ?? []) as { slot_index: number; title: string | null; description: string | null; image_url: string | null; product_id: string | null; link_url: string | null }[]).slice().sort((a, b) => a.slot_index - b.slot_index);
+        if (!slots.length) {
+          setItems([]);
+          return;
+        }
 
-      const productIds = [...new Set(slots.map((s) => s.product_id).filter(Boolean))] as string[];
-      let productsMap: Record<string, { rrp_price: number | null; prp_price: number | null; image_url: string | null; image_urls: string[] }> = {};
-      // 기본 스키마만 사용해 400 방지 (image_urls 없을 수 있음)
-      if (productIds.length > 0) {
-        const { data: prodData } = await supabase
-          .from('products')
-          .select('id, rrp_price, prp_price, image_url')
-          .in('id', productIds);
-        (prodData ?? []).forEach((p: { id: string; rrp_price: number | null; prp_price: number | null; image_url: string | null; image_urls?: string[] | null }) => {
-          productsMap[p.id] = {
-            rrp_price: p.rrp_price,
-            prp_price: p.prp_price,
-            image_url: p.image_url ?? null,
-            image_urls: Array.isArray(p.image_urls) && p.image_urls.length ? p.image_urls : (p.image_url ? [p.image_url] : []),
+        const productIds = [...new Set(slots.map((s) => s.product_id).filter(Boolean))] as string[];
+        let productsMap: Record<
+          string,
+          {
+            rrp_price: number | null;
+            prp_price: number | null;
+            image_url: string | null;
+            image_urls: string[];
+            box_theme: 'brand' | 'sky' | null;
+          }
+        > = {};
+        if (productIds.length > 0) {
+          const { data: prodData, error: prodErr } = await supabase
+            .from('products')
+            .select('id, rrp_price, prp_price, image_url, image_urls, box_theme')
+            .in('id', productIds);
+          if (prodErr) {
+            console.warn('[Shop] products:', prodErr.message);
+          } else {
+            (prodData ?? []).forEach((p: { id: string; rrp_price: number | null; prp_price: number | null; image_url: string | null; image_urls?: string[] | null; box_theme?: 'brand' | 'sky' | null }) => {
+              productsMap[p.id] = {
+                rrp_price: p.rrp_price,
+                prp_price: p.prp_price,
+                image_url: p.image_url ?? null,
+                image_urls: Array.isArray(p.image_urls) && p.image_urls.length ? p.image_urls : p.image_url ? [p.image_url] : [],
+                box_theme: p.box_theme ?? 'brand',
+              };
+            });
+          }
+        }
+
+        const list: ShopItem[] = slots.map((s: { slot_index: number; title: string | null; image_url: string | null; product_id: string | null; link_url: string | null }) => {
+          const productId = s.product_id ?? null;
+          const product = productId ? productsMap[productId] : null;
+          const prp = product?.prp_price != null ? Number(product.prp_price) : null;
+          const rrp = product?.rrp_price != null ? Number(product.rrp_price) : null;
+          const price = prp ?? rrp ?? 0;
+          const originalPrice = prp != null && rrp != null ? rrp : null;
+
+          // 슬롯에 product_id가 연결돼 있으면 **항상 products 테이블의 최신 이미지**만 사용
+          const productImageUrls =
+            product && Array.isArray(product.image_urls) && product.image_urls.length
+              ? product.image_urls
+              : product && product.image_url
+              ? [product.image_url]
+              : [];
+          const imageUrls = productId && product ? productImageUrls : s.image_url ? [s.image_url] : [];
+          const imageUrl = imageUrls[0] ?? null;
+          const boxTheme: 'brand' | 'sky' | null =
+            product?.box_theme ?? (s.slot_index >= 4 ? 'sky' : 'brand');
+          return {
+            id: productId ?? `slot-${s.slot_index}`,
+            name: s.title ?? `Слот ${s.slot_index + 1}`,
+            price,
+            originalPrice,
+            imageUrl,
+            imageUrls,
+            productId,
+            linkUrl: s.link_url ?? null,
+            boxTheme,
           };
         });
+        setItems(list);
+      } catch (e) {
+        console.warn('[Shop] load error:', e);
+        setItems([]);
       }
-
-      const list: ShopItem[] = slots.map((s: { slot_index: number; title: string | null; image_url: string | null; product_id: string | null; link_url: string | null }) => {
-        const productId = s.product_id ?? null;
-        const product = productId ? productsMap[productId] : null;
-        const prp = product?.prp_price != null ? Number(product.prp_price) : null;
-        const rrp = product?.rrp_price != null ? Number(product.rrp_price) : null;
-        const price = prp ?? rrp ?? 0;
-        const originalPrice = prp != null && rrp != null ? rrp : null;
-        const imageUrl = (productId && product?.image_url) ? product.image_url : (s.image_url ?? null);
-        const imageUrls =
-          (productId && product?.image_urls && product.image_urls.length
-            ? product.image_urls
-            : imageUrl
-            ? [imageUrl]
-            : []) ?? [];
-        const isFamily = s.slot_index >= 4;
-        return {
-          id: productId ?? `slot-${s.slot_index}`,
-          name: s.title ?? `Слот ${s.slot_index + 1}`,
-          price,
-          originalPrice,
-          imageUrl,
-          imageUrls,
-          productId,
-          linkUrl: s.link_url ?? null,
-          isFamily,
-        };
-      });
-      if (list.length >= 3) setItems(list);
     })();
   }, []);
 
@@ -119,17 +144,30 @@ export const Shop: React.FC = () => {
   };
 
   const handleAddToCart = (item: ShopItem) => {
-    addItem({ id: item.id, name: item.name, price: item.price });
+    const thumb = item.imageUrls[0] ?? item.imageUrl ?? null;
+    addItem({
+      id: item.id,
+      name: item.name,
+      price: item.price,
+      imageUrl: thumb,
+      originalPrice: item.originalPrice ?? undefined,
+    });
     setShowAddedToast(true);
   };
 
   const cardTop = (item: ShopItem) => (
     <>
-      <p className={item.isFamily ? 'text-sm font-medium tracking-wide text-sky-700' : 'text-sm font-medium tracking-wide text-brand'}>
+      <p
+        className={
+          (item.boxTheme ?? 'brand') === 'sky'
+            ? 'text-center text-sm font-medium tracking-wide text-sky-700'
+            : 'text-center text-sm font-medium tracking-wide text-brand'
+        }
+      >
         {item.name}
       </p>
       <ShopCardImage images={item.imageUrls.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : []} name={item.name} />
-      <div className="mt-4 flex items-baseline gap-2">
+      <div className="mt-4 flex flex-col items-center gap-0.5 text-center">
         {item.originalPrice != null && (
           <span className="text-sm text-slate-500 line-through">{formatPrice(item.originalPrice)}</span>
         )}
@@ -166,42 +204,62 @@ export const Shop: React.FC = () => {
               >
                 <article
                   className={
-                    product.isFamily
-                      ? 'flex h-full flex-col rounded-xl border border-sky-200 bg-sky-50/60 px-4 py-6 sm:px-6'
-                      : 'flex h-full flex-col rounded-xl border border-brand/20 bg-brand-soft/25 px-4 py-6 sm:px-6'
+                    (product.boxTheme ?? 'brand') === 'sky'
+                      ? 'flex min-h-[420px] flex-col items-center rounded-xl border border-sky-200 bg-sky-50/60 px-4 pt-4 pb-6 sm:px-6 sm:pt-5 sm:pb-6'
+                      : 'flex min-h-[420px] flex-col items-center rounded-xl border border-brand/20 bg-brand-soft/25 px-4 pt-4 pb-6 sm:px-6 sm:pt-5 sm:pb-6'
                   }
                 >
                   {product.linkUrl ? (
-                    <a href={product.linkUrl} className="flex flex-1 flex-col">
+                    <a href={product.linkUrl} className="flex w-full flex-1 flex-col items-center">
                       {cardTop(product)}
                     </a>
                   ) : (
-                    <div
-                      role="link"
-                      tabIndex={0}
-                      className="flex flex-1 flex-col cursor-pointer"
-                      onClick={() => navigate(`/product/${product.productId ?? product.id}`)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          navigate(`/product/${product.productId ?? product.id}`);
-                        }
-                      }}
+                    <Link
+                      to={`/product/${product.productId ?? product.id}`}
+                      className="flex w-full flex-1 flex-col items-center cursor-pointer"
                     >
                       {cardTop(product)}
-                    </div>
+                    </Link>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => handleAddToCart(product)}
-                    className={
-                      product.isFamily
-                        ? 'mt-4 w-full rounded-full bg-sky-600 py-3 text-sm font-semibold text-white transition hover:bg-sky-700'
-                        : 'mt-4 w-full rounded-full bg-brand py-3 text-sm font-semibold text-white transition hover:bg-brand/90'
-                    }
-                  >
-                    В корзину
-                  </button>
+                  <div className="mt-4 flex w-full flex-col items-center gap-2 sm:flex-row sm:justify-center">
+                    {product.linkUrl ? (
+                      <a
+                        href={product.linkUrl}
+                        className={
+                          (product.boxTheme ?? 'brand') === 'sky'
+                            ? 'w-full rounded-full border-2 border-sky-600 py-2.5 px-4 text-center text-sm font-semibold text-sky-700 transition hover:bg-sky-50 sm:w-auto'
+                            : 'w-full rounded-full border-2 border-slate-300 py-2.5 px-4 text-center text-sm font-semibold text-slate-700 transition hover:bg-slate-50 sm:w-auto'
+                        }
+                      >
+                        Подробнее
+                      </a>
+                    ) : (
+                      <Link
+                        to={`/product/${product.productId ?? product.id}`}
+                        className={
+                          (product.boxTheme ?? 'brand') === 'sky'
+                            ? 'w-full rounded-full border-2 border-sky-600 py-2.5 px-4 text-center text-sm font-semibold text-sky-700 transition hover:bg-sky-50 sm:w-auto'
+                            : 'w-full rounded-full border-2 border-slate-300 py-2.5 px-4 text-center text-sm font-semibold text-slate-700 transition hover:bg-slate-50 sm:w-auto'
+                        }
+                      >
+                        Подробнее
+                      </Link>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleAddToCart(product);
+                      }}
+                      className={
+                        (product.boxTheme ?? 'brand') === 'sky'
+                          ? 'w-full rounded-full bg-sky-600 py-2.5 px-4 text-sm font-semibold text-white transition hover:bg-sky-700 sm:w-auto'
+                          : 'w-full rounded-full bg-brand py-2.5 px-4 text-sm font-semibold text-white transition hover:bg-brand/90 sm:w-auto'
+                      }
+                    >
+                      В корзину
+                    </button>
+                  </div>
                 </article>
               </div>
             ))}

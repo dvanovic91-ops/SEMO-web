@@ -1,38 +1,152 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { BackArrow } from '../../components/BackArrow';
 import { useAuth } from '../../context/AuthContext';
-import { USE_MOCK_ORDERS, mockOrders } from '../../data/mocks';
+import { supabase } from '../../lib/supabase';
 
-/**
- * 주문 내역 — 타입은 mocks와 동일하게 유지. API 연동 시 Order[]만 교체.
- */
 export type OrderItem = { id: string; name: string; quantity: number; price: number };
 export type ShipmentTracking = { status: string; message: string; date?: string };
 export interface Order {
   id: string;
+  /** 고객 노출용 주문번호 (알파벳 1자 + 숫자 6자). 없으면 id 앞 8자 폴백 */
+  order_number?: string | null;
   date: string;
   total: number;
-  status: 'pending' | 'paid' | 'shipped' | 'delivered' | 'cancelled';
+  /** 결제·배송 단계: pending → completed → product_preparing → shipping_soon → shipped → delivered/confirmed */
+  status: 'pending' | 'completed' | 'canceled' | 'failed' | 'product_preparing' | 'shipping_soon' | 'shipped' | 'delivered' | 'confirmed';
   items: OrderItem[];
   tracking?: ShipmentTracking[];
+  /** SDEK/우체국 등 배송 추적 URL. 배송중·배송완료 시 표시 */
+  tracking_url?: string | null;
+  /** 결제 시점 스냅샷. 고객이 배송 전에 수정 가능 */
+  receiver_name?: string | null;
+  receiver_phone?: string | null;
+  shipping_address?: string | null;
+  /** 테스트 주문 여부 (가짜 결제 ?test=1). 목록에는 그대로 노출 */
+  is_test?: boolean;
 }
 
+/** 고객 노출용 배송 단계 라벨 (러시아어) */
 const statusLabel: Record<Order['status'], string> = {
   pending: 'Ожидает оплаты',
-  paid: 'Оплачен',
-  shipped: 'Отправлен',
+  completed: 'Оплачен',
+  failed: 'Ошибка оплаты',
+  canceled: 'Отменён',
+  product_preparing: 'Готовим заказ',
+  shipping_soon: 'Готовим к отправке',
+  shipped: 'В пути',
   delivered: 'Доставлен',
-  cancelled: 'Отменён',
+  confirmed: 'Заказ получен',
 };
 
+/** DB 레거시 값(paid, cancelled)을 PG 표준으로 정규화 */
+function normalizeOrderStatus(s: string | undefined): Order['status'] {
+  if (!s) return 'pending';
+  const v = s.toLowerCase();
+  if (v === 'paid') return 'completed';
+  if (v === 'cancelled') return 'canceled';
+  const allowed: Order['status'][] = ['pending', 'completed', 'canceled', 'failed', 'product_preparing', 'shipping_soon', 'shipped', 'delivered', 'confirmed'];
+  return allowed.includes(v as Order['status']) ? (v as Order['status']) : 'pending';
+}
+
+type DbOrder = {
+  id: string;
+  order_number?: string | null;
+  created_at?: string;
+  total_cents?: number;
+  status?: string;
+  items?: OrderItem[];
+  tracking_url?: string | null;
+  receiver_name?: string | null;
+  receiver_phone?: string | null;
+  shipping_address?: string | null;
+  is_test?: boolean;
+};
+
+/** 배송 전 상태만 수령인 정보 수정 가능 (발송 중 이전) */
+const canEditShipping = (status: Order['status']) =>
+  ['pending', 'completed', 'product_preparing', 'shipping_soon'].includes(status);
+
 export const ProfileOrders: React.FC = () => {
-  const { isLoggedIn, initialized } = useAuth();
+  const { isLoggedIn, initialized, userId } = useAuth();
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
+  /** 수정 중인 주문 id. 설정 시 해당 카드에 인라인 수정 폼 표시 */
+  const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ receiver_name: '', receiver_phone: '', shipping_address: '' });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!supabase || !userId) {
+      setOrders([]);
+      setLoading(false);
+      return;
+    }
+    const mapRows = (rows: DbOrder[] | null): Order[] =>
+      (rows ?? []).map((row: DbOrder) => ({
+        id: row.id,
+        order_number: row.order_number ?? null,
+        date: row.created_at ? new Date(row.created_at).toLocaleDateString('ru-RU') : '',
+        total: (row.total_cents ?? 0) / 100,
+        status: normalizeOrderStatus(row.status),
+        items: Array.isArray(row.items) ? row.items : [],
+        receiver_name: row.receiver_name ?? null,
+        receiver_phone: row.receiver_phone ?? null,
+        shipping_address: row.shipping_address ?? null,
+        tracking_url: row.tracking_url ?? null,
+        is_test: (row as DbOrder).is_test ?? false,
+      }));
+
+    supabase
+      .from('orders')
+      .select('id, order_number, created_at, total_cents, status, items, receiver_name, receiver_phone, shipping_address, tracking_url, is_test')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .then(({ data, error }) => {
+        if (error) {
+          console.warn('[ProfileOrders] select error (retry without items/order_number):', error.message);
+          supabase
+            .from('orders')
+            .select('id, created_at, total_cents, status, receiver_name, receiver_phone, shipping_address')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false })
+            .then(({ data: data2, error: err2 }) => {
+              if (err2) {
+                console.warn('[ProfileOrders] retry error:', err2.message);
+                setOrders([]);
+              } else {
+                setOrders(mapRows(data2 as DbOrder[]));
+              }
+            });
+          return;
+        }
+        setOrders(mapRows(data as DbOrder[]));
+      })
+      .catch(() => setOrders([]))
+      .finally(() => setLoading(false));
+  }, [userId]);
+
   if (!initialized) return null;
   if (!isLoggedIn) return <Navigate to="/login" replace />;
 
+  /** 상태별 뱃지 스타일 (고객 화면용) */
+  const statusBadgeClass: Record<Order['status'], string> = {
+    pending: 'bg-amber-100 text-amber-800',
+    completed: 'bg-emerald-100 text-emerald-800',
+    failed: 'bg-rose-100 text-rose-800',
+    canceled: 'bg-slate-200 text-slate-600',
+    product_preparing: 'bg-blue-100 text-blue-800',
+    shipping_soon: 'bg-indigo-100 text-indigo-800',
+    shipped: 'bg-sky-100 text-sky-800',
+    delivered: 'bg-violet-100 text-violet-800',
+    confirmed: 'bg-emerald-100 text-emerald-800',
+  };
+
+  /** 주문 문의용 텔레그램 링크 (start 파라미터로 주문번호 전달 → 봇에서 어떤 주문 문의인지 식별) */
+  const TELEGRAM_BOT_URL = import.meta.env.VITE_TELEGRAM_BOT_URL ?? 'https://t.me/My_SEMO_Beautybot';
+
   return (
-    <main className="mx-auto max-w-xl px-4 py-6 sm:px-6 sm:py-10 md:py-14">
+    <main className="mx-auto max-w-2xl px-4 py-6 sm:px-6 sm:py-10 md:py-14">
       <p className="mb-6">
         <Link to="/profile" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> Profile</Link>
       </p>
@@ -41,22 +155,197 @@ export const ProfileOrders: React.FC = () => {
           История заказов
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          Заказы и отслеживание доставки (структура готова для API)
+          Заказы и отслеживание доставки
         </p>
       </header>
 
-      <ul className="space-y-4">
-        {(USE_MOCK_ORDERS ? mockOrders : []).map((order) => (
-          <li key={order.id} className="rounded-xl border border-slate-100 bg-white p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="font-medium text-slate-800">{order.id}</p>
-              <span className="text-sm text-slate-500">{order.date}</span>
+      {loading ? (
+        <p className="text-center text-slate-500">Загрузка…</p>
+      ) : orders.length === 0 ? (
+        <p className="rounded-xl border border-slate-100 bg-slate-50/50 px-4 py-8 text-center text-slate-500">
+          Пока нет заказов.
+        </p>
+      ) : (
+      <ul className="space-y-5">
+        {orders.map((order) => (
+          <li
+            key={order.id}
+            className={`rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden ${order.is_test ? 'ring-1 ring-amber-200 bg-amber-50/30' : ''}`}
+          >
+            {/* 상단: 주문번호 + 날짜 + 테스트 뱃지 */}
+            <div className="border-b border-slate-100 bg-slate-50/60 px-5 py-3 sm:px-6">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-base font-semibold tracking-tight text-slate-900">
+                  Заказ № {order.order_number ?? order.id.slice(0, 8)}
+                </p>
+                <div className="flex items-center gap-2">
+                  {order.is_test && (
+                    <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-medium text-amber-900">Тест</span>
+                  )}
+                  <span className="text-sm text-slate-500">{order.date}</span>
+                </div>
+              </div>
             </div>
-            <p className="mt-1 text-sm text-slate-600">
-              {statusLabel[order.status]} · {order.total.toLocaleString('ru-RU')} ₽
-            </p>
+
+            {/* 주문 상태·금액 */}
+            <div className="px-5 py-3 sm:px-6 flex flex-wrap items-center justify-between gap-2 border-b border-slate-100">
+              <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass[order.status]}`}>
+                {statusLabel[order.status]}
+              </span>
+              <span className="text-sm font-semibold text-slate-900 tabular-nums">
+                {order.total.toLocaleString('ru-RU')} ₽
+              </span>
+            </div>
+
+            {/* 수령인 정보 */}
+            {(order.receiver_name || order.receiver_phone || order.shipping_address) && (
+              <div className="px-5 py-3 sm:px-6 bg-slate-50/40">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-2">Получатель</p>
+                <dl className="space-y-1 text-sm text-slate-700">
+                  {order.receiver_name && (
+                    <div><dt className="sr-only">ФИО</dt><dd>{order.receiver_name}</dd></div>
+                  )}
+                  {order.receiver_phone && (
+                    <div><dt className="sr-only">Телефон</dt><dd className="tabular-nums">{order.receiver_phone}</dd></div>
+                  )}
+                  {order.shipping_address && (
+                    <div><dt className="sr-only">Адрес</dt><dd className="mt-1 break-words text-slate-600">{order.shipping_address}</dd></div>
+                  )}
+                </dl>
+              </div>
+            )}
+
+            {/* 배송 추적 링크 (배송중·배송완료이고 URL 있으면 표시) */}
+            {['shipped', 'delivered', 'confirmed'].includes(order.status) && order.tracking_url && (
+              <div className="px-5 py-3 sm:px-6 border-b border-slate-100">
+                <a
+                  href={order.tracking_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 text-sm font-medium text-sky-600 hover:text-sky-700 hover:underline"
+                >
+                  <svg className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  Отслеживание доставки
+                </a>
+              </div>
+            )}
+
+            {/* 하단: 배송 정보 수정 + 해당 주문 문의하기(텔레그램) */}
+            <div className="px-5 py-3 sm:px-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+              {canEditShipping(order.status) && editingOrderId !== order.id && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingOrderId(order.id);
+                    setEditForm({
+                      receiver_name: order.receiver_name ?? '',
+                      receiver_phone: order.receiver_phone ?? '',
+                      shipping_address: order.shipping_address ?? '',
+                    });
+                  }}
+                  className="text-sm font-medium text-brand hover:underline"
+                >
+                  Изменить данные доставки
+                </button>
+              )}
+              </div>
+              <a
+                href={`${TELEGRAM_BOT_URL}?start=order_${encodeURIComponent(order.order_number ?? order.id.slice(0, 8))}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-lg border border-[#0088cc] bg-[#0088cc]/5 px-4 py-2.5 text-sm font-medium text-[#0088cc] transition hover:bg-[#0088cc]/10"
+              >
+                <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                  <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+                </svg>
+                Вопрос по заказу
+              </a>
+            </div>
+            {editingOrderId === order.id && (
+              <div className="px-5 py-3 sm:px-6">
+              <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3">
+                <p className="mb-2 text-xs font-medium text-slate-600">ФИО, телефон, адрес</p>
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    placeholder="ФИО получателя"
+                    value={editForm.receiver_name}
+                    onChange={(e) => setEditForm((f) => ({ ...f, receiver_name: e.target.value }))}
+                    className="w-full rounded border border-slate-200 px-3 py-2 text-sm"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Телефон"
+                    value={editForm.receiver_phone}
+                    onChange={(e) => setEditForm((f) => ({ ...f, receiver_phone: e.target.value }))}
+                    className="w-full rounded border border-slate-200 px-3 py-2 text-sm"
+                  />
+                  <textarea
+                    rows={2}
+                    placeholder="Адрес доставки"
+                    value={editForm.shipping_address}
+                    onChange={(e) => setEditForm((f) => ({ ...f, shipping_address: e.target.value }))}
+                    className="w-full rounded border border-slate-200 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={async () => {
+                      if (!supabase || !userId || saving) return;
+                      setSaving(true);
+                      try {
+                        const { error } = await supabase
+                          .from('orders')
+                          .update({
+                            receiver_name: editForm.receiver_name.trim() || null,
+                            receiver_phone: editForm.receiver_phone.trim() || null,
+                            shipping_address: editForm.shipping_address.trim() || null,
+                          })
+                          .eq('id', order.id)
+                          .eq('user_id', userId);
+                        if (error) throw error;
+                        setOrders((prev) =>
+                          prev.map((o) =>
+                            o.id === order.id
+                              ? {
+                                  ...o,
+                                  receiver_name: editForm.receiver_name.trim() || null,
+                                  receiver_phone: editForm.receiver_phone.trim() || null,
+                                  shipping_address: editForm.shipping_address.trim() || null,
+                                }
+                              : o
+                          )
+                        );
+                        setEditingOrderId(null);
+                      } catch (e) {
+                        window.alert(e instanceof Error ? e.message : 'Не удалось сохранить');
+                      } finally {
+                        setSaving(false);
+                      }
+                    }}
+                    className="rounded-full bg-brand px-4 py-1.5 text-sm font-medium text-white hover:bg-brand/90 disabled:opacity-50"
+                  >
+                    {saving ? 'Сохранение…' : 'Сохранить'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingOrderId(null)}
+                    className="rounded-full border border-slate-200 px-4 py-1.5 text-sm text-slate-600 hover:bg-slate-100"
+                  >
+                    Отмена
+                  </button>
+                </div>
+              </div>
+              </div>
+            )}
             {order.tracking && order.tracking.length > 0 && (
-              <div className="mt-3 border-t border-slate-100 pt-3">
+              <div className="px-5 py-3 sm:px-6 border-t border-slate-100">
                 <p className="text-xs font-medium text-slate-500">Отслеживание</p>
                 <ul className="mt-1 space-y-1 text-sm text-slate-600">
                   {order.tracking.map((t, i) => (
@@ -68,6 +357,7 @@ export const ProfileOrders: React.FC = () => {
           </li>
         ))}
       </ul>
+      )}
     </main>
   );
 };

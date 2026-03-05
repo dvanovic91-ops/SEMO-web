@@ -1,9 +1,57 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import { Route, Routes, useLocation, useParams } from 'react-router-dom';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
 import { Footer } from './components/Footer';
 import { Navbar } from './components/Navbar';
+import { supabase } from './lib/supabase';
+
+const VISIT_SESSION_KEY = 'bb_visit_sid';
+
+/** 비로그인 방문자 구분용 세션 ID (localStorage). 없으면 생성 후 저장 */
+function getOrCreateSessionId(): string {
+  try {
+    let sid = localStorage.getItem(VISIT_SESSION_KEY);
+    if (!sid || sid.length < 10) {
+      sid = crypto.randomUUID?.() ?? `anon-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      localStorage.setItem(VISIT_SESSION_KEY, sid);
+    }
+    return sid;
+  } catch {
+    return `anon-${Date.now()}`;
+  }
+}
+
+/** 라우트 변경 시 방문 기록 (site_visits). 로그인 시 user_id, 비로그인 시 session_id로 트래픽 집계 */
+function TrackVisit() {
+  const { pathname } = useLocation();
+  const { userId } = useAuth();
+  const lastSent = useRef<string>('');
+  const throttleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!supabase) return;
+    const key = `${pathname}-${userId ?? 'anon'}`;
+    if (lastSent.current === key) return;
+    lastSent.current = key;
+
+    if (throttleRef.current) clearTimeout(throttleRef.current);
+    throttleRef.current = setTimeout(() => {
+      throttleRef.current = null;
+      const payload = userId
+        ? { user_id: userId }
+        : { user_id: null, session_id: getOrCreateSessionId() };
+      supabase.from('site_visits').insert(payload).then(({ error }) => {
+        if (error) console.warn('[TrackVisit]', error.message);
+      });
+    }, 400);
+    return () => {
+      if (throttleRef.current) clearTimeout(throttleRef.current);
+    };
+  }, [pathname, userId]);
+
+  return null;
+}
 
 /** 라우트 변경 시 스크롤을 맨 위로 이동 (페이지 전환 시 항상 상단 노출) */
 function ScrollToTop() {
@@ -15,6 +63,8 @@ function ScrollToTop() {
 }
 import { About } from './pages/About';
 import { Cart } from './pages/Cart';
+import { Checkout } from './pages/Checkout';
+import { CheckoutComplete } from './pages/CheckoutComplete';
 import { Home } from './pages/Home';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
@@ -30,6 +80,9 @@ import { ProfileReviews } from './pages/profile/ProfileReviews';
 import { ProfileTestResults } from './pages/profile/ProfileTestResults';
 import { ProfileTestResultDetail } from './pages/profile/ProfileTestResultDetail';
 import { Support } from './pages/Support';
+import { Journey } from './pages/Journey';
+import { Promo } from './pages/Promo';
+import { Recommendations } from './pages/Recommendations';
 import { AuthCallback, AUTH_MESSAGE_TYPE } from './pages/AuthCallback';
 import { Admin } from './pages/admin/Admin';
 
@@ -45,16 +98,23 @@ const App: React.FC = () => {
       <AuthProvider>
         <CartProvider>
           <Navbar />
+          <TrackVisit />
           <ScrollToTop />
           {/* 모바일에서 하단 고정 바 때문에 본문이 가려지지 않도록 패딩 */}
           <div className="flex-1 pb-16 md:pb-0">
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/about" element={<About />} />
+              <Route path="/journey" element={<Journey />} />
+              <Route path="/promo" element={<Promo />} />
               <Route path="/skin-test" element={<SkinTest />} />
               <Route path="/shop" element={<Shop />} />
+              <Route path="/recommendations" element={<Recommendations />} />
+              <Route path="/recommendations/:skinType" element={<Recommendations />} />
               <Route path="/product/:id" element={<ProductDetailWithKey />} />
               <Route path="/cart" element={<Cart />} />
+              <Route path="/checkout" element={<Checkout />} />
+              <Route path="/checkout/complete" element={<CheckoutComplete />} />
               <Route path="/support" element={<Support />} />
               <Route path="/profile" element={<Profile />} />
               <Route path="/profile/edit" element={<ProfileEdit />} />

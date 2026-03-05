@@ -43,7 +43,7 @@ export interface MockOrder {
   id: string;
   date: string;
   total: number;
-  status: 'pending' | 'paid' | 'shipped' | 'delivered' | 'cancelled';
+  status: 'pending' | 'completed' | 'canceled' | 'failed' | 'shipped' | 'delivered' | 'confirmed';
   items: MockOrderItem[];
   tracking?: MockShipmentTracking[];
 }
@@ -109,7 +109,7 @@ export interface RevenueDataPoint {
   products?: { name: string; amount: number; quantity: number }[];
 }
 
-/** 일별 매출 목업 (최근 14일) */
+/** 일별 매출 목업 (최근 7일 또는 count일) */
 function getDayLabels(count: number): RevenueDataPoint[] {
   const points: RevenueDataPoint[] = [];
   const now = new Date();
@@ -206,7 +206,7 @@ export function getMockRevenueSeries(
   startDate?: string,
   endDate?: string
 ): RevenueDataPoint[] {
-  if (period === 'day') return getDayLabels(14);
+  if (period === 'day') return getDayLabels(7);
   if (period === 'week') return getWeekLabels(8);
   if (period === 'month') return getMonthLabels(12);
   if (period === 'range' && startDate && endDate) {
@@ -235,7 +235,7 @@ export function getMockRevenueSeries(
     }
     return points;
   }
-  return getDayLabels(14);
+  return getDayLabels(7);
 }
 
 /** 상품별 매출 합계 목업 (대시보드 하단 표용) */

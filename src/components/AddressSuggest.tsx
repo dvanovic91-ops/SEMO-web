@@ -20,6 +20,8 @@ type DadataAddressSuggestion = {
 interface AddressSuggestProps {
   label: React.ReactNode;
   placeholder?: string;
+  /** 호버 시 브라우저 툴팁으로 표시 */
+  title?: string;
   value: string;
   onChange: (value: string) => void;
   onPartsChange?: (parts: {
@@ -35,6 +37,7 @@ const DADATA_TOKEN = import.meta.env.VITE_DADATA_API_KEY as string | undefined;
 export const AddressSuggest: React.FC<AddressSuggestProps> = ({
   label,
   placeholder,
+  title,
   value,
   onChange,
   onPartsChange,
@@ -129,6 +132,7 @@ export const AddressSuggest: React.FC<AddressSuggestProps> = ({
           type="text"
           className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 placeholder:text-xs placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
           placeholder={placeholder}
+          title={title}
           value={value}
           onChange={(e) => onChange(e.target.value)}
         />
@@ -145,6 +149,7 @@ export const AddressSuggest: React.FC<AddressSuggestProps> = ({
         type="text"
         className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 placeholder:text-xs placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
         placeholder={placeholder}
+        title={title}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onFocus={() => {
