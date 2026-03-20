@@ -68,6 +68,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const applySession = useCallback(async (session: Session | null) => {
     if (session?.user) {
+      // 레거시 공용 키 정리: 과거 profileEdit 단일 키로 인한 계정 간 혼선 방지
+      try {
+        localStorage.removeItem('profileEdit');
+      } catch {
+        // ignore
+      }
       setUserEmailState(session.user.email ?? null);
       setUserId(session.user.id);
       const meta = session.user.user_metadata ?? {};

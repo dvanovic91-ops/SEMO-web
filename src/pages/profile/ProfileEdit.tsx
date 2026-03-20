@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { getProfile, setProfile } from '../../lib/profileStorage';
@@ -36,10 +36,23 @@ function normalizeLatin(value: string): string {
   return (value ?? '').replace(/[^A-Za-z\s-']/g, '');
 }
 
-function loadSavedProfile(): Record<string, string> {
+function loadSavedProfile(
+  storageKey: string,
+  userId: string | null,
+  userEmail: string | null
+): Record<string, string> {
   try {
-    const raw = localStorage.getItem('profileEdit');
-    if (raw) return JSON.parse(raw);
+    const raw = localStorage.getItem(storageKey);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, string>;
+      const ownerUserId = parsed.__owner_user_id ?? '';
+      const ownerEmail = (parsed.__owner_email ?? '').toLowerCase();
+      const currentEmail = (userEmail ?? '').toLowerCase();
+      // 계정이 바뀐 저장값은 무시해 계정 간 혼선 차단
+      if (ownerUserId && userId && ownerUserId !== userId) return {};
+      if (ownerEmail && currentEmail && ownerEmail !== currentEmail) return {};
+      return parsed;
+    }
   } catch {
     // ignore
   }
@@ -133,6 +146,10 @@ export const ProfileEdit: React.FC = () => {
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const safeUserEmail = userEmail ?? '';
+  const scopedProfileEditKey = useMemo(
+    () => `profileEdit:${userId ?? safeUserEmail.toLowerCase()}`,
+    [userId, safeUserEmail]
+  );
   const profile = safeUserEmail ? getProfile(safeUserEmail) : null;
   const safeName = profile?.name ?? (safeUserEmail ? safeUserEmail.split('@')[0] ?? '' : '');
 
@@ -251,7 +268,7 @@ export const ProfileEdit: React.FC = () => {
 
   // 개인정보창 진입 시 localStorage(profileEdit)에서 배송 데이터 로드 — ФИО는 항상 대문자로, 부칭 없음 체크 유지
   useEffect(() => {
-    const saved = loadSavedProfile();
+    const saved = loadSavedProfile(scopedProfileEditKey, userId, safeUserEmail);
     if (Object.keys(saved).length === 0) return;
     const up = (s: string) => (s ?? '').replace(/[^A-Za-z\s-']/g, '').toUpperCase();
     const fioMiddleVal = up(saved.fioMiddle ?? '');
@@ -263,7 +280,7 @@ export const ProfileEdit: React.FC = () => {
       fioFirst: up(saved.fioFirst ?? prev?.fioFirst ?? ''),
       fioMiddle: fioMiddleVal,
     }));
-  }, []);
+  }, [scopedProfileEditKey, userId, safeUserEmail]);
 
   useEffect(() => {
     if (!focusPhone || !(form?.email)) return;
@@ -312,8 +329,16 @@ export const ProfileEdit: React.FC = () => {
       setTimeout(() => setSaved(false), 2000);
       // 결제 화면에서도 동일한 배송·부칭 정보 쓰도록 localStorage(profileEdit)에 저장
       try {
-        const saved = loadSavedProfile();
-        localStorage.setItem('profileEdit', JSON.stringify({ ...saved, ...form }));
+        const saved = loadSavedProfile(scopedProfileEditKey, userId, safeUserEmail);
+        localStorage.setItem(
+          scopedProfileEditKey,
+          JSON.stringify({
+            ...saved,
+            ...form,
+            __owner_user_id: userId ?? '',
+            __owner_email: safeUserEmail.toLowerCase(),
+          })
+        );
       } catch {
         // ignore
       }

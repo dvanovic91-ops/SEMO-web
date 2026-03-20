@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
@@ -30,10 +30,19 @@ const DELIVERY_KEYS = [
 
 type DeliveryForm = Record<(typeof DELIVERY_KEYS)[number], string>;
 
-function loadDeliveryFromStorage(): Record<string, string> {
+function loadDeliveryFromStorage(
+  storageKey: string,
+  userId: string | null
+): Record<string, string> {
   try {
-    const raw = localStorage.getItem('profileEdit');
-    if (raw) return JSON.parse(raw);
+    const raw = localStorage.getItem(storageKey);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, string>;
+      const ownerUserId = parsed.__owner_user_id ?? '';
+      // 다른 계정 저장값은 무시
+      if (ownerUserId && userId && ownerUserId !== userId) return {};
+      return parsed;
+    }
   } catch {
     // ignore
   }
@@ -88,6 +97,7 @@ export const Checkout: React.FC = () => {
   const [saveDeliveryAsDefault, setSaveDeliveryAsDefault] = useState(true);
   const [noPatronymic, setNoPatronymic] = useState(false);
   const [addressQuery, setAddressQuery] = useState('');
+  const scopedProfileEditKey = useMemo(() => `profileEdit:${userId ?? 'guest'}`, [userId]);
   const deliveryFormInitialized = useRef(false);
   /** CS 방어: 결제 단계에서 가격 본 적 한 번만 로그 */
   const paymentStepViewedLoggedRef = useRef(false);
@@ -165,14 +175,14 @@ export const Checkout: React.FC = () => {
   useEffect(() => {
     if (loading) return;
     if (deliveryFormInitialized.current && profile != null) return;
-    const storage = loadDeliveryFromStorage();
+    const storage = loadDeliveryFromStorage(scopedProfileEditKey, userId);
     const next = buildInitialDeliveryForm(profile, storage);
     setDeliveryForm(next);
     setNoPatronymic(!(next.fioMiddle ?? '').trim());
     const parts = [next.cityRegion, next.streetHouse, next.apartmentOffice, next.postcode].filter(Boolean);
     if (parts.length) setAddressQuery(parts.join(', '));
     if (profile != null) deliveryFormInitialized.current = true;
-  }, [loading, profile]);
+  }, [loading, profile, scopedProfileEditKey, userId]);
 
   const setDeliveryField = useCallback((key: keyof DeliveryForm, value: string) => {
     setDeliveryForm((prev) => ({ ...prev, [key]: value }));
@@ -203,7 +213,7 @@ export const Checkout: React.FC = () => {
     try {
       let existing: Record<string, unknown> = {};
       try {
-        const raw = localStorage.getItem('profileEdit');
+        const raw = localStorage.getItem(scopedProfileEditKey);
         if (raw) {
           const parsed = JSON.parse(raw);
           if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) existing = { ...parsed };
@@ -214,12 +224,13 @@ export const Checkout: React.FC = () => {
       DELIVERY_KEYS.forEach((k) => {
         existing[k] = k === 'name' ? nameFromFio : (deliveryForm[k] ?? '');
       });
-      localStorage.setItem('profileEdit', JSON.stringify(existing));
+      existing.__owner_user_id = userId ?? '';
+      localStorage.setItem(scopedProfileEditKey, JSON.stringify(existing));
     } catch (e) {
       console.warn('[Checkout] profileEdit localStorage failed', e);
       window.alert('Данные доставки не сохранены в браузере. Заказ оформлен.');
     }
-  }, [saveDeliveryAsDefault, deliveryForm, userId]);
+  }, [saveDeliveryAsDefault, deliveryForm, userId, scopedProfileEditKey]);
 
   // 결제 단계 포인트 상한 맞춤 — 훅은 early return 위에 두어 호출 순서 고정
   useEffect(() => {
@@ -365,11 +376,11 @@ export const Checkout: React.FC = () => {
 
       // 사용 포인트(코펙): Admin 주문 목록 "사용 포인트" 컬럼 표시용
       const pointsUsedCents = Math.round(clampedPointsToUse * 100);
-      const buildPayloads = () => ({
+      const buildPayloads = (includePointsUsed = true) => ({
         full: orderNumberOpt({
           user_id: userId,
           total_cents: snapshotCents,
-          points_used: pointsUsedCents,
+          ...(includePointsUsed ? { points_used: pointsUsedCents } : {}),
           status: 'pending',
           items: snapshotItems,
           receiver_name: receiverName,
@@ -387,7 +398,7 @@ export const Checkout: React.FC = () => {
         minimal: orderNumberOpt({
           user_id: userId,
           total_cents: snapshotCents,
-          points_used: pointsUsedCents,
+          ...(includePointsUsed ? { points_used: pointsUsedCents } : {}),
           status: 'pending',
           items: snapshotItems,
           receiver_name: receiverName,
@@ -401,7 +412,7 @@ export const Checkout: React.FC = () => {
         minimalNoTest: orderNumberOpt({
           user_id: userId,
           total_cents: snapshotCents,
-          points_used: pointsUsedCents,
+          ...(includePointsUsed ? { points_used: pointsUsedCents } : {}),
           status: 'pending',
           items: snapshotItems,
           receiver_name: receiverName,
@@ -414,7 +425,7 @@ export const Checkout: React.FC = () => {
         absoluteMinimal: orderNumberOpt({
           user_id: userId,
           total_cents: snapshotCents,
-          points_used: pointsUsedCents,
+          ...(includePointsUsed ? { points_used: pointsUsedCents } : {}),
           status: 'pending',
         }),
       });
@@ -423,19 +434,19 @@ export const Checkout: React.FC = () => {
         const { order_number: _, ...rest } = o;
         return rest;
       };
-      const payloadsNoOrderNumber = {
-        full: stripOrderNumber(buildPayloads().full as Record<string, unknown>),
-        minimal: stripOrderNumber(buildPayloads().minimal as Record<string, unknown>),
-        minimalNoTest: stripOrderNumber(buildPayloads().minimalNoTest as Record<string, unknown>),
-        absoluteMinimal: stripOrderNumber(buildPayloads().absoluteMinimal as Record<string, unknown>),
-      };
+      const payloadsNoOrderNumber = (includePointsUsed = true) => ({
+        full: stripOrderNumber(buildPayloads(includePointsUsed).full as Record<string, unknown>),
+        minimal: stripOrderNumber(buildPayloads(includePointsUsed).minimal as Record<string, unknown>),
+        minimalNoTest: stripOrderNumber(buildPayloads(includePointsUsed).minimalNoTest as Record<string, unknown>),
+        absoluteMinimal: stripOrderNumber(buildPayloads(includePointsUsed).absoluteMinimal as Record<string, unknown>),
+      });
 
       let orderRow: { id: string; order_number?: string | null } | null = null;
       let orderError: { code?: string; message?: string; details?: unknown } | null = null;
 
       const selectCols = (withOrderNumber: boolean) => (withOrderNumber ? 'id, order_number' : 'id');
-      const runInsert = async (withOrderNumber: boolean) => {
-        const payloads = withOrderNumber ? buildPayloads() : payloadsNoOrderNumber;
+      const runInsert = async (withOrderNumber: boolean, includePointsUsed = true) => {
+        const payloads = withOrderNumber ? buildPayloads(includePointsUsed) : payloadsNoOrderNumber(includePointsUsed);
         const sel = selectCols(withOrderNumber);
         const { data: fullData, error: fullError } = await supabase.from('orders').insert(payloads.full).select(sel).single();
         if (!fullError) return fullData as { id: string; order_number?: string | null };
@@ -455,6 +466,15 @@ export const Checkout: React.FC = () => {
       if (!orderRow && orderError && (orderError.message?.includes('order_number') || orderError.message?.includes('column'))) {
         orderError = null;
         orderRow = await runInsert(false);
+      }
+      // points_used 컬럼이 아직 없는 DB에서도 주문은 계속 가능하도록 포인트 필드를 제외해 재시도
+      if (!orderRow && orderError && (orderError.message?.includes('points_used') || orderError.message?.includes('schema cache'))) {
+        orderError = null;
+        orderRow = await runInsert(true, false);
+        if (!orderRow && orderError && (orderError.message?.includes('order_number') || orderError.message?.includes('column'))) {
+          orderError = null;
+          orderRow = await runInsert(false, false);
+        }
       }
 
       if (orderError || !orderRow) {
@@ -530,9 +550,22 @@ export const Checkout: React.FC = () => {
       }
 
       if (clampedPointsToUse > 0) {
-        const { data: current } = await supabase.from('profiles').select('points').eq('id', userId).single();
-        const nextPoints = Math.max(0, (current?.points ?? 0) - clampedPointsToUse);
-        await supabase.from('profiles').update({ points: nextPoints }).eq('id', userId);
+        const { error: pointsErr } = await supabase.rpc('apply_points_delta', {
+          p_user_id: userId,
+          p_delta_points: -clampedPointsToUse,
+          p_reason: 'order_points_used',
+          p_source_table: 'orders',
+          p_source_id: orderId,
+          p_metadata: {
+            order_number: orderNumberForDisplay,
+          },
+        });
+        // points_ledger 도입 전/미적용 환경 fallback
+        if (pointsErr) {
+          const { data: current } = await supabase.from('profiles').select('points').eq('id', userId).single();
+          const nextPoints = Math.max(0, (current?.points ?? 0) - clampedPointsToUse);
+          await supabase.from('profiles').update({ points: nextPoints }).eq('id', userId);
+        }
       }
 
       if (selectedCoupon && couponDiscount > 0) {

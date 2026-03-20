@@ -83,7 +83,12 @@ export const Login: React.FC = () => {
         password,
       });
       if (error) {
-        setLoginError(error.message || 'Неверный email или пароль.');
+        const msg = (error.message || '').toLowerCase();
+        if (msg.includes('invalid login credentials') || msg.includes('invalid_credentials') || msg.includes('wrong') || msg.includes('password')) {
+          setLoginError('Неверный email или пароль. Проверьте введённые данные.');
+        } else {
+          setLoginError(error.message || 'Не удалось войти. Попробуйте снова.');
+        }
         return;
       }
       if (data?.session) {
@@ -148,6 +153,9 @@ export const Login: React.FC = () => {
           {passwordError && (
             <p className="mt-1 text-xs text-red-500">{passwordError}</p>
           )}
+          {loginError && (
+            <p className="mt-1 text-sm text-red-600" role="alert">{loginError}</p>
+          )}
         </div>
         <button
           type="submit"
@@ -156,9 +164,6 @@ export const Login: React.FC = () => {
         >
           {loginLoading ? 'Вход…' : 'Войти'}
         </button>
-        {loginError && (
-          <p className="text-sm text-red-500">{loginError}</p>
-        )}
       </form>
 
       <label className="mt-6 flex cursor-pointer items-center gap-2">

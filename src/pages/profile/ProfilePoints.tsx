@@ -9,9 +9,11 @@ import { supabase } from '../../lib/supabase';
 export const ProfilePoints: React.FC = () => {
   const { userEmail, userId, isLoggedIn, initialized } = useAuth();
   const [dbPoints, setDbPoints] = useState<number | null>(null);
+  const [profileMeta, setProfileMeta] = useState<{ telegram_reward_given: boolean } | null>(null);
   const [coupons, setCoupons] = useState<
     { id: string; amount: number; expires_at: string; used_at: string | null; tier?: string | null; quarter_label?: string | null }[]
   >([]);
+  const [history, setHistory] = useState<{ id: string; label: string; amount: number; date: string }[]>([]);
   const currentUserIdRef = useRef<string | null>(null);
   currentUserIdRef.current = userId;
 
@@ -24,16 +26,18 @@ export const ProfilePoints: React.FC = () => {
     const requestedUserId = userId;
     supabase
       .from('profiles')
-      .select('points')
+      .select('points, telegram_reward_given')
       .eq('id', requestedUserId)
       .single()
       .then(({ data }) => {
         if (currentUserIdRef.current !== requestedUserId) return;
         setDbPoints(data?.points ?? null);
+        setProfileMeta({ telegram_reward_given: !!data?.telegram_reward_given });
       })
       .catch(() => {
         if (currentUserIdRef.current !== requestedUserId) return;
         setDbPoints(null);
+        setProfileMeta(null);
       });
 
     supabase
@@ -52,6 +56,96 @@ export const ProfilePoints: React.FC = () => {
         if (currentUserIdRef.current !== requestedUserId) return;
         setCoupons([]);
       });
+
+    supabase
+      .from('points_ledger')
+      .select('id, delta_points, reason, created_at')
+      .eq('user_id', requestedUserId)
+      .order('created_at', { ascending: false })
+      .then(({ data, error }) => {
+        if (currentUserIdRef.current !== requestedUserId) return;
+        if (!error && data && data.length > 0) {
+          const rows = (data as { id: string; delta_points: number; reason: string; created_at: string }[]).map((r) => {
+            let label = 'Изменение баллов';
+            if (r.reason === 'review_reward_general') label = 'Награда за подробный отзыв';
+            else if (r.reason === 'review_reward_special') label = 'Награда за специальный отзыв';
+            else if (r.reason === 'order_points_used') label = 'Использование баллов при оплате';
+            else if (r.reason === 'skin_test_bonus') label = 'Бонус за прохождение теста кожи';
+            else if (r.reason === 'telegram_link_bonus') label = 'Бонус за привязку Telegram';
+            return {
+              id: `ledger-${r.id}`,
+              label,
+              amount: Number(r.delta_points ?? 0),
+              date: r.created_at,
+            };
+          });
+          setHistory(rows);
+          return;
+        }
+
+        // points_ledger 미적용/비어있는 환경 fallback
+        Promise.allSettled([
+          supabase
+            .from('product_reviews')
+            .select('id, created_at, review_reward_points')
+            .eq('user_id', requestedUserId)
+            .gt('review_reward_points', 0),
+          supabase
+            .from('skin_test_results')
+            .select('id, completed_at')
+            .eq('user_id', requestedUserId),
+          supabase
+            .from('orders')
+            .select('id, created_at, points_used')
+            .eq('user_id', requestedUserId)
+            .gt('points_used', 0),
+        ]).then((results) => {
+          if (currentUserIdRef.current !== requestedUserId) return;
+          const next: { id: string; label: string; amount: number; date: string }[] = [];
+
+          const reviewRes = results[0].status === 'fulfilled' ? results[0].value.data : null;
+          (reviewRes ?? []).forEach((r: { id: string; created_at: string; review_reward_points?: number | null }) => {
+            const amount = Number(r.review_reward_points ?? 0);
+            if (amount > 0) {
+              next.push({
+                id: `review-${r.id}`,
+                label: amount >= 500 ? 'Награда за специальный отзыв' : 'Награда за подробный отзыв',
+                amount,
+                date: r.created_at,
+              });
+            }
+          });
+
+          const testRes = results[1].status === 'fulfilled' ? results[1].value.data : null;
+          (testRes ?? []).forEach((t: { id: string; completed_at?: string | null }) => {
+            next.push({
+              id: `skin-test-${t.id}`,
+              label: 'Бонус за прохождение теста кожи',
+              amount: 300,
+              date: t.completed_at ?? '',
+            });
+          });
+
+          const ordersRes = results[2].status === 'fulfilled' ? results[2].value.data : null;
+          (ordersRes ?? []).forEach((o: { id: string; created_at: string; points_used?: number | null }) => {
+            const used = Number(o.points_used ?? 0);
+            if (used > 0) {
+              next.push({
+                id: `order-points-${o.id}`,
+                label: 'Использование баллов при оплате',
+                amount: -Math.floor(used / 100),
+                date: o.created_at,
+              });
+            }
+          });
+
+          setHistory(
+            next
+              .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())
+              .filter((v, i, arr) => arr.findIndex((x) => x.id === v.id) === i)
+          );
+        });
+      });
   }, [userId]);
 
   useEffect(() => {
@@ -68,7 +162,12 @@ export const ProfilePoints: React.FC = () => {
 
   const localProfile = userEmail ? getProfile(userEmail) : null;
   const points = dbPoints !== null ? dbPoints : (localProfile?.points ?? 0);
-  const history: { id: string; label: string; amount: number; date: string }[] = [];
+  const mergedHistory = profileMeta?.telegram_reward_given
+    ? [
+        ...history,
+        { id: 'telegram-reward', label: 'Бонус за привязку Telegram', amount: 200, date: '' },
+      ]
+    : history;
 
   if (!initialized) return null;
   if (!isLoggedIn) return <Navigate to="/login" replace />;
@@ -90,17 +189,17 @@ export const ProfilePoints: React.FC = () => {
       </header>
 
       <ul className="space-y-3">
-        {history.length === 0 && (
+        {mergedHistory.length === 0 && (
           <p className="text-sm text-slate-500">Пока нет записей.</p>
         )}
-        {history.map((item) => (
+        {mergedHistory.map((item) => (
           <li
             key={item.id}
             className="flex items-center justify-between rounded-xl border border-slate-100 bg-white px-4 py-3"
           >
             <div>
               <p className="font-medium text-slate-800">{item.label}</p>
-              <p className="text-xs text-slate-500">{item.date}</p>
+              <p className="text-xs text-slate-500">{item.date ? new Date(item.date).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) : '—'}</p>
             </div>
             <span className={item.amount >= 0 ? 'text-brand font-medium' : 'text-slate-500'}>
               {item.amount >= 0 ? '+' : ''}{item.amount} ★

@@ -114,7 +114,14 @@ export const Register: React.FC = () => {
         },
       });
       if (error) {
-        setSubmitError(error.message || 'Не удалось завершить регистрацию.');
+        const msg = (error.message || '').toLowerCase();
+        if (msg.includes('invalid') && msg.includes('email')) {
+          setSubmitError('Этот адрес электронной почты не принимается сервисом. Попробуйте другой адрес или свяжитесь с нами.');
+        } else if (msg.includes('rate limit') || msg.includes('rate_limit')) {
+          setSubmitError('Слишком много попыток. Подождите около часа и попробуйте снова.');
+        } else {
+          setSubmitError(error.message || 'Не удалось завершить регистрацию.');
+        }
         return;
       }
       setSubmitSuccess('Регистрация прошла. Теперь войдите с email и паролем.');

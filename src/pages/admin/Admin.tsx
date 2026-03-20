@@ -1852,15 +1852,35 @@ export const Admin: React.FC = () => {
     const row = reviewManagementList.find((r) => r.id === reviewId);
     if (!row || row.review_reward_points > 0) return;
     if (!window.confirm(`${points} 포인트를 지급할까요? (${row.user_name ?? row.user_email ?? row.user_id})`)) return;
+    const defaultReply =
+      points === 200
+        ? 'Спасибо за подробный отзыв! Дарим 200 баллов.'
+        : 'Ваш отзыв выбран как особенный. Дарим 500 баллов. Спасибо!';
+    const rewardReply = window.prompt('Пояснение для пользователя (ответ к отзыву):', row.admin_reply ?? defaultReply);
+    if (rewardReply === null) return;
     setReviewActionLoading(reviewId);
     try {
-      const { data: profile } = await supabase.from('profiles').select('points').eq('id', row.user_id).single();
-      const currentPoints = Math.max(0, Number(profile?.points ?? 0));
-      const { error: upErr } = await supabase.from('profiles').update({ points: currentPoints + points }).eq('id', row.user_id);
+      const { error: upErr } = await supabase.rpc('apply_points_delta', {
+        p_user_id: row.user_id,
+        p_delta_points: points,
+        p_reason: points === 500 ? 'review_reward_special' : 'review_reward_general',
+        p_source_table: 'product_reviews',
+        p_source_id: reviewId,
+        p_metadata: {
+          product_id: row.product_id,
+        },
+      });
       if (upErr) throw upErr;
-      const { error: revErr } = await supabase.from('product_reviews').update({ review_reward_points: points }).eq('id', reviewId);
+      const { error: revErr } = await supabase
+        .from('product_reviews')
+        .update({ review_reward_points: points, admin_reply: rewardReply.trim() || defaultReply })
+        .eq('id', reviewId);
       if (revErr) throw revErr;
-      setReviewManagementList((prev) => prev.map((r) => (r.id === reviewId ? { ...r, review_reward_points: points } : r)));
+      setReviewManagementList((prev) =>
+        prev.map((r) =>
+          r.id === reviewId ? { ...r, review_reward_points: points, admin_reply: rewardReply.trim() || defaultReply } : r
+        )
+      );
       setSaveSuccessAt(Date.now());
     } catch (e) {
       console.warn(e);
