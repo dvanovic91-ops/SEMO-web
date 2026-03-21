@@ -108,15 +108,17 @@ export const Recommendations: React.FC = () => {
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-6 sm:px-6 sm:py-10 md:py-14">
-      <p className="mb-6">
-        <Link
-          to={typeLabel ? '/profile/test-results' : '/'}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"
-        >
-          <BackArrow />
-          {typeLabel ? 'Результаты тестов' : 'На главную'}
-        </Link>
-      </p>
+      {typeLabel ? (
+        <p className="mb-6">
+          <Link
+            to="/profile/test-results"
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"
+          >
+            <BackArrow />
+            Результаты тестов
+          </Link>
+        </p>
+      ) : null}
       <header className="mb-8">
         <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
           {typeLabel

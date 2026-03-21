@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { BackArrow } from '../../components/BackArrow';
 import { useAuth } from '../../context/AuthContext';
-import { getProfile } from '../../lib/profileStorage';
 import { supabase } from '../../lib/supabase';
 
 /** 포인트 내역 — 잔액은 DB(profiles.points) 우선, 내역은 향후 API 연동 예정 */
@@ -198,8 +197,8 @@ export const ProfilePoints: React.FC = () => {
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, [refreshPoints]);
 
-  const localProfile = userEmail ? getProfile(userEmail) : null;
-  const points = dbPoints !== null ? dbPoints : (localProfile?.points ?? 0);
+  /** 잔액은 오직 DB(profiles.points) — 조회 전에는 0으로 표시 */
+  const points = dbPoints ?? 0;
   const mergedHistory = profileMeta?.telegram_reward_given
     ? [
         ...history,

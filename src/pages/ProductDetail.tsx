@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
@@ -103,6 +103,8 @@ export const ProductDetail: React.FC = () => {
   const [reviewToast, setReviewToast] = useState<{ type: 'uploading' | 'success' | 'error'; message: string } | null>(null);
   /** 리뷰 섹션 인포 툴팁 토글 */
   const [reviewInfoOpen, setReviewInfoOpen] = useState(false);
+  /** 장바구니 담기 성공 토스트 — useEffect보다 먼저 선언 (TDZ 오류·흰 화면 방지) */
+  const [cartToast, setCartToast] = useState(false);
 
   const reviewFileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -118,6 +120,13 @@ export const ProductDetail: React.FC = () => {
     const t = window.setTimeout(() => setReviewToast(null), 3000);
     return () => window.clearTimeout(t);
   }, [reviewToast]);
+
+  /** 장바구니 담기 토스트 — 모바일 하단 탭 위에 표시 */
+  useEffect(() => {
+    if (!cartToast) return;
+    const t = window.setTimeout(() => setCartToast(false), 2800);
+    return () => window.clearTimeout(t);
+  }, [cartToast]);
 
   /** 리뷰 삭제: 작성자 본인 또는 관리자만 가능 */
   const canDeleteReview = (r: Review) => (userId && r.user_id === userId) || canGrantPermission;
@@ -368,17 +377,88 @@ export const ProductDetail: React.FC = () => {
     };
   }, [id, userId]);
 
-  useEffect(() => {
-    const el = addToCartBtnRef.current;
-    if (!el || typeof IntersectionObserver === 'undefined') return;
-    const obs = new IntersectionObserver(
-      ([entry]) => {
-        setStickyAddBar(!entry.isIntersecting);
-      },
-      { root: null, rootMargin: '-8px 0px 0px 0px', threshold: 0 },
-    );
-    obs.observe(el);
-    return () => obs.disconnect();
+  /**
+   * 모바일 상단 고정바: 본문 «В корзину» getBoundingClientRect + 스크롤/리사이즈.
+   * ref가 한 프레임 늦게 붙는 경우가 있어 attach 실패 시 rAF로 재시도.
+   */
+  useLayoutEffect(() => {
+    if (!product?.id) return;
+
+    let rafId = 0;
+    let cleaned = false;
+
+    const updateFromRect = (el: HTMLButtonElement) => {
+      const bottom = el.getBoundingClientRect().bottom;
+      setStickyAddBar((prev) => {
+        if (!prev && bottom < -6) return true;
+        if (prev && bottom > 8) return false;
+        return prev;
+      });
+    };
+
+    const scheduleForEl = (el: HTMLButtonElement) => {
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => updateFromRect(el));
+    };
+
+    let scrollAttached = false;
+    let ro: ResizeObserver | null = null;
+    let t1 = 0;
+    let t2 = 0;
+    let t3 = 0;
+    let retryRaf = 0;
+
+    const schedule = () => {
+      const el = addToCartBtnRef.current;
+      if (el) scheduleForEl(el);
+    };
+
+    const attach = (): boolean => {
+      const el = addToCartBtnRef.current;
+      if (!el) return false;
+      window.addEventListener('scroll', schedule, { passive: true, capture: true });
+      window.addEventListener('resize', schedule);
+      scrollAttached = true;
+      ro = new ResizeObserver(schedule);
+      ro.observe(el);
+      scheduleForEl(el);
+      t1 = window.setTimeout(schedule, 50);
+      t2 = window.setTimeout(schedule, 300);
+      t3 = window.setTimeout(schedule, 800);
+      return true;
+    };
+
+    const cleanupListeners = () => {
+      if (scrollAttached) {
+        window.removeEventListener('scroll', schedule, true);
+        window.removeEventListener('resize', schedule);
+        scrollAttached = false;
+      }
+      ro?.disconnect();
+      ro = null;
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+      window.clearTimeout(t3);
+      cancelAnimationFrame(rafId);
+      cancelAnimationFrame(retryRaf);
+    };
+
+    if (!attach()) {
+      let attempts = 0;
+      const tryAgain = () => {
+        if (cleaned) return;
+        if (attach()) return;
+        attempts += 1;
+        if (attempts > 90) return;
+        retryRaf = requestAnimationFrame(tryAgain);
+      };
+      retryRaf = requestAnimationFrame(tryAgain);
+    }
+
+    return () => {
+      cleaned = true;
+      cleanupListeners();
+    };
   }, [product?.id]);
 
   const handleSubmitReview = async (e: React.FormEvent) => {
@@ -496,6 +576,7 @@ export const ProductDetail: React.FC = () => {
       imageUrl: thumb,
       originalPrice: prp != null && rrp != null ? rrp : undefined,
     });
+    setCartToast(true);
   };
 
   /* 제미나이 제안: setLoading 제거, !product && !loadError 일 때만 로딩 UI (단순 조건 하나) */
@@ -533,36 +614,50 @@ export const ProductDetail: React.FC = () => {
   const hasDiscount = (product?.prp_price != null) && (product?.rrp_price != null);
 
   return (
-    <main
-      className={`relative mx-auto min-w-0 max-w-3xl px-4 py-8 transition-[padding-top] sm:px-6 sm:py-12 ${
-        stickyAddBar ? 'pt-[4.25rem] md:pt-8' : ''
-      }`}
-    >
+    <main className="relative mx-auto min-w-0 max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
       {/* 모바일: 스크롤 시 상단 고정 — 이전가격·최종가격·В корзину */}
       {stickyAddBar && (
         <div
-          className="fixed left-0 right-0 top-0 z-40 flex items-center gap-2 border-b border-slate-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur-md md:hidden"
-          style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}
+          className="fixed left-0 right-0 top-0 z-40 flex items-center gap-1.5 border-b border-slate-200 bg-white/95 px-2.5 py-1.5 shadow-sm backdrop-blur-md md:hidden"
+          style={{ paddingTop: 'max(0.35rem, env(safe-area-inset-top))' }}
         >
+          {/* 모바일 고정바: 대표 썸네일 + 가격 + 버튼 (~20% 축소) */}
+          <div className="flex h-9 w-9 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-50">
+            {mainImages.length > 0 ? (
+              <img src={mainImages[0]} alt="" className="h-full w-full object-cover" />
+            ) : (
+              <span className="flex h-full w-full items-center justify-center text-[9px] text-slate-400">—</span>
+            )}
+          </div>
           <div className="min-w-0 flex-1 text-center">
             {product?.rrp_price != null && (
               <span
-                className={`block text-xs ${hasDiscount ? 'text-slate-500 line-through' : 'text-slate-500'}`}
+                className={`block text-[10px] leading-tight ${hasDiscount ? 'text-slate-500 line-through' : 'text-slate-500'}`}
               >
                 {formatPrice(Number(product.rrp_price))}
               </span>
             )}
-            <span className="text-sm font-semibold tabular-nums text-slate-900">
+            <span className="text-xs font-semibold tabular-nums text-slate-900">
               {price != null ? formatPrice(Number(price)) : '—'}
             </span>
           </div>
           <button
             type="button"
             onClick={handleAddToCart}
-            className="shrink-0 rounded-full bg-brand px-4 py-2.5 text-sm font-semibold text-white min-h-11"
+            className="shrink-0 rounded-full bg-brand px-3 py-2 text-xs font-semibold text-white min-h-9 min-w-0"
           >
             В корзину
           </button>
+        </div>
+      )}
+
+      {/* 장바구니 담기 토스트 — 하단 네비 위 */}
+      {cartToast && (
+        <div
+          className="fixed left-1/2 z-50 max-w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-slate-200 bg-slate-900 px-4 py-3 text-center text-sm font-medium text-white shadow-lg max-md:bottom-[calc(4.25rem+env(safe-area-inset-bottom,0px))] md:bottom-8"
+          role="status"
+        >
+          Товар добавлен в корзину
         </div>
       )}
 

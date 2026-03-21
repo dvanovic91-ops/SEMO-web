@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { BackArrow } from '../components/BackArrow';
 import { supabase, setRememberMe } from '../lib/supabase';
 import { isValidEmailFormat } from '../lib/emailValidation';
 
@@ -240,12 +239,6 @@ export const Login: React.FC = () => {
           Зарегистрироваться
         </Link>
       </div>
-
-      <p className="mt-6 text-center">
-        <Link to="/" className="inline-flex items-center justify-center gap-1.5 text-sm font-medium text-brand hover:opacity-90">
-          <BackArrow /> На главную
-        </Link>
-      </p>
     </main>
   );
 };

@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { getOrCreateVisitSessionId } from '../lib/clientSession';
+import { migrateLegacyProfileEditToSupabase } from '../lib/profileDeliveryDb';
 
 /** 테스트용 관리자 이메일 — 이 계정으로 로그인 시 Profile 진입용 dummy userId 사용 */
 export const TEST_ADMIN_EMAIL = 'admin@semo-beautybox.com';
@@ -118,8 +119,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const applySession = useCallback(async (session: Session | null) => {
     if (session?.user) {
-      // 레거시 공용 키 정리: 과거 profileEdit 단일 키로 인한 계정 간 혼선 방지
+      // 레거시 profileEdit 로컬 데이터 → Supabase shipping_addresses 1회 이관 후 단일 키 정리
       try {
+        if (supabase) {
+          await migrateLegacyProfileEditToSupabase(supabase, session.user.id, session.user.email ?? null);
+        }
         localStorage.removeItem('profileEdit');
       } catch {
         // ignore

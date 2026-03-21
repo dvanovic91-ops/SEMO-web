@@ -92,6 +92,11 @@ create table if not exists public.shipping_addresses (
   unique(user_id)
 );
 
+-- ФИО (라틴) — 프로필/결제 폼 upsert용. 기존 DB에는 docs/SUPABASE_SHIPPING_FIO_COLUMNS.sql 단독 실행으로도 추가 가능.
+alter table public.shipping_addresses add column if not exists fio_last text;
+alter table public.shipping_addresses add column if not exists fio_first text;
+alter table public.shipping_addresses add column if not exists fio_middle text;
+
 alter table public.shipping_addresses enable row level security;
 
 create policy "본인 배송지만 조회/수정"

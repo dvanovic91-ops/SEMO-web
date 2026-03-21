@@ -111,6 +111,11 @@ create table if not exists public.shipping_addresses (
   unique(user_id)
 );
 
+-- 기존 DB에도 적용: docs/SUPABASE_SHIPPING_FIO_COLUMNS.sql
+alter table public.shipping_addresses add column if not exists fio_last text;
+alter table public.shipping_addresses add column if not exists fio_first text;
+alter table public.shipping_addresses add column if not exists fio_middle text;
+
 alter table public.shipping_addresses enable row level security;
 
 drop policy if exists "본인 배송지만 조회/수정" on public.shipping_addresses;

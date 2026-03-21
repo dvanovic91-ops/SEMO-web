@@ -5,8 +5,8 @@
 | # | 항목 | 설명 | 조치 |
 |---|------|------|------|
 | 1 | **응답 race** | 다른 사용자로 전환하거나 뒤로가기 직후 이전 요청이 늦게 도착해 `setDbProfile`에 이전 사용자 데이터가 들어감 | `refreshProfile`에서 `requestedUserId`와 `currentUserIdRef.current` 비교 후 일치할 때만 `setDbProfile` 호출 |
-| 2 | **마운트 시 이전 데이터** | Profile 재진입 시 이전 마운트의 state가 남아 있다고 오인할 수 있음 (React는 마운트 시 state 초기값으로 리셋됨) | 진입 시 `useEffect`에서 `setDbProfile(null)` 후 `refreshProfile()` 호출해, fetch 완료 전에는 `dbProfile`이 null이고 `profile = dbProfile ?? localProfile`만 표시 |
-| 3 | **localProfile 혼동** | `getProfile(userEmail)`이 이메일별로 저장되므로, 동일 기기에서 여러 계정 사용 시 userEmail이 바뀌기 전 로컬 데이터가 잠깐 보일 수 있음 | AuthContext에서 로그인 시 `userEmail`/`userId`가 동시에 갱신되므로, Profile은 항상 현재 `userEmail`로 localProfile을 조회. 로그아웃 후 다른 계정 로그인 시 새 userEmail로만 표시됨 |
+| 2 | **마운트 시 이전 데이터** | Profile 재진입 시 이전 마운트의 state가 남아 있다고 오인할 수 있음 (React는 마운트 시 state 초기값으로 리셋됨) | `refreshProfile`에서 `requestedUserId`와 `currentUserIdRef`로 race 방지. 이름·포인트는 **`dbProfile`(DB 조회 결과)만** 표시 — localStorage/sessionStorage에 이름·포인트 캐시 없음 |
+| 3 | **표시 일관성** | 이름·포인트는 **Supabase `profiles`** 가 유일한 근거 | 로드 전 이름은 이메일 접두사 플레이스홀더, 포인트는 스켈레톤. `userProfileByEmail` 등 로컬 프로필 캐시 없음 |
 | 4 | **캐시/지연** | Supabase 또는 브라우저 캐시로 이전 사용자 프로필이 반환될 가능성 | RLS로 `auth.uid() = id`만 조회 가능. 같은 세션에서는 다른 사용자 행이 반환되지 않음 |
 
 ## 검토 시 확인할 것

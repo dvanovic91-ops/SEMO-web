@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link, Navigate } from 'react-router-dom';
+import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { BackArrow } from '../../components/BackArrow';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
@@ -69,6 +69,8 @@ const canEditShipping = (status: Order['status']) =>
 
 export const ProfileOrders: React.FC = () => {
   const { isLoggedIn, initialized, userId } = useAuth();
+  const [searchParams] = useSearchParams();
+  const highlightOrderId = searchParams.get('order');
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   /** 수정 중인 주문 id. 설정 시 해당 카드에 인라인 수정 폼 표시 */
@@ -126,6 +128,21 @@ export const ProfileOrders: React.FC = () => {
       .finally(() => setLoading(false));
   }, [userId]);
 
+  /** 알림에서 ?order=uuid 로 진입 시 해당 카드로 스크롤 */
+  useEffect(() => {
+    if (!highlightOrderId || loading) return;
+    const id = `order-card-${highlightOrderId}`;
+    const t = window.setTimeout(() => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        el.classList.add('ring-2', 'ring-brand/40');
+        window.setTimeout(() => el.classList.remove('ring-2', 'ring-brand/40'), 2400);
+      }
+    }, 100);
+    return () => window.clearTimeout(t);
+  }, [highlightOrderId, loading, orders]);
+
   if (!initialized) return null;
   if (!isLoggedIn) return <Navigate to="/login" replace />;
 
@@ -170,6 +187,7 @@ export const ProfileOrders: React.FC = () => {
         {orders.map((order) => (
           <li
             key={order.id}
+            id={`order-card-${order.id}`}
             className={`rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden ${order.is_test ? 'ring-1 ring-amber-200 bg-amber-50/30' : ''}`}
           >
             {/* 상단: 주문번호 + 날짜 + 테스트 뱃지 */}

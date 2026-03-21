@@ -178,9 +178,6 @@ export const SkinTest: React.FC = () => {
               >
                 Зарегистрироваться! Всего 10 секунд!
               </Link>
-              <Link to="/" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90">
-                <BackArrow /> На главную
-              </Link>
             </div>
           </div>
         </main>
@@ -199,9 +196,6 @@ export const SkinTest: React.FC = () => {
                 className="w-full max-w-xs rounded-full bg-brand py-3.5 text-center text-sm font-medium text-white transition hover:bg-brand/90 sm:py-4"
               >
                 В профиль
-              </Link>
-              <Link to="/" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90">
-                <BackArrow /> На главную
               </Link>
             </div>
           </div>
@@ -229,14 +223,8 @@ export const SkinTest: React.FC = () => {
               onClick={handleAgree}
               className="w-full max-w-xs rounded-full border border-brand bg-white py-3 text-sm font-medium text-brand transition hover:bg-brand hover:text-white sm:py-3.5 md:py-4"
             >
-              Согласна и начать / Согласен и начать
+              Согласен(а) и начать
             </button>
-            <Link
-              to="/"
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"
-            >
-              <BackArrow /> На главную
-            </Link>
           </div>
         </div>
       </main>
@@ -473,12 +461,6 @@ export const SkinTest: React.FC = () => {
                 Смотреть товары
               </Link>
             )}
-            <Link
-              to="/"
-              className="inline-flex items-center justify-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"
-            >
-              <BackArrow /> На главную
-            </Link>
           </div>
         </div>
       </main>

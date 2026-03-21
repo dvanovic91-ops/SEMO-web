@@ -1,12 +1,21 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { useAuth, ADMIN_DUMMY_USER_ID } from '../../context/AuthContext';
 import { resendSignupConfirmationEmail } from '../../lib/authSignupResend';
-import { getProfile, setProfile } from '../../lib/profileStorage';
 import { InnHelpTooltip } from '../../components/InnHelpTooltip';
 import { AddressSuggest } from '../../components/AddressSuggest';
 import { BackArrow } from '../../components/BackArrow';
 import { supabase } from '../../lib/supabase';
+import {
+  migrateLegacyProfileEditToSupabase,
+  shippingFormToSnakePatch,
+  shippingRowToFormFields,
+  upsertShippingFromForm,
+  type ShippingAddressRow,
+  type ShippingFormCamel,
+} from '../../lib/profileDeliveryDb';
+import { clearPendingShippingBackup, flushPendingShippingBackup, savePendingShippingBackup } from '../../lib/profileDeliveryOffline';
+import { shippingHasAnyField, validateShippingOrEmpty } from '../../lib/shippingValidation';
 
 /**
  * 프로필 수정 — 기본 인적/배송 정보 보기·수정.
@@ -35,29 +44,6 @@ function formatPhone(value: string): string {
 
 function normalizeLatin(value: string): string {
   return (value ?? '').replace(/[^A-Za-z\s-']/g, '');
-}
-
-function loadSavedProfile(
-  storageKey: string,
-  userId: string | null,
-  userEmail: string | null
-): Record<string, string> {
-  try {
-    const raw = localStorage.getItem(storageKey);
-    if (raw) {
-      const parsed = JSON.parse(raw) as Record<string, string>;
-      const ownerUserId = parsed.__owner_user_id ?? '';
-      const ownerEmail = (parsed.__owner_email ?? '').toLowerCase();
-      const currentEmail = (userEmail ?? '').toLowerCase();
-      // 계정이 바뀐 저장값은 무시해 계정 간 혼선 차단
-      if (ownerUserId && userId && ownerUserId !== userId) return {};
-      if (ownerEmail && currentEmail && ownerEmail !== currentEmail) return {};
-      return parsed;
-    }
-  } catch {
-    // ignore
-  }
-  return {};
 }
 
 /** 로딩 스피너 — auth/세션 대기 시 항상 이걸로 먼저 반환 */
@@ -127,7 +113,10 @@ export const ProfileEdit: React.FC = () => {
   const [initialForm, setInitialForm] = useState<Record<string, string> | null>(null);
   const [telegramLinked, setTelegramLinked] = useState(false);
   const [passwordSection, setPasswordSection] = useState(false);
-  const [saved, setSaved] = useState(false);
+  /** 저장 중 / 결과 피드백 */
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccessToast, setSaveSuccessToast] = useState(false);
   const [pwCurrent, setPwCurrent] = useState('');
   const [pwNew, setPwNew] = useState('');
   const [pwConfirm, setPwConfirm] = useState('');
@@ -151,36 +140,54 @@ export const ProfileEdit: React.FC = () => {
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const safeUserEmail = userEmail ?? '';
-  const scopedProfileEditKey = useMemo(
-    () => `profileEdit:${userId ?? safeUserEmail.toLowerCase()}`,
-    [userId, safeUserEmail]
-  );
-  const profile = safeUserEmail ? getProfile(safeUserEmail) : null;
-  const safeName = profile?.name ?? (safeUserEmail ? safeUserEmail.split('@')[0] ?? '' : '');
+  /** 서버 저장 실패 시 로컬 백업 안내(러시아어) */
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
+  /** DB 로드 전 표시용 기본값 — 진실의 원천은 profiles 조회 */
+  const safeName = safeUserEmail ? safeUserEmail.split('@')[0] ?? '' : '';
 
+  /** profiles + shipping_addresses 병합 — 기기가 바뀌어도 로그인 시 동일 데이터 */
   const loadProfileFromDb = useCallback(() => {
     if (!supabase || !userId) return;
-    supabase
-      .from('profiles')
-      .select('name, phone, telegram_id, telegram_reward_given')
-      .eq('id', userId)
-      .single()
-      .then(({ data }) => {
-        if (data) {
-          const nextLinked = !!data?.telegram_id;
-          setTelegramLinked((prev) => {
-            if (prev === true && !nextLinked) console.warn('Telegram state changed! (ProfileEdit) — was linked, now unlinked. Check DB or network.');
-            return nextLinked;
-          });
-          setForm((prev) => ({
-            ...prev,
-            name: data?.name ?? prev?.name ?? safeName,
-            phone: data?.phone ?? prev?.phone ?? '',
-          }));
-        }
+    Promise.all([
+      supabase
+        .from('profiles')
+        .select('name, phone, telegram_id, telegram_reward_given')
+        .eq('id', userId)
+        .single(),
+      supabase.from('shipping_addresses').select('*').eq('user_id', userId).maybeSingle(),
+    ])
+      .then(([{ data }, { data: shipRow }]) => {
+        if (!data) return;
+        const nextLinked = !!data?.telegram_id;
+        setTelegramLinked((prev) => {
+          if (prev === true && !nextLinked) console.warn('Telegram state changed! (ProfileEdit) — was linked, now unlinked. Check DB or network.');
+          return nextLinked;
+        });
+        const shipForm = shippingRowToFormFields(shipRow as ShippingAddressRow | null);
+        const up = (s: string) => (s ?? '').replace(/[^A-Za-z\s-']/g, '').toUpperCase();
+        setForm((prev) => ({
+          ...prev,
+          email: safeUserEmail || prev?.email || '',
+          name: data?.name ?? prev?.name ?? safeName,
+          phone: data?.phone ?? prev?.phone ?? '',
+          fioLast: up(shipForm.fioLast ?? prev?.fioLast ?? ''),
+          fioFirst: up(shipForm.fioFirst ?? prev?.fioFirst ?? ''),
+          fioMiddle: up(shipForm.fioMiddle ?? prev?.fioMiddle ?? ''),
+          cityRegion: shipForm.cityRegion ?? prev?.cityRegion ?? '',
+          streetHouse: shipForm.streetHouse ?? prev?.streetHouse ?? '',
+          apartmentOffice: shipForm.apartmentOffice ?? prev?.apartmentOffice ?? '',
+          postcode: shipForm.postcode ?? prev?.postcode ?? '',
+          inn: shipForm.inn ?? prev?.inn ?? '',
+          passportSeries: shipForm.passportSeries ?? prev?.passportSeries ?? '',
+          passportNumber: shipForm.passportNumber ?? prev?.passportNumber ?? '',
+        }));
+        const fioMiddleVal = up(shipForm.fioMiddle ?? '');
+        setNoPatronymic(!fioMiddleVal.trim());
+        const parts = [shipForm.cityRegion, shipForm.streetHouse, shipForm.apartmentOffice, shipForm.postcode].filter(Boolean);
+        if (parts.length) setAddressSearch(parts.join(', '));
       })
       .catch(() => {});
-  }, [userId, safeName]);
+  }, [userId, safeName, safeUserEmail]);
 
   // [Auth 동기화] 페이지 진입 시 getSession()으로 세션 확인, 없으면 로그인 리다이렉트
   useEffect(() => {
@@ -203,10 +210,22 @@ export const ProfileEdit: React.FC = () => {
     return () => { cancelled = true; };
   }, [initialized]);
 
+  /** 레거시 localStorage → DB 1회 이관 후 대기 중 백업 플러시, 이어서 프로필 로드 */
   useEffect(() => {
-    if (!userId) return;
-    loadProfileFromDb();
-  }, [loadProfileFromDb, userId]);
+    if (!supabase || !userId || !safeUserEmail) return;
+    let cancelled = false;
+    (async () => {
+      await migrateLegacyProfileEditToSupabase(supabase, userId, safeUserEmail);
+      if (cancelled) return;
+      const flushed = await flushPendingShippingBackup(supabase, userId);
+      if (flushed) setSyncNotice(null);
+      if (cancelled) return;
+      loadProfileFromDb();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, userId, safeUserEmail, loadProfileFromDb]);
 
   useEffect(() => {
     void refreshEmailConfirmationFromServer();
@@ -241,11 +260,15 @@ export const ProfileEdit: React.FC = () => {
 
   useEffect(() => {
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') loadProfileFromDb();
+      if (document.visibilityState !== 'visible' || !supabase || !userId) return;
+      void flushPendingShippingBackup(supabase, userId).then((ok) => {
+        if (ok) setSyncNotice(null);
+        loadProfileFromDb();
+      });
     };
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
-  }, [loadProfileFromDb]);
+  }, [loadProfileFromDb, supabase, userId]);
 
   // Telegram 링크 연 뒤 연동 완료될 때까지 폴링; 연동되면 토스트 표시 후 폴링 중단
   useEffect(() => {
@@ -278,40 +301,29 @@ export const ProfileEdit: React.FC = () => {
     };
   }, [pollingForTelegram, userId, supabase]);
 
-  // 폼 초기값 — userEmail/profile 기반 (모든 훅은 위에서만 호출)
+  // 이메일·표시 이름만 동기화 — 배송 필드는 loadProfileFromDb(shipping_addresses)에서 채움
   useEffect(() => {
     setForm((prev) => ({
       ...prev,
       email: (safeUserEmail || prev?.email) ?? '',
       name: (prev?.name || safeName),
-      fioLast: prev?.fioLast ?? '',
-      fioFirst: prev?.fioFirst ?? '',
-      fioMiddle: prev?.fioMiddle ?? '',
-      cityRegion: prev?.cityRegion ?? '',
-      streetHouse: prev?.streetHouse ?? '',
-      apartmentOffice: prev?.apartmentOffice ?? '',
-      postcode: prev?.postcode ?? '',
-      inn: prev?.inn ?? '',
-      passportSeries: prev?.passportSeries ?? '',
-      passportNumber: prev?.passportNumber ?? '',
     }));
   }, [safeUserEmail, safeName]);
 
-  // 개인정보창 진입 시 localStorage(profileEdit)에서 배송 데이터 로드 — ФИО는 항상 대문자로, 부칭 없음 체크 유지
+  /** 온라인 복구 시 대기 중인 배송 데이터 서버 전송 */
   useEffect(() => {
-    const saved = loadSavedProfile(scopedProfileEditKey, userId, safeUserEmail);
-    if (Object.keys(saved).length === 0) return;
-    const up = (s: string) => (s ?? '').replace(/[^A-Za-z\s-']/g, '').toUpperCase();
-    const fioMiddleVal = up(saved.fioMiddle ?? '');
-    setNoPatronymic(!fioMiddleVal.trim());
-    setForm((prev) => ({
-      ...prev,
-      ...saved,
-      fioLast: up(saved.fioLast ?? prev?.fioLast ?? ''),
-      fioFirst: up(saved.fioFirst ?? prev?.fioFirst ?? ''),
-      fioMiddle: fioMiddleVal,
-    }));
-  }, [scopedProfileEditKey, userId, safeUserEmail]);
+    if (!supabase || !userId) return;
+    const onOnline = () => {
+      void flushPendingShippingBackup(supabase, userId).then((ok) => {
+        if (ok) {
+          setSyncNotice(null);
+          loadProfileFromDb();
+        }
+      });
+    };
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [supabase, userId, loadProfileFromDb]);
 
   useEffect(() => {
     if (!focusPhone || !(form?.email)) return;
@@ -332,6 +344,7 @@ export const ProfileEdit: React.FC = () => {
   const isDirty = editing && initialForm !== null && JSON.stringify(form) !== JSON.stringify(initialForm);
 
   const handleChange = (key: string, value: string) => {
+    setSaveError(null);
     let next = value ?? '';
     if (key === 'fioLast' || key === 'fioFirst' || key === 'fioMiddle') next = normalizeLatin(next).toUpperCase();
     setForm((prev) => ({ ...prev, [key]: next }));
@@ -343,38 +356,64 @@ export const ProfileEdit: React.FC = () => {
   };
 
   const handleSave = async () => {
+    if (!supabase || !userId) return;
+    setSaveError(null);
+    const shippingForm: ShippingFormCamel = {
+      fioLast: form?.fioLast ?? '',
+      fioFirst: form?.fioFirst ?? '',
+      fioMiddle: form?.fioMiddle ?? '',
+      cityRegion: form?.cityRegion ?? '',
+      streetHouse: form?.streetHouse ?? '',
+      apartmentOffice: form?.apartmentOffice ?? '',
+      postcode: form?.postcode ?? '',
+      phone: form?.phone ?? '',
+      inn: form?.inn ?? '',
+      passportSeries: form?.passportSeries ?? '',
+      passportNumber: form?.passportNumber ?? '',
+    };
+    const profilesPatch = {
+      name: (form?.name ?? '').trim() || null,
+      phone: (form?.phone ?? '').trim() || null,
+    };
+
+    const block = validateShippingOrEmpty(shippingForm);
+    if (!block.ok) {
+      setSaveError(block.messageRu);
+      return;
+    }
+    const wantShipping = shippingHasAnyField(shippingForm);
+
+    setSaveLoading(true);
     try {
-      if (form?.name && profile) {
-        setProfile(safeUserEmail, { ...profile, name: form.name, grade: profile?.grade ?? 'Обычный участник', points: profile?.points ?? 0 });
+      const { error: profErr } = await supabase.from('profiles').update(profilesPatch).eq('id', userId);
+      if (profErr) throw new Error(profErr.message);
+      if (wantShipping) {
+        const shipErr = await upsertShippingFromForm(supabase, userId, shippingForm);
+        if (shipErr) throw new Error(shipErr.message);
       }
-      if (supabase && userId) {
-        const payload: { name?: string | null; phone?: string | null } = {};
-        if (form?.name !== undefined) payload.name = form.name || null;
-        if (form?.phone !== undefined) payload.phone = form.phone || null;
-        if (Object.keys(payload).length > 0) {
-          await supabase.from('profiles').update(payload).eq('id', userId);
-        }
-      }
+      clearPendingShippingBackup(userId);
+      setSyncNotice(null);
       setEditing(false);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-      // 결제 화면에서도 동일한 배송·부칭 정보 쓰도록 localStorage(profileEdit)에 저장
-      try {
-        const saved = loadSavedProfile(scopedProfileEditKey, userId, safeUserEmail);
-        localStorage.setItem(
-          scopedProfileEditKey,
-          JSON.stringify({
-            ...saved,
-            ...form,
-            __owner_user_id: userId ?? '',
-            __owner_email: safeUserEmail.toLowerCase(),
-          })
-        );
-      } catch {
-        // ignore
-      }
-    } catch {
-      // ignore
+      setInitialForm(null);
+      setSaveSuccessToast(true);
+      window.setTimeout(() => setSaveSuccessToast(false), 3500);
+      void loadProfileFromDb();
+    } catch (e) {
+      const msg =
+        e instanceof Error
+          ? e.message
+          : 'Не удалось сохранить. Проверьте подключение и попробуйте снова.';
+      setSaveError(msg);
+      savePendingShippingBackup(userId, {
+        userId,
+        profilesPatch,
+        shippingPatch: shippingFormToSnakePatch(shippingForm),
+      });
+      setSyncNotice(
+        'Не удалось сохранить на сервер. Введённые данные не сброшены — исправьте сеть и нажмите «Сохранить» снова.',
+      );
+    } finally {
+      setSaveLoading(false);
     }
   };
 
@@ -438,6 +477,11 @@ export const ProfileEdit: React.FC = () => {
           <p className="mt-1 text-sm text-slate-500">
             Основные данные и адрес доставки. Ниже — смена пароля.
           </p>
+          {syncNotice && (
+            <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" role="status">
+              {syncNotice}
+            </p>
+          )}
         </header>
 
         <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
@@ -463,8 +507,9 @@ export const ProfileEdit: React.FC = () => {
                       : 'border-sky-100/90 bg-sky-50/95'
                   }`}
                 >
-                  <div className="grid grid-cols-1 md:grid-cols-2 md:gap-0">
-                    <div className="flex min-h-0 flex-col md:border-r md:border-slate-200/60 md:pr-5">
+                  {/* Личный кабинет과 동일: 모바일도 2열(텔еграм | email) */}
+                  <div className="grid grid-cols-2 gap-x-2 sm:gap-x-4 md:gap-x-0">
+                    <div className="flex min-h-0 min-w-0 flex-col border-r border-slate-200/60 pr-2 sm:pr-3 md:pr-5">
                       <div className="flex items-center justify-center gap-2.5">
                         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/80 text-[#26A5E4] shadow-sm ring-1 ring-sky-100/80">
                           <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden>
@@ -501,37 +546,24 @@ export const ProfileEdit: React.FC = () => {
                       )}
                     </div>
 
-                    <div className="mt-5 flex min-h-0 flex-col border-t border-slate-200/60 pt-5 md:mt-0 md:border-t-0 md:pl-5 md:pt-0">
-                      <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
-                        <span
-                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full shadow-sm ring-1 ring-slate-200/80 ${
-                            isEmailConfirmed
-                              ? 'bg-emerald-50 text-emerald-700 ring-emerald-200/90'
-                              : 'bg-white/80 text-slate-600'
-                          }`}
-                        >
+                    <div className="flex min-h-0 min-w-0 flex-col pl-2 sm:pl-3 md:pl-5">
+                      {/* Telegram 열과 동일: 아이콘+제목 한 줄, 버튼 한 줄, (선택) 짧은 안내만 */}
+                      <div className="flex items-center justify-center gap-2.5">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/80 text-slate-600 shadow-sm ring-1 ring-slate-200/80">
                           <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" aria-hidden>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
                           </svg>
                         </span>
                         <p className="text-sm font-semibold tracking-tight text-slate-900">E-mail</p>
-                        {isEmailConfirmed && (
-                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-900">
-                            Подтверждён
-                          </span>
-                        )}
                       </div>
-                      <p className="prose-ru mx-auto mt-1 max-w-[19rem] break-all px-1 text-center text-[10px] text-slate-500 sm:text-[11px]" title={safeUserEmail}>
-                        {safeUserEmail}
-                      </p>
                       <div className="mt-2.5">
                         {!initialized ? (
-                          <p className="text-center text-sm text-slate-500">Загрузка…</p>
+                          <div className="h-11 w-full animate-pulse rounded-xl bg-slate-200/70" aria-hidden />
                         ) : isEmailConfirmed ? (
                           <button
                             type="button"
                             disabled
-                            className="flex min-h-11 w-full cursor-default items-center justify-center rounded-xl border border-emerald-300/90 bg-gradient-to-b from-emerald-50 to-emerald-100/90 px-2 py-2.5 text-center text-xs font-semibold text-emerald-900 shadow-md shadow-emerald-900/10"
+                            className="flex min-h-11 w-full cursor-default items-center justify-center whitespace-nowrap rounded-xl border border-emerald-200/90 bg-emerald-50/95 px-2 py-2.5 text-center text-[11px] font-semibold leading-none text-emerald-800 shadow-sm sm:text-xs"
                             aria-label="Email подтверждён"
                           >
                             Email подтверждён ✅
@@ -541,28 +573,16 @@ export const ProfileEdit: React.FC = () => {
                             type="button"
                             disabled={verifyEmailSending}
                             onClick={() => void handleSendProfileVerifyEmail()}
-                            className="min-h-11 w-full rounded-xl bg-slate-800 px-2 py-2.5 text-center text-xs font-semibold text-white shadow-md shadow-slate-900/20 transition hover:bg-slate-900 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
+                            className="flex min-h-11 w-full items-center justify-center whitespace-nowrap rounded-xl bg-slate-800 px-2 py-2.5 text-center text-[11px] font-semibold leading-none text-white shadow-md shadow-slate-900/20 transition hover:bg-slate-900 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60 sm:text-xs"
                           >
                             {verifyEmailSending ? 'Отправка…' : 'Подтвердить email'}
                           </button>
                         )}
                       </div>
-                      {initialized && isEmailConfirmed && (
-                        <p className="prose-ru mx-auto mt-3 max-w-[19rem] text-center text-[10px] leading-snug text-emerald-800/90 sm:max-w-[20rem] sm:text-[11px] sm:leading-snug">
-                          Адрес подтверждён — можно оформлять заказы и получать письма.
-                        </p>
-                      )}
                       {initialized && !isEmailConfirmed && (
-                        <>
-                          <p className="prose-ru mx-auto mt-3 max-w-[19rem] text-center text-[10px] leading-snug text-[#6B7280] sm:max-w-[20rem] sm:text-[11px] sm:leading-snug">
-                            Email нужен для подтверждения заказов.
-                            <br />
-                            Без подтверждения покупка заблокирована.
-                          </p>
-                          <span className="prose-ru mt-2 block text-center text-[10px] leading-snug text-red-500 sm:text-[11px]">
-                            Используйте реальный e-mail. Без подтверждения заказ невозможен, а перенос бонусов на другой аккаунт запрещен.
-                          </span>
-                        </>
+                        <p className="prose-ru mx-auto mt-3 max-w-[19rem] text-center text-[10px] leading-snug text-[#6B7280] sm:max-w-[20rem] sm:text-[11px]">
+                          Подтвердите email для оформления заказа.
+                        </p>
                       )}
                     </div>
                   </div>
@@ -690,24 +710,35 @@ export const ProfileEdit: React.FC = () => {
 
                 <div>
                   <label htmlFor="pe-phone" className={labelClass}>Номер телефона</label>
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <div className="flex min-w-0 flex-row items-stretch gap-2">
                     <input
                       ref={phoneInputRef}
                       id="pe-phone"
                       type="tel"
                       placeholder="+7 999 999 9999"
-                      className={`${inputClass} sm:flex-1 ${telegramLinked ? 'cursor-default !bg-slate-200 text-slate-600' : ''}`}
+                      className={`min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 placeholder:text-xs placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand sm:px-4 ${telegramLinked ? 'cursor-default !bg-slate-200 text-slate-600' : ''}`}
                       value={form?.phone ?? ''}
                       onChange={editing && !telegramLinked ? handlePhoneChange : undefined}
                       readOnly={!editing || telegramLinked}
                     />
                     {telegramLinked ? (
-                      <div className="flex shrink-0 flex-wrap items-center gap-2">
-                        <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-xs font-medium text-sky-700">Telegram привязан</span>
-                        {editing && <button type="button" onClick={handleUnlinkToChangePhone} className="text-xs font-medium text-sky-600 underline hover:text-sky-800">Изменить номер</button>}
+                      <div className="flex shrink-0 flex-col justify-center gap-1 sm:flex-row sm:items-center">
+                        <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2.5 py-2 text-center text-[11px] font-medium leading-tight text-sky-700 sm:px-3 sm:text-xs">Telegram привязан</span>
+                        {editing && (
+                          <button type="button" onClick={handleUnlinkToChangePhone} className="whitespace-nowrap text-center text-[11px] font-medium text-sky-600 underline hover:text-sky-800 sm:text-xs">
+                            Изменить номер
+                          </button>
+                        )}
                       </div>
                     ) : (
-                      <button type="button" onClick={handleTelegramVerify} disabled={!editing} className="shrink-0 rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-xs font-medium text-slate-700 transition hover:bg-sky-100 disabled:opacity-60">Подтвердить в Telegram</button>
+                      <button
+                        type="button"
+                        onClick={handleTelegramVerify}
+                        disabled={!editing}
+                        className="shrink-0 self-center rounded-full border border-sky-200 bg-sky-50 px-2.5 py-2 text-center text-[11px] font-medium leading-snug text-slate-700 transition hover:bg-sky-100 disabled:opacity-60 sm:max-w-[9.5rem] sm:px-3 sm:text-xs"
+                      >
+                        Подтвердить в Telegram
+                      </button>
                     )}
                   </div>
                   <p className={`${fieldHintSpacing} ${hintClass}`}>* Телефон подтверждается через Telegram, за подтверждение +200 баллов.</p>
@@ -749,10 +780,24 @@ export const ProfileEdit: React.FC = () => {
           </section>
 
           {!editing ? (
-            <button type="button" onClick={() => { setInitialForm(form); setEditing(true); }} className="w-full rounded-full border border-slate-200 py-3.5 text-base font-medium text-slate-700 transition hover:border-brand hover:bg-brand-soft/10">Редактировать</button>
+            <button type="button" onClick={() => { setSaveError(null); setInitialForm(form); setEditing(true); }} className="w-full rounded-full border border-slate-200 py-3.5 text-base font-medium text-slate-700 transition hover:border-brand hover:bg-brand-soft/10">Редактировать</button>
           ) : (
             isDirty && (
-              <button type="button" onClick={handleSave} className="w-full rounded-full bg-brand py-3.5 text-base font-semibold text-white transition hover:bg-brand/90">{saved ? 'Сохранено' : 'Сохранить'}</button>
+              <div className="space-y-3">
+                {saveError && (
+                  <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800" role="alert">
+                    {saveError}
+                  </p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void handleSave()}
+                  disabled={saveLoading}
+                  className="w-full rounded-full bg-brand py-3.5 text-base font-semibold text-white transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {saveLoading ? 'Сохранение…' : 'Сохранить'}
+                </button>
+              </div>
             )
           )}
         </form>
@@ -764,6 +809,17 @@ export const ProfileEdit: React.FC = () => {
         {telegramLinkedToast && (
           <div className="fixed bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-sky-600 px-5 py-2.5 text-sm font-medium text-white shadow-lg md:bottom-8" role="status" aria-live="polite">
             Telegram привязан. Аккаунт успешно связан.
+          </div>
+        )}
+        {saveSuccessToast && (
+          <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center px-4">
+            <div
+              className="max-w-[min(100vw-2rem,24rem)] rounded-2xl bg-[#1a2f4a] px-5 py-3 text-center text-sm font-medium text-white shadow-lg"
+              role="status"
+              aria-live="polite"
+            >
+              Сохранено.
+            </div>
           </div>
         )}
       </main>

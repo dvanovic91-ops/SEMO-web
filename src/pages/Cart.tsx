@@ -13,9 +13,20 @@ export const Cart: React.FC = () => {
   const { items, updateQuantity, removeItem, total } = useCart();
   const lastSavedRef = useRef<string>('');
 
-  // 로그인 사용자: 장바구니에 품목이 있으면 스냅샷 저장 (이탈 명단/CRM용)
+  // 로그인 사용자: 품목 있으면 스냅샷 upsert(이탈 명단). 비우면 행 삭제 → 관리자 명단에서도 제거.
   useEffect(() => {
-    if (!supabase || !userId || items.length === 0) return;
+    if (!supabase || !userId) return;
+    if (items.length === 0) {
+      lastSavedRef.current = '';
+      void supabase
+        .from('cart_snapshots')
+        .delete()
+        .eq('user_id', userId)
+        .then(({ error }) => {
+          if (error) console.warn('[Cart] cart_snapshots delete (empty):', error.message);
+        });
+      return;
+    }
     const snapshot = JSON.stringify({ items, totalCents: Math.round(total * 100) });
     if (snapshot === lastSavedRef.current) return;
     lastSavedRef.current = snapshot;
@@ -25,10 +36,12 @@ export const Cart: React.FC = () => {
       total_cents: Math.round(total * 100),
       updated_at: new Date().toISOString(),
     };
-    supabase
+    void supabase
       .from('cart_snapshots')
       .upsert(payload, { onConflict: 'user_id' })
-      .then(({ error }) => { if (error) console.warn('[Cart] cart_snapshots upsert:', error.message); });
+      .then(({ error }) => {
+        if (error) console.warn('[Cart] cart_snapshots upsert:', error.message);
+      });
   }, [userId, items, total]);
 
   const originalTotal = items.reduce(
@@ -55,12 +68,62 @@ export const Cart: React.FC = () => {
       <h1 className="text-2xl font-semibold text-slate-900">Корзина</h1>
       <ul className="mt-8 space-y-6">
         {items.map((item) => (
-          <li
-            key={item.id}
-            className="rounded-xl border border-slate-100 bg-white p-4 sm:grid sm:grid-cols-[3.5rem_minmax(0,1fr)_auto_auto_auto] sm:items-center sm:gap-4"
-          >
-            {/* 모바일: 세로 스택(5열 그리드 제거로 잘림 방지) / 데스크톱: 기존 그리드 */}
-            <div className="flex items-start gap-3 sm:contents">
+          <li key={item.id} className="rounded-xl border border-slate-100 bg-white p-4">
+            {/* 모바일: 왼쪽 사진(2행) | 오른쪽 제목 → 다음 행 수량(왼) + 가격 2줄(오른, clamp로 포맷 유지) */}
+            <div className="grid grid-cols-[3.5rem_1fr] gap-x-3 gap-y-2 sm:hidden">
+              <div className="row-span-2 flex h-14 w-14 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-50">
+                {item.imageUrl ? (
+                  <img src={item.imageUrl} alt={item.name} className="h-full w-full object-cover" />
+                ) : (
+                  <span className="flex h-full w-full items-center justify-center text-xs text-slate-400">Слот</span>
+                )}
+              </div>
+              <div className="flex min-w-0 items-start justify-between gap-2">
+                <p className="min-w-0 flex-1 text-sm font-medium leading-snug text-slate-900 line-clamp-2">{item.name}</p>
+                <button
+                  type="button"
+                  onClick={() => removeItem(item.id)}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-red-50 hover:text-red-500"
+                  aria-label="Удалить"
+                >
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              </div>
+              <div className="flex min-w-0 items-center justify-between gap-2">
+                <div className="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-600 hover:border-brand hover:text-brand"
+                  >
+                    −
+                  </button>
+                  <span className="min-w-[2rem] text-center text-sm font-medium tabular-nums">{item.quantity}</span>
+                  <button
+                    type="button"
+                    onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-600 hover:border-brand hover:text-brand"
+                  >
+                    +
+                  </button>
+                </div>
+                <div className="min-w-0 max-w-[min(100%,11.5rem)] shrink text-right leading-tight">
+                  {item.originalPrice != null && item.originalPrice > 0 && (
+                    <p className="text-slate-500 line-through tabular-nums [font-size:clamp(0.625rem,2.6vw,0.8125rem)] [line-height:1.15]">
+                      {formatPrice(item.originalPrice * item.quantity)}
+                    </p>
+                  )}
+                  <p className="font-semibold tabular-nums text-slate-900 [font-size:clamp(0.6875rem,3.1vw,0.9375rem)] [line-height:1.2]">
+                    {formatPrice(item.price * item.quantity)}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* 데스크톱: 한 줄 그리드 */}
+            <div className="hidden sm:grid sm:grid-cols-[3.5rem_minmax(0,1fr)_auto_auto_auto] sm:items-center sm:gap-4">
               <div className="flex h-14 w-14 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-50">
                 {item.imageUrl ? (
                   <img src={item.imageUrl} alt={item.name} className="h-full w-full object-cover" />
@@ -68,20 +131,8 @@ export const Cart: React.FC = () => {
                   <span className="flex h-full w-full items-center justify-center text-xs text-slate-400">Слот</span>
                 )}
               </div>
-              <p className="min-w-0 flex-1 truncate font-medium text-slate-900 sm:min-w-0">{item.name}</p>
-              <button
-                type="button"
-                onClick={() => removeItem(item.id)}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-red-50 hover:text-red-500 sm:hidden"
-                aria-label="Удалить"
-              >
-                <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              </button>
-            </div>
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 sm:mt-0 sm:contents">
-              <div className="flex min-w-0 flex-1 items-center gap-1.5 text-sm tabular-nums sm:flex-none sm:flex-initial">
+              <p className="min-w-0 truncate font-medium text-slate-900">{item.name}</p>
+              <div className="flex items-center gap-1.5 text-sm tabular-nums">
                 {item.originalPrice != null && item.originalPrice > 0 && (
                   <span className="text-slate-500 line-through">{formatPrice(item.originalPrice * item.quantity)}</span>
                 )}
@@ -107,7 +158,7 @@ export const Cart: React.FC = () => {
               <button
                 type="button"
                 onClick={() => removeItem(item.id)}
-                className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-red-50 hover:text-red-500 sm:flex"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-red-50 hover:text-red-500"
                 aria-label="Удалить"
               >
                 <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">

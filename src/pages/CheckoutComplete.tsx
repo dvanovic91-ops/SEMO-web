@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
-import { BackArrow } from '../components/BackArrow';
 import { useCart } from '../context/CartContext';
 
 /** 결제 완료 페이지 — Checkout에서 state·쿼리로 금액/수량/주문번호 전달. 새로고침 시 state는 사라지므로 쿼리 orderId로 주문번호 복구. */
@@ -88,12 +87,6 @@ export const CheckoutComplete: React.FC = () => {
           className="inline-flex items-center gap-1.5 rounded-full bg-brand px-6 py-3 text-sm font-medium text-white hover:bg-brand/90"
         >
           Вернуться в каталог
-        </Link>
-        <Link
-          to="/"
-          className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 px-6 py-3 text-sm font-medium text-slate-700 hover:border-brand hover:text-brand"
-        >
-          <BackArrow /> На главную
         </Link>
       </nav>
     </main>

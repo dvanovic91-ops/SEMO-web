@@ -1,6 +1,4 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
-import { BackArrow } from '../components/BackArrow';
 
 /**
  * About SEMO — 브랜드·서비스 소개.
@@ -17,11 +15,6 @@ export const About: React.FC = () => {
       </p>
       <p className="mt-6 text-base leading-relaxed text-slate-600">
         Доставка door-to-door, обновление бокса по сезонам. Только оригинальная корейская косметика.
-      </p>
-      <p className="mt-10">
-        <Link to="/" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90">
-          <BackArrow /> На главную
-        </Link>
       </p>
     </main>
   );

@@ -63,10 +63,6 @@ function ShopProductCard({ product, onAddToCart, layout }: ShopProductCardProps)
     ? 'prose-ru text-center text-base font-medium leading-snug tracking-wide text-sky-700 md:text-sm'
     : 'prose-ru text-center text-base font-medium leading-snug tracking-wide text-brand md:text-sm';
 
-  const detailBtnClass = isSky
-    ? 'inline-flex min-h-11 w-full items-center justify-center rounded-full border-2 border-sky-600 px-4 py-3 text-center text-base font-semibold text-sky-700 transition hover:bg-sky-50 md:py-2.5 md:text-sm'
-    : 'inline-flex min-h-11 w-full items-center justify-center rounded-full border-2 border-slate-300 px-4 py-3 text-center text-base font-semibold text-slate-700 transition hover:bg-slate-50 md:py-2.5 md:text-sm';
-
   const cartBtnClass = isSky
     ? 'inline-flex min-h-11 w-full items-center justify-center rounded-full bg-sky-600 px-4 py-3 text-base font-semibold text-white transition hover:bg-sky-700 md:py-2.5 md:text-sm'
     : 'inline-flex min-h-11 w-full items-center justify-center rounded-full bg-brand px-4 py-3 text-base font-semibold text-white transition hover:bg-brand/90 md:py-2.5 md:text-sm';
@@ -107,18 +103,6 @@ function ShopProductCard({ product, onAddToCart, layout }: ShopProductCardProps)
         </Link>
       )}
       <div className={buttonWrap}>
-        {product.linkUrl ? (
-          <a href={product.linkUrl} className={`${detailBtnClass} ${layout === 'desktop-carousel' ? 'sm:w-auto' : ''}`}>
-            Подробнее
-          </a>
-        ) : (
-          <Link
-            to={`/product/${product.productId ?? product.id}`}
-            className={`${detailBtnClass} ${layout === 'desktop-carousel' ? 'sm:w-auto' : ''}`}
-          >
-            Подробнее
-          </Link>
-        )}
         <button
           type="button"
           onClick={(e) => {

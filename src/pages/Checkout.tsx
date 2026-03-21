@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
@@ -8,12 +8,22 @@ import { generateOrderNumber } from '../lib/orderNumber';
 import { executePayment } from '../lib/paymentGateway';
 import { supabase } from '../lib/supabase';
 import { resendSignupConfirmationEmail } from '../lib/authSignupResend';
+import {
+  migrateLegacyProfileEditToSupabase,
+  shippingFormToSnakePatch,
+  shippingRowToFormFields,
+  upsertShippingFromForm,
+  type ShippingAddressRow,
+  type ShippingFormCamel,
+} from '../lib/profileDeliveryDb';
+import { clearPendingShippingBackup, flushPendingShippingBackup, savePendingShippingBackup } from '../lib/profileDeliveryOffline';
+import { validateShippingComplete } from '../lib/shippingValidation';
 
 function formatPrice(price: number): string {
   return `${price.toLocaleString('ru-RU')} руб.`;
 }
 
-/** 배송 폼 필드 키 (개인정보 도착ка와 동일, profileEdit 저장 시 이 키만 덮어씀) */
+/** 배송 폼 필드 키 (개인정보·shipping_addresses 와 동일) */
 const DELIVERY_KEYS = [
   'name',
   'phone',
@@ -31,36 +41,17 @@ const DELIVERY_KEYS = [
 
 type DeliveryForm = Record<(typeof DELIVERY_KEYS)[number], string>;
 
-function loadDeliveryFromStorage(
-  storageKey: string,
-  userId: string | null
-): Record<string, string> {
-  try {
-    const raw = localStorage.getItem(storageKey);
-    if (raw) {
-      const parsed = JSON.parse(raw) as Record<string, string>;
-      const ownerUserId = parsed.__owner_user_id ?? '';
-      // 다른 계정 저장값은 무시
-      if (ownerUserId && userId && ownerUserId !== userId) return {};
-      return parsed;
-    }
-  } catch {
-    // ignore
-  }
-  return {};
-}
-
-/** 배송 폼 초기값 — profile + profileEdit에서만 채움. ФИО는 항상 대문자로 */
+/** 배송 폼 초기값 — profiles + shipping_addresses(DB). ФИО는 항상 대문자로 */
 function buildInitialDeliveryForm(
   profile: { name: string | null; phone: string | null } | null,
-  storage: Record<string, string>
+  shipping: Partial<Record<(typeof DELIVERY_KEYS)[number], string>>
 ): DeliveryForm {
   const o: Record<string, string> = {};
   DELIVERY_KEYS.forEach((k) => {
     if (k === 'name' || k === 'phone') {
-      o[k] = profile?.[k]?.trim() ?? storage?.[k] ?? '';
+      o[k] = profile?.[k]?.trim() ?? shipping?.[k] ?? '';
     } else {
-      o[k] = storage?.[k]?.trim() ?? '';
+      o[k] = shipping?.[k]?.trim() ?? '';
     }
   });
   if (o.fioLast) o.fioLast = o.fioLast.replace(/[^A-Za-z\s-']/g, '').toUpperCase();
@@ -104,10 +95,13 @@ export const Checkout: React.FC = () => {
   const [deliveryForm, setDeliveryForm] = useState<DeliveryForm>(() =>
     buildInitialDeliveryForm(null, {})
   );
+  /** DB shipping_addresses → camelCase (profiles.name/phone은 별도 profile 상태) */
+  const [shippingFromDb, setShippingFromDb] = useState<Partial<Record<(typeof DELIVERY_KEYS)[number], string>>>({});
+  /** profiles·shipping_addresses 조회 완료 후 배송 폼 1회 채움 */
+  const [shippingLoaded, setShippingLoaded] = useState(false);
   const [saveDeliveryAsDefault, setSaveDeliveryAsDefault] = useState(true);
   const [noPatronymic, setNoPatronymic] = useState(false);
   const [addressQuery, setAddressQuery] = useState('');
-  const scopedProfileEditKey = useMemo(() => `profileEdit:${userId ?? 'guest'}`, [userId]);
   const deliveryFormInitialized = useRef(false);
   /** CS 방어: 결제 단계에서 가격 본 적 한 번만 로그 */
   const paymentStepViewedLoggedRef = useRef(false);
@@ -136,17 +130,32 @@ export const Checkout: React.FC = () => {
       setProfile(null);
       setUserPoints(0);
       setMembershipCoupons([]);
+      setShippingFromDb({});
+      setShippingLoaded(false);
       setLoading(false);
       return;
     }
     setEmailGateNotice(null);
+    setShippingLoaded(false);
 
     const load = async () => {
+      await migrateLegacyProfileEditToSupabase(supabase, userId, userEmail ?? null);
+      await flushPendingShippingBackup(supabase, userId);
+
       const { data, error } = await supabase
         .from('profiles')
         .select('name, phone, points')
         .eq('id', userId)
         .single();
+
+      const { data: shipRow } = await supabase
+        .from('shipping_addresses')
+        .select('*')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      const shipFields = shippingRowToFormFields(shipRow as ShippingAddressRow | null);
+      setShippingFromDb(shipFields as Partial<Record<(typeof DELIVERY_KEYS)[number], string>>);
 
       if (error || !data) {
         setProfile(null);
@@ -168,76 +177,102 @@ export const Checkout: React.FC = () => {
         (coupons as { id: string; amount: number; expires_at: string; used_at: string | null }[]) ?? [],
       );
       setSelectedCouponId(null);
+      setShippingLoaded(true);
       setLoading(false);
     };
 
     void load();
-  }, [userId]);
+  }, [userId, userEmail]);
 
   useEffect(() => {
     loadProfile();
   }, [loadProfile]);
 
-  // 프로필·storage 로드 후 배송 폼 초기값 채움 (한 번만 덮어쓰고, 프로필이 늦게 로드되면 한 번 더 반영). 부칭 없음 체크는 개인정보에서 저장한 값과 동일하게.
+  /** 계정 전환 시 배송 폼 다시 채움 */
   useEffect(() => {
-    if (loading) return;
-    if (deliveryFormInitialized.current && profile != null) return;
-    const storage = loadDeliveryFromStorage(scopedProfileEditKey, userId);
-    const next = buildInitialDeliveryForm(profile, storage);
+    deliveryFormInitialized.current = false;
+  }, [userId]);
+
+  /** profiles + shipping_addresses 로드 후 배송 폼 1회 초기화 */
+  useEffect(() => {
+    if (loading || !shippingLoaded) return;
+    if (deliveryFormInitialized.current) return;
+    const next = buildInitialDeliveryForm(profile, shippingFromDb);
     setDeliveryForm(next);
     setNoPatronymic(!(next.fioMiddle ?? '').trim());
     const parts = [next.cityRegion, next.streetHouse, next.apartmentOffice, next.postcode].filter(Boolean);
     if (parts.length) setAddressQuery(parts.join(', '));
-    if (profile != null) deliveryFormInitialized.current = true;
-  }, [loading, profile, scopedProfileEditKey, userId]);
+    deliveryFormInitialized.current = true;
+  }, [loading, shippingLoaded, profile, shippingFromDb, userId]);
 
   const setDeliveryField = useCallback((key: keyof DeliveryForm, value: string) => {
     setDeliveryForm((prev) => ({ ...prev, [key]: value }));
   }, []);
 
-  /** 결제 확정 시 체크 시 개인정보(도착카)만 덮어쓰기. 프로필 이름은 건드리지 않음 — 개인정보설정에서만 변경. 훅은 early return 위에 둬야 함 */
-  const saveDeliveryToProfile = useCallback(async (): Promise<void> => {
-    if (!saveDeliveryAsDefault) return;
+  /** 결제 확정 시: profiles.phone + shipping_addresses upsert. @returns false 이면 주문 진행 중단(검증 실패·저장 실패). */
+  const saveDeliveryToProfile = useCallback(async (): Promise<boolean> => {
+    if (!saveDeliveryAsDefault || !supabase || !userId) return true;
 
-    const nameFromFio = [deliveryForm.fioLast, deliveryForm.fioFirst, deliveryForm.fioMiddle]
-      .filter(Boolean)
-      .map((s) => s?.trim())
-      .filter(Boolean)
-      .join(' ');
+    const shippingForm: ShippingFormCamel = {
+      fioLast: deliveryForm.fioLast ?? '',
+      fioFirst: deliveryForm.fioFirst ?? '',
+      fioMiddle: deliveryForm.fioMiddle ?? '',
+      cityRegion: deliveryForm.cityRegion ?? '',
+      streetHouse: deliveryForm.streetHouse ?? '',
+      apartmentOffice: deliveryForm.apartmentOffice ?? '',
+      postcode: deliveryForm.postcode ?? '',
+      phone: deliveryForm.phone ?? '',
+      inn: deliveryForm.inn ?? '',
+      passportSeries: deliveryForm.passportSeries ?? '',
+      passportNumber: deliveryForm.passportNumber ?? '',
+    };
+    const profilesPatch = { phone: deliveryForm.phone?.trim() || null };
 
-    if (supabase && userId) {
-      try {
-        await supabase
-          .from('profiles')
-          .update({ phone: deliveryForm.phone?.trim() || null })
-          .eq('id', userId);
-      } catch (e) {
-        console.warn('[Checkout] profiles phone update failed', e);
-        setCheckoutWarning('Телефон не сохранён в профиль — заказ всё равно будет оформлен.');
-      }
+    /** 결제 단계 진입 전 canProceedDelivery와 동일 규칙 — 불완전하면 pending 백업·upsert 시도 없음 */
+    const pre = validateShippingComplete(shippingForm);
+    if (!pre.ok) {
+      setCheckoutWarning(pre.messageRu);
+      setOrderFlowError(pre.messageRu);
+      return false;
     }
 
     try {
-      let existing: Record<string, unknown> = {};
-      try {
-        const raw = localStorage.getItem(scopedProfileEditKey);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) existing = { ...parsed };
-        }
-      } catch {
-        // ignore
-      }
-      DELIVERY_KEYS.forEach((k) => {
-        existing[k] = k === 'name' ? nameFromFio : (deliveryForm[k] ?? '');
-      });
-      existing.__owner_user_id = userId ?? '';
-      localStorage.setItem(scopedProfileEditKey, JSON.stringify(existing));
+      const { error: profErr } = await supabase.from('profiles').update(profilesPatch).eq('id', userId);
+      if (profErr) throw profErr;
+      const shipErr = await upsertShippingFromForm(supabase, userId, shippingForm);
+      if (shipErr) throw new Error(shipErr.message);
+      clearPendingShippingBackup(userId);
+      setCheckoutWarning(null);
+      return true;
     } catch (e) {
-      console.warn('[Checkout] profileEdit localStorage failed', e);
-      setCheckoutWarning('Данные доставки не сохранены в браузере — заказ всё равно будет оформлен.');
+      console.warn('[Checkout] save delivery to server failed', e);
+      savePendingShippingBackup(userId, {
+        userId,
+        profilesPatch,
+        shippingPatch: shippingFormToSnakePatch(shippingForm),
+      });
+      setCheckoutWarning(null);
+      setOrderFlowError(
+        'Не удалось сохранить адрес на сервер. Проверьте подключение и нажмите «Подтвердить заказ» ещё раз — введённые данные не сброшены.',
+      );
+      return false;
     }
-  }, [saveDeliveryAsDefault, deliveryForm, userId, scopedProfileEditKey]);
+  }, [saveDeliveryAsDefault, deliveryForm, userId]);
+
+  /** 온라인 복구 시 pending 배송 데이터 서버 전송 */
+  useEffect(() => {
+    if (!supabase || !userId) return;
+    const onOnline = () => {
+      void flushPendingShippingBackup(supabase, userId).then((ok) => {
+        if (ok) {
+          setCheckoutWarning(null);
+          loadProfile();
+        }
+      });
+    };
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [supabase, userId, loadProfile]);
 
   // 결제 단계 포인트 상한 맞춤 — 훅은 early return 위에 두어 호출 순서 고정
   useEffect(() => {
@@ -359,7 +394,10 @@ export const Checkout: React.FC = () => {
     }
     setConfirming(true);
     try {
-      await saveDeliveryToProfile();
+      const deliverySaved = await saveDeliveryToProfile();
+      if (!deliverySaved) {
+        return;
+      }
 
       if (!supabase || !userId) {
         setOrderFlowError('Сессия не найдена. Войдите снова.');

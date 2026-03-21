@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import {
   Legend,
@@ -16,9 +16,11 @@ type DashboardPeriodType = 'day' | 'week' | 'month' | 'range';
 import { deleteMappingForTypes, fetchMapping, saveMapping } from '../../lib/skinTypeSlotMapping';
 import { supabase } from '../../lib/supabase';
 import { ALL_SKIN_TYPES } from '../../config/skinTypeRecommendations';
+import { PromoImageCropModal } from '../../components/PromoImageCropModal';
 
+/** 관리자 폼: 모바일 100% 폭, 터치 친화적 min-height · text-base로 iOS 입력 시 자동 확대 완화 */
 const inputClass =
-  'w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand';
+  'w-full min-w-0 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-base text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand min-h-[44px] sm:min-h-0 sm:text-sm';
 const labelClass = 'mb-1 block text-sm font-medium text-slate-700';
 
 /** 주문 품목 요약: 단가 최고인 품목 1개 + "외 N개" (최대 3개 표현) */
@@ -32,6 +34,59 @@ function formatOrderItemsSummary(items: unknown): string {
   if (arr.length === 1) return top.name;
   return `${top.name} 외 ${arr.length - 1}개`;
 }
+
+/** 공지 노출 기간 입력 (datetime-local, 브라우저 로컬 시간) */
+function formatDatetimeLocalValue(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function defaultBroadcastVisibleFrom(): string {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return formatDatetimeLocalValue(d);
+}
+function defaultBroadcastVisibleUntil(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 7);
+  d.setHours(23, 59, 0, 0);
+  return formatDatetimeLocalValue(d);
+}
+
+/** 관리자 공지 이력 (announcement_broadcasts) */
+type AnnouncementBroadcastRow = {
+  id: string;
+  title: string;
+  body: string | null;
+  visible_from: string;
+  visible_until: string;
+  recipient_count: number;
+  created_at: string;
+  category?: string | null;
+  link_to?: string | null;
+};
+
+/** 공지 유형·이동 화면 (DB·metadata 값과 동일) */
+const BROADCAST_CATEGORY_OPTIONS: { value: string; labelKo: string }[] = [
+  { value: 'discount', labelKo: '할인·프로모' },
+  { value: 'new_product', labelKo: '신제품' },
+  { value: 'event', labelKo: '이벤트' },
+  { value: 'general', labelKo: '일반 소식' },
+  { value: 'shipping', labelKo: '배송 안내' },
+  { value: 'other', labelKo: '기타' },
+];
+
+const BROADCAST_LINK_OPTIONS: { value: string; labelKo: string }[] = [
+  { value: 'promo', labelKo: 'Promo' },
+  { value: 'shop', labelKo: 'Shop' },
+  { value: 'profile', labelKo: '프로필' },
+  { value: 'points', labelKo: '포인트' },
+  { value: 'orders', labelKo: '주문 내역' },
+  { value: 'skin-test', labelKo: '피부 테스트' },
+  { value: 'support', labelKo: 'Support' },
+  { value: 'home', labelKo: '홈' },
+  { value: 'journey', labelKo: 'Journey' },
+  { value: 'about', labelKo: 'About' },
+];
 
 /** ISO 주차 키 (YYYY-MM-DD → "YYYY-W01"~"YYYY-W53"). 트래픽 주별 집계용 */
 function getISOWeekKey(ymd: string): string {
@@ -51,7 +106,7 @@ const BUCKET_PRODUCT_IMAGES = 'product-images';
 const BUCKET_PROMOS = 'promos';
 
 /** 프로모 배너 권장 크기 — 16:9 비율, 웹에서 선명하게 보이도록 */
-const PROMO_BANNER_RECOMMENDED = '1200×675px (16:9)';
+const PROMO_BANNER_RECOMMENDED = '업로드 시 비율·자르기 도구 사용 (권장 16:9, 약 1200×675px)';
 
 /** 파일을 product-images 버킷에 업로드하고 공개 URL 반환. 실패 시 null + 콘솔/alert로 에러 노출 */
 async function uploadProductImage(file: File): Promise<string | null> {
@@ -238,9 +293,42 @@ const emptySlot = (index: number): Slot => ({
 /** 개발자 계정 이메일 — RLS 안내 문구에 사용 */
 const DEVELOPER_EMAILS = ['dvanovic91@gmail.com', 'dvavnovic91@gmail.com'];
 
+const ADMIN_TABS: { key: 'dashboard' | 'products' | 'skinMatch' | 'promo' | 'broadcast' | 'orders' | 'activityLogs' | 'cartAbandonment' | 'reviewManagement' | 'members'; label: string }[] = [
+  { key: 'dashboard', label: '대시보드' },
+  { key: 'products', label: '상품관리' },
+  { key: 'skinMatch', label: '테스트 매칭' },
+  { key: 'promo', label: '프로모' },
+  { key: 'broadcast', label: '공지 발송' },
+  { key: 'orders', label: '주문' },
+  { key: 'activityLogs', label: '활동 로그' },
+  { key: 'cartAbandonment', label: '장바구니 이탈' },
+  { key: 'reviewManagement', label: '리뷰 관리' },
+  { key: 'members', label: '가입회원 관리' },
+];
+
+/** 모바일 드로어·하단 탭: 탭별 아이콘 (가독성) */
+const ADMIN_TAB_ICON: Record<(typeof ADMIN_TABS)[number]['key'], string> = {
+  dashboard: '📊',
+  products: '📦',
+  skinMatch: '🧪',
+  promo: '🎁',
+  broadcast: '📢',
+  orders: '📋',
+  activityLogs: '📝',
+  cartAbandonment: '🛒',
+  reviewManagement: '⭐',
+  members: '👥',
+};
+
 export const Admin: React.FC = () => {
   const { isLoggedIn, initialized, isAdmin, canGrantPermission, canGrantAdminRole, userEmail } = useAuth();
-  const [tab, setTab] = useState<'dashboard' | 'products' | 'skinMatch' | 'promo' | 'orders' | 'activityLogs' | 'cartAbandonment' | 'reviewManagement' | 'members'>('dashboard');
+  const canBroadcast = isAdmin;
+  const [tab, setTab] = useState<'dashboard' | 'products' | 'skinMatch' | 'promo' | 'broadcast' | 'orders' | 'activityLogs' | 'cartAbandonment' | 'reviewManagement' | 'members'>('dashboard');
+  /** 모바일: 햄버거로 열리는 탭 메뉴 */
+  const [adminMobileMenuOpen, setAdminMobileMenuOpen] = useState(false);
+  /** 헤더가 스크롤로 화면 밖으로 나가면 상단 고정바 표시 */
+  const [stickyHeaderVisible, setStickyHeaderVisible] = useState(false);
+  const headerRef = useRef<HTMLElement>(null);
 
   const [products, setProducts] = useState<Product[]>([]);
   /** 상품 목록 표시 순서 (앞에서 5개가 쇼핑 슬롯 1~5). 드래그로 순서 변경 후 저장 시 main_layout_slots에 반영 */
@@ -281,6 +369,19 @@ export const Admin: React.FC = () => {
 
   const [error, setError] = useState<string | null>(null);
 
+  /** 전체 공지 (notifications RPC + 기간) */
+  const [broadcastTitle, setBroadcastTitle] = useState('');
+  const [broadcastBody, setBroadcastBody] = useState('');
+  const [broadcastVisibleFrom, setBroadcastVisibleFrom] = useState(defaultBroadcastVisibleFrom);
+  const [broadcastVisibleUntil, setBroadcastVisibleUntil] = useState(defaultBroadcastVisibleUntil);
+  const [broadcastCategory, setBroadcastCategory] = useState('general');
+  const [broadcastLinkTo, setBroadcastLinkTo] = useState('promo');
+  const [broadcastSending, setBroadcastSending] = useState(false);
+  const [broadcastMessage, setBroadcastMessage] = useState<string | null>(null);
+  const [broadcastHistory, setBroadcastHistory] = useState<AnnouncementBroadcastRow[]>([]);
+  const [broadcastHistoryLoading, setBroadcastHistoryLoading] = useState(false);
+  const [broadcastDeletingId, setBroadcastDeletingId] = useState<string | null>(null);
+
   /** 상품 대표 이미지 파일 선택용 (숨김 input 트리거) */
   const mainImageInputRef = useRef<HTMLInputElement>(null);
   /** 구성품 이미지 파일 선택용 + 업로드 대상 인덱스 */
@@ -319,6 +420,8 @@ export const Admin: React.FC = () => {
   const [promoForm, setPromoForm] = useState({ title: '', image_url: '', end_at: '' });
   const [uploadingPromoImage, setUploadingPromoImage] = useState(false);
   const promoImageInputRef = useRef<HTMLInputElement>(null);
+  const [promoCropOpen, setPromoCropOpen] = useState(false);
+  const [promoCropSrc, setPromoCropSrc] = useState<string | null>(null);
 
   /** 주문 탭: 목록 + 수령인 정보 수정. is_test=true면 가짜 주문 → 나중에 일괄 삭제 가능. inn/passport는 주문 시점 스냅샷 */
   type OrderRow = { id: string; order_number?: string | null; created_at: string; total_cents: number; points_used?: number | null; status: string; receiver_name: string | null; receiver_phone: string | null; shipping_address: string | null; tracking_url?: string | null; items?: unknown; snapshot_items?: unknown; is_test?: boolean; inn?: string | null; passport_series?: string | null; passport_number?: string | null };
@@ -349,6 +452,43 @@ export const Admin: React.FC = () => {
     document.addEventListener('mousedown', closeOnOutside);
     return () => document.removeEventListener('mousedown', closeOnOutside);
   }, [expandedPersonalInfoOrderId]);
+
+  /** 헤더가 스크롤로 화면 밖으로 나가면 상단 고정바 표시 */
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      ([entry]) => setStickyHeaderVisible(!entry.isIntersecting),
+      { threshold: 0, rootMargin: '0px' }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+
+  /** 공지 발송 탭: 이력(announcement_broadcasts) — 마이그레이션 미적용 시 빈 목록 */
+  const loadBroadcastHistory = useCallback(async () => {
+    if (!supabase) return;
+    setBroadcastHistoryLoading(true);
+    const { data, error } = await supabase
+      .from('announcement_broadcasts')
+      .select('id, title, body, visible_from, visible_until, recipient_count, created_at, category, link_to')
+      .order('created_at', { ascending: false })
+      .limit(50);
+    setBroadcastHistoryLoading(false);
+    if (error) {
+      if (error.code !== '42P01' && !error.message?.includes('does not exist')) {
+        console.warn('[announcement_broadcasts]', error.message);
+      }
+      setBroadcastHistory([]);
+      return;
+    }
+    setBroadcastHistory((data ?? []) as AnnouncementBroadcastRow[]);
+  }, []);
+
+  useEffect(() => {
+    if (tab !== 'broadcast' || !supabase) return;
+    void loadBroadcastHistory();
+  }, [tab, supabase, loadBroadcastHistory]);
 
   /** 활동 로그 탭: CS 방어용 타임라인 (가격 확인·결제 버튼 클릭 등) */
   type ActivityLogRow = { id: string; user_id: string | null; action: string; metadata: Record<string, unknown>; order_id: string | null; created_at: string };
@@ -1909,97 +2049,108 @@ export const Admin: React.FC = () => {
     }
   };
 
-  return (
-    <div className="min-h-screen bg-brand-soft/40">
-      <main className="relative mx-auto max-w-[96rem] px-4 py-8 sm:px-6 sm:py-10">
-        <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
+  /** 헤더 내용 — 본문·고정바 공용 */
+  const headerContent = (
+    <>
+      <div className="flex min-w-0 items-center gap-3">
+        <button
+          type="button"
+          onClick={() => setAdminMobileMenuOpen(true)}
+          aria-label="메뉴 열기"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 md:hidden"
+        >
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+        <h1 className="min-w-0 text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl md:text-3xl">
           관리자
         </h1>
-        <nav className="flex gap-2 rounded-full bg-slate-100 p-1 text-sm">
+      </div>
+      <nav className="hidden flex-wrap gap-2 rounded-full bg-slate-100 p-1 text-sm md:flex">
+        {ADMIN_TABS.map(({ key, label }) => (
           <button
+            key={key}
             type="button"
-            onClick={() => setTab('dashboard')}
+            onClick={() => setTab(key)}
             className={`rounded-full px-3 py-1.5 ${
-              tab === 'dashboard' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
+              tab === key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            대시보드
+            {label}
           </button>
-          <button
-            type="button"
-            onClick={() => setTab('products')}
-            className={`rounded-full px-3 py-1.5 ${
-              tab === 'products' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
-            }`}
-          >
-            상품관리
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab('skinMatch')}
-            className={`rounded-full px-3 py-1.5 ${
-              tab === 'skinMatch' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
-            }`}
-          >
-            테스트 매칭
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab('promo')}
-            className={`rounded-full px-3 py-1.5 ${
-              tab === 'promo' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
-            }`}
-          >
-            프로모
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab('orders')}
-            className={`rounded-full px-3 py-1.5 ${
-              tab === 'orders' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
-            }`}
-          >
-            주문
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab('activityLogs')}
-            className={`rounded-full px-3 py-1.5 ${
-              tab === 'activityLogs' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
-            }`}
-          >
-            활동 로그
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab('cartAbandonment')}
-            className={`rounded-full px-3 py-1.5 ${
-              tab === 'cartAbandonment' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
-            }`}
-          >
-            장바구니 이탈
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab('reviewManagement')}
-            className={`rounded-full px-3 py-1.5 ${
-              tab === 'reviewManagement' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
-            }`}
-          >
-            리뷰 관리
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab('members')}
-            className={`rounded-full px-3 py-1.5 ${
-              tab === 'members' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
-            }`}
-          >
-            가입회원 관리
-          </button>
-        </nav>
-      </header>
+        ))}
+      </nav>
+    </>
+  );
+
+  return (
+    <div className="min-h-screen bg-brand-soft/40">
+      {/* 스크롤 시 헤더가 화면 밖으로 나가면 상단 고정바 표시 */}
+      {stickyHeaderVisible && (
+        <header
+          className="fixed left-0 right-0 top-0 z-20 border-b border-slate-200/80 bg-white/95 shadow-sm backdrop-blur-md"
+          style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}
+        >
+          <div className="mx-auto flex max-w-[96rem] flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+            {headerContent}
+          </div>
+        </header>
+      )}
+      <main className="relative mx-auto max-w-[96rem] px-4 py-8 sm:px-6 sm:py-10">
+        <header
+          ref={headerRef}
+          className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+        >
+          {headerContent}
+        </header>
+
+        {/* 모바일: 햄버거 클릭 시 탭 드로어 (md에서 숨김) */}
+        {adminMobileMenuOpen && (
+          <>
+            <div
+              className="fixed inset-0 z-40 bg-black/40 md:hidden"
+              aria-hidden
+              onClick={() => setAdminMobileMenuOpen(false)}
+            />
+            <aside
+              className="fixed left-0 top-0 z-50 flex h-full w-[min(85vw,20rem)] flex-col gap-1 overflow-auto border-r border-slate-200 bg-white py-4 pl-4 pr-2 shadow-xl md:hidden"
+              style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}
+            >
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-sm font-semibold text-slate-800">메뉴</span>
+                <button
+                  type="button"
+                  onClick={() => setAdminMobileMenuOpen(false)}
+                  aria-label="닫기"
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100"
+                >
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              {ADMIN_TABS.map(({ key, label }) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => {
+                    setTab(key);
+                    setAdminMobileMenuOpen(false);
+                  }}
+                  className={`flex min-h-[52px] w-full items-center gap-3 rounded-xl px-4 text-left text-base ${
+                    tab === key ? 'bg-brand-soft/50 font-semibold text-brand' : 'text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  <span className="text-xl leading-none" aria-hidden>
+                    {ADMIN_TAB_ICON[key]}
+                  </span>
+                  <span>{label}</span>
+                </button>
+              ))}
+            </aside>
+          </>
+        )}
 
       {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
 
@@ -2027,7 +2178,7 @@ export const Admin: React.FC = () => {
           {/* 대시보드 제목 + 통합 기간(일/주/월). 매출·트래픽 차트 모두 이 기간 적용 */}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-sm font-semibold text-slate-900">기간별 매출, 트래픽, 주문</h2>
-            <div className="flex rounded-full bg-slate-100 p-0.5 text-sm">
+            <div className="flex w-full max-w-md rounded-full bg-slate-100 p-0.5 text-sm sm:w-auto">
               {(['day', 'week', 'month'] as const).map((p) => (
                 <button
                   key={p}
@@ -2036,7 +2187,7 @@ export const Admin: React.FC = () => {
                     setDashboardPeriod(p);
                     setTrafficPeriod(p);
                   }}
-                  className={`rounded-full px-3 py-1.5 ${
+                  className={`min-h-[44px] min-w-0 flex-1 rounded-full px-3 py-2 sm:min-h-0 sm:flex-none sm:py-1.5 ${
                     dashboardPeriod === p ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
@@ -2048,49 +2199,47 @@ export const Admin: React.FC = () => {
             </div>
           </div>
 
-          {/* KPI 카드: 매출·주문 수·트래픽(선택 기간 합계) */}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-              <div>
+          {/* KPI 카드: 모바일은 한 줄에 하나·큰 숫자·ring으로 구역 구분 (야외 주문 처리 가독성) */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
+            <div className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-md ring-1 ring-slate-100 sm:flex-row sm:items-center sm:justify-between sm:p-4 sm:shadow-sm">
+              <div className="min-w-0">
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-400">매출</p>
-                <p className="mt-1 text-2xl font-semibold text-slate-900">
+                <p className="mt-2 text-3xl font-bold tabular-nums tracking-tight text-slate-900 sm:mt-1 sm:text-2xl sm:font-semibold">
                   {formatNumber((dashboardKpi?.totalRevenueCents ?? 0) / 100) + ' ₽'}
                 </p>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  주문 합계
-                </p>
+                <p className="mt-1 text-xs text-slate-500">주문 합계</p>
               </div>
-              <div className="text-right">
+              <div className="border-t border-slate-100 pt-3 text-left sm:border-t-0 sm:border-l sm:pl-4 sm:pt-0 sm:text-right">
                 <p className="text-xs font-medium text-blue-600">누계 매출</p>
-                <p className="mt-0.5 text-lg font-semibold text-blue-600">
+                <p className="mt-1 text-xl font-bold tabular-nums text-blue-700 sm:mt-0.5 sm:text-lg sm:font-semibold">
                   {formatNumber((dashboardKpi?.totalRevenueCentsAllTime ?? 0) / 100)} ₽
                 </p>
               </div>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-md ring-1 ring-slate-100 sm:flex-row sm:items-center sm:justify-between sm:p-4 sm:shadow-sm">
               <div>
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-400">주문 수</p>
-                <p className="mt-1 text-2xl font-semibold text-slate-900">{dashboardKpi?.orderCount ?? 0}</p>
-                <p className="mt-0.5 text-xs text-slate-500">전체 주문</p>
+                <p className="mt-2 text-3xl font-bold tabular-nums text-slate-900 sm:mt-1 sm:text-2xl sm:font-semibold">{dashboardKpi?.orderCount ?? 0}</p>
+                <p className="mt-1 text-xs text-slate-500">전체 주문</p>
               </div>
-              <div className="text-right">
+              <div className="border-t border-slate-100 pt-3 text-left sm:border-t-0 sm:border-l sm:pl-4 sm:pt-0 sm:text-right">
                 <p className="text-xs font-medium text-blue-600">누계 주문 수</p>
-                <p className="mt-0.5 text-lg font-semibold text-blue-600">
+                <p className="mt-1 text-xl font-bold tabular-nums text-blue-700 sm:mt-0.5 sm:text-lg sm:font-semibold">
                   {(dashboardKpi?.orderCountAllTime ?? 0).toLocaleString('ko-KR')}
                 </p>
               </div>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:col-span-2 lg:col-span-1 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-              <div>
+            <div className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-md ring-1 ring-slate-100 sm:col-span-2 sm:flex-row sm:items-center sm:justify-between sm:p-4 sm:shadow-sm lg:col-span-1">
+              <div className="min-w-0">
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-400">트래픽</p>
-                <p className="mt-1 text-2xl font-semibold text-slate-900">
+                <p className="mt-2 text-3xl font-bold tabular-nums text-slate-900 sm:mt-1 sm:text-2xl sm:font-semibold">
                   {trafficChartData.reduce((s, d) => s + d.total, 0).toLocaleString('ko-KR')}
                 </p>
-                <p className="mt-0.5 text-xs text-slate-500">선택 기간 방문자 합계</p>
+                <p className="mt-1 text-xs text-slate-500">선택 기간 방문자 합계</p>
               </div>
-              <div className="text-right">
+              <div className="border-t border-slate-100 pt-3 text-left sm:border-t-0 sm:border-l sm:pl-4 sm:pt-0 sm:text-right">
                 <p className="text-xs font-medium text-blue-600">누계 트래픽</p>
-                <p className="mt-0.5 text-lg font-semibold text-blue-600">
+                <p className="mt-1 text-xl font-bold tabular-nums text-blue-700 sm:mt-0.5 sm:text-lg sm:font-semibold">
                   {(dashboardKpi?.trafficAllTime ?? 0).toLocaleString('ko-KR')}
                 </p>
               </div>
@@ -2100,22 +2249,22 @@ export const Admin: React.FC = () => {
           {/* 한 행에 매출(앞/왼쪽) + 트래픽(뒤/오른쪽), 각 7일 기준 */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {/* 매출/수량 꺾은선 그래프: 상단 통합 기간(일/주/월) 적용. 수량/금액·상품 필터만 */}
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-md ring-1 ring-slate-100 sm:shadow-sm sm:ring-0">
               <div className="min-h-[72px]">
                 <h3 className="mb-3 text-sm font-semibold text-slate-900">기간별 매출 / 수량</h3>
                 <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex rounded-full bg-slate-100 p-0.5">
+                <span className="inline-flex w-full max-w-xs rounded-full bg-slate-100 p-0.5 sm:w-auto sm:max-w-none">
                   <button
                     type="button"
                     onClick={() => setDashboardMetric('quantity')}
-                    className={`rounded-full px-3 py-1.5 text-sm ${dashboardMetric === 'quantity' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                    className={`min-h-[44px] flex-1 rounded-full px-3 py-2 text-sm sm:min-h-0 sm:flex-none sm:py-1.5 ${dashboardMetric === 'quantity' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
                   >
                     수량
                   </button>
                   <button
                     type="button"
                     onClick={() => setDashboardMetric('revenue')}
-                    className={`rounded-full px-3 py-1.5 text-sm ${dashboardMetric === 'revenue' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                    className={`min-h-[44px] flex-1 rounded-full px-3 py-2 text-sm sm:min-h-0 sm:flex-none sm:py-1.5 ${dashboardMetric === 'revenue' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
                   >
                     금액
                   </button>
@@ -2123,7 +2272,7 @@ export const Admin: React.FC = () => {
                 <select
                   value={selectedChartProduct}
                   onChange={(e) => setSelectedChartProduct(e.target.value)}
-                  className={inputClass + ' max-w-[200px]'}
+                  className={inputClass + ' w-full md:max-w-[200px]'}
                 >
                   <option value="">전체</option>
                   {(dashboardKpi?.products ?? []).map((p) => (
@@ -2180,7 +2329,7 @@ export const Admin: React.FC = () => {
             </div>
 
             {/* 사이트 트래픽: 왼쪽 매출과 동일 높이·여백. 레전드 좌측 상단 */}
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-md ring-1 ring-slate-100 sm:shadow-sm sm:ring-0">
               <div className="min-h-[72px]">
                 <h3 className="mb-3 text-sm font-semibold text-slate-900">사이트 트래픽 (합계 · 로그인 · 비로그인)</h3>
                 <p className="text-xs text-slate-500">
@@ -2241,7 +2390,8 @@ export const Admin: React.FC = () => {
             <h3 className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-900">
               상품별 매출·주문·조회·리뷰 (기간 / 누계 / 재고)
             </h3>
-            <div className="overflow-x-auto">
+            {/* 데스크톱: 테이블 */}
+            <div className="hidden overflow-x-auto md:block">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50/80">
@@ -2280,6 +2430,48 @@ export const Admin: React.FC = () => {
                 </tbody>
               </table>
             </div>
+            {/* 모바일: 카드 뷰 */}
+            <div className="space-y-3 p-4 md:hidden">
+              {(dashboardKpi?.products ?? []).length === 0 ? (
+                <p className="py-6 text-center text-slate-400">데이터 없음</p>
+              ) : (
+                (dashboardKpi?.products ?? []).map((p) => (
+                  <div key={p.id} className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 shadow-sm">
+                    <p className="mb-3 font-medium text-slate-900">{p.name}</p>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-xs text-slate-500">매출</span>
+                        <span className="tabular-nums font-medium">{formatNumber(p.revenueCents / 100)} ₽</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-xs text-slate-500">주문수</span>
+                        <span className="tabular-nums">{p.orderCount}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-xs text-slate-500">조회수</span>
+                        <span className="tabular-nums">{p.viewCount}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-xs text-slate-500">리뷰수</span>
+                        <span className="tabular-nums">{p.reviewCount}</span>
+                      </div>
+                      <div className="flex justify-between border-t border-slate-200 pt-2">
+                        <span className="text-xs font-medium text-blue-600">누계 매출</span>
+                        <span className="tabular-nums font-medium text-blue-600">{formatNumber(p.revenueCentsAllTime / 100)} ₽</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-xs text-blue-600">누계 주문·조회·리뷰</span>
+                        <span className="tabular-nums text-blue-600">{p.orderCountAllTime} / {p.viewCountAllTime} / {p.reviewCountAllTime}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-xs text-slate-500">재고수량</span>
+                        <span className="tabular-nums font-medium">{p.stock}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </section>
       )}
@@ -2287,13 +2479,13 @@ export const Admin: React.FC = () => {
       {tab === 'products' && (
         <section className="mt-4 grid gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
           <div className="relative rounded-xl border border-slate-200 bg-white p-4">
-            <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-sm font-semibold text-slate-900">상품 목록</h2>
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="flex shrink-0 items-center gap-3">
                 <button
                   type="button"
                   onClick={() => setCatalogPreviewOpen((v) => !v)}
-                  className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-brand hover:text-brand"
+                  className="min-h-[44px] rounded-full border border-slate-200 px-4 py-2 text-xs font-medium text-slate-700 hover:border-brand hover:text-brand sm:min-h-0 sm:px-3 sm:py-1.5"
                 >
                   미리보기
                 </button>
@@ -2301,7 +2493,7 @@ export const Admin: React.FC = () => {
                   type="button"
                   onClick={handleSaveSlotOrder}
                   disabled={savingSlots || !canGrantPermission}
-                  className="rounded-full bg-brand px-4 py-1.5 text-xs font-medium text-white hover:bg-brand/90 disabled:opacity-50"
+                  className="min-h-[44px] rounded-full bg-brand px-4 py-2 text-xs font-medium text-white hover:bg-brand/90 disabled:opacity-50 sm:min-h-0 sm:py-1.5"
                 >
                   {savingSlots ? '저장 중…' : '슬롯 순서 저장'}
                 </button>
@@ -3197,7 +3389,7 @@ export const Admin: React.FC = () => {
               <p className="py-8 text-center text-sm text-slate-500">불러오는 중…</p>
             ) : (
               <>
-                <div className="mb-4 flex flex-wrap gap-4">
+                <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:flex xl:flex-wrap">
                   {promos.map((p, index) => (
                     <div
                       key={p.id}
@@ -3223,7 +3415,7 @@ export const Admin: React.FC = () => {
                           // ignore
                         }
                       }}
-                      className="flex w-[180px] shrink-0 cursor-grab flex-col rounded-lg border border-slate-200 bg-slate-50/50 p-2 active:cursor-grabbing"
+                      className="flex w-full max-w-[280px] shrink-0 cursor-grab flex-col rounded-lg border border-slate-200 bg-slate-50/50 p-2 active:cursor-grabbing xl:w-[180px] xl:max-w-none"
                     >
                       <span className="mb-1 shrink-0 text-slate-400" title="드래그하여 순서 변경">⋮⋮</span>
                       <div className="aspect-video w-full shrink-0 overflow-hidden rounded bg-slate-200">
@@ -3327,17 +3519,14 @@ export const Admin: React.FC = () => {
                           type="file"
                           accept="image/jpeg,image/png,image/gif,image/webp"
                           className="hidden"
-                          onChange={async (e) => {
+                          onChange={(e) => {
                             const file = e.target.files?.[0];
                             if (!file) return;
-                            setUploadingPromoImage(true);
-                            try {
-                              const url = await uploadPromoImage(file);
-                              if (url) setPromoForm((f) => ({ ...f, image_url: url }));
-                            } finally {
-                              setUploadingPromoImage(false);
-                              e.target.value = '';
-                            }
+                            if (promoCropSrc) URL.revokeObjectURL(promoCropSrc);
+                            const url = URL.createObjectURL(file);
+                            setPromoCropSrc(url);
+                            setPromoCropOpen(true);
+                            e.target.value = '';
                           }}
                         />
                         <button
@@ -3428,12 +3617,243 @@ export const Admin: React.FC = () => {
         </section>
       )}
 
+      <PromoImageCropModal
+        open={promoCropOpen && !!promoCropSrc}
+        imageSrc={promoCropSrc ?? ''}
+        onClose={() => {
+          if (promoCropSrc) URL.revokeObjectURL(promoCropSrc);
+          setPromoCropSrc(null);
+          setPromoCropOpen(false);
+        }}
+        onApply={async (file) => {
+          setUploadingPromoImage(true);
+          try {
+            const url = await uploadPromoImage(file);
+            if (!url) return false;
+            setPromoForm((f) => ({ ...f, image_url: url }));
+          } finally {
+            setUploadingPromoImage(false);
+          }
+        }}
+      />
+
+      {tab === 'broadcast' && (
+        <section className="mt-4 w-full min-w-0 px-1 sm:px-0">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:gap-8">
+            <div className="min-w-0 flex-1 max-w-xl rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
+              <h2 className="text-sm font-semibold text-slate-900">전체 회원 공지</h2>
+              <p className="mt-1 text-xs text-slate-500">
+                제목·본문은 사용자 알림(종)에 표시되며, 아래 기간 안에서만 목록에 노출됩니다. 유형·이동 화면은 RPC 6인자 버전이 필요합니다 —{' '}
+                <code className="rounded bg-slate-100 px-1">SUPABASE_ANNOUNCEMENT_BROADCASTS.sql</code> 최신본 실행.
+              </p>
+              <label className="mt-4 block text-xs font-medium text-slate-700">제목 (러시아어 권장)</label>
+              <input
+                type="text"
+                value={broadcastTitle}
+                onChange={(e) => setBroadcastTitle(e.target.value)}
+                placeholder="Заголовок"
+                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400"
+              />
+              <label className="mt-4 block text-xs font-medium text-slate-700">내용</label>
+              <textarea
+                value={broadcastBody}
+                onChange={(e) => setBroadcastBody(e.target.value)}
+                placeholder="Текст объявления"
+                rows={5}
+                className="mt-1 w-full resize-y rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400"
+              />
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700">공지 유형 (사용자 뱃지)</label>
+                  <select
+                    value={broadcastCategory}
+                    onChange={(e) => setBroadcastCategory(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                  >
+                    {BROADCAST_CATEGORY_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.labelKo}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700">탭 시 이동할 화면</label>
+                  <select
+                    value={broadcastLinkTo}
+                    onChange={(e) => setBroadcastLinkTo(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                  >
+                    {BROADCAST_LINK_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.labelKo}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700">노출 시작</label>
+                  <input
+                    type="datetime-local"
+                    value={broadcastVisibleFrom}
+                    onChange={(e) => setBroadcastVisibleFrom(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700">노출 종료</label>
+                  <input
+                    type="datetime-local"
+                    value={broadcastVisibleUntil}
+                    onChange={(e) => setBroadcastVisibleUntil(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900"
+                  />
+                </div>
+              </div>
+              {broadcastMessage && (
+                <p className="mt-3 text-xs text-slate-600" role="status">
+                  {broadcastMessage}
+                </p>
+              )}
+              <button
+                type="button"
+                disabled={
+                  broadcastSending ||
+                  !broadcastTitle.trim() ||
+                  !supabase ||
+                  !canBroadcast ||
+                  (() => {
+                    const a = new Date(broadcastVisibleFrom).getTime();
+                    const b = new Date(broadcastVisibleUntil).getTime();
+                    return !Number.isFinite(a) || !Number.isFinite(b) || b < a;
+                  })()
+                }
+                onClick={async () => {
+                  if (!supabase || !broadcastTitle.trim() || !canBroadcast) return;
+                  const fromMs = new Date(broadcastVisibleFrom).getTime();
+                  const untilMs = new Date(broadcastVisibleUntil).getTime();
+                  if (!Number.isFinite(fromMs) || !Number.isFinite(untilMs) || untilMs < fromMs) {
+                    setBroadcastMessage('노출 종료 시각은 시작 시각 이후여야 합니다.');
+                    return;
+                  }
+                  setBroadcastSending(true);
+                  setBroadcastMessage(null);
+                  setError(null);
+                  const { data: newBroadcastId, error: rpcErr } = await supabase.rpc('admin_broadcast_notifications', {
+                    p_title: broadcastTitle.trim(),
+                    p_body: broadcastBody.trim(),
+                    p_visible_from: new Date(broadcastVisibleFrom).toISOString(),
+                    p_visible_until: new Date(broadcastVisibleUntil).toISOString(),
+                    p_category: broadcastCategory,
+                    p_link_to: broadcastLinkTo,
+                  });
+                  setBroadcastSending(false);
+                  if (rpcErr) {
+                    setBroadcastMessage(`실패: ${rpcErr.message}`);
+                    return;
+                  }
+                  let countLabel = '';
+                  if (typeof newBroadcastId === 'string' && newBroadcastId) {
+                    const { data: row } = await supabase
+                      .from('announcement_broadcasts')
+                      .select('recipient_count')
+                      .eq('id', newBroadcastId)
+                      .maybeSingle();
+                    if (row && typeof row.recipient_count === 'number') {
+                      countLabel = `${row.recipient_count}명에게 알림 생성`;
+                    }
+                  }
+                  setBroadcastMessage(
+                    countLabel
+                      ? `전송 완료: ${countLabel}. (기간 외에는 종 목록에 표시되지 않습니다.)`
+                      : '전송 완료. (기간 외에는 종 목록에 표시되지 않습니다.)',
+                  );
+                  setBroadcastTitle('');
+                  setBroadcastBody('');
+                  setBroadcastVisibleFrom(defaultBroadcastVisibleFrom());
+                  setBroadcastVisibleUntil(defaultBroadcastVisibleUntil());
+                  await loadBroadcastHistory();
+                  setSaveSuccessAt(Date.now());
+                }}
+                className="mt-4 w-full rounded-full bg-brand py-2.5 text-sm font-medium text-white hover:bg-brand/90 disabled:opacity-50 sm:w-auto sm:px-8"
+              >
+                {broadcastSending ? '전송 중…' : '전체 회원에게 전송'}
+              </button>
+            </div>
+
+            <aside className="w-full shrink-0 lg:sticky lg:top-24 lg:w-80 xl:w-96">
+              <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+                <h3 className="text-sm font-semibold text-slate-900">발송 이력</h3>
+                <p className="mt-1 text-[11px] leading-snug text-slate-500">
+                  삭제 시 해당 공지로 생성된 사용자 알림 행도 함께 제거됩니다.
+                </p>
+                {broadcastHistoryLoading ? (
+                  <p className="mt-4 text-xs text-slate-500">불러오는 중…</p>
+                ) : broadcastHistory.length === 0 ? (
+                  <p className="mt-4 text-xs text-slate-500">이력이 없거나 테이블이 아직 없습니다.</p>
+                ) : (
+                  <ul className="mt-3 max-h-[min(70vh,32rem)] space-y-3 overflow-y-auto pr-1">
+                    {broadcastHistory.map((row) => (
+                      <li
+                        key={row.id}
+                        className="rounded-lg border border-slate-100 bg-slate-50/80 p-3 text-xs text-slate-700"
+                      >
+                        <p className="font-medium text-slate-900 line-clamp-2">{row.title}</p>
+                        {row.body ? <p className="mt-1 line-clamp-2 text-slate-600">{row.body}</p> : null}
+                        {(row.category || row.link_to) && (
+                          <p className="mt-1 text-[11px] text-slate-500">
+                            유형 {row.category ?? '—'} · 이동 {row.link_to ?? '—'}
+                          </p>
+                        )}
+                        <p className="mt-2 text-[11px] text-slate-500">
+                          {new Date(row.visible_from).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })} —{' '}
+                          {new Date(row.visible_until).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })}
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-slate-500">
+                          수신자 {row.recipient_count}명 ·{' '}
+                          {new Date(row.created_at).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })}
+                        </p>
+                        <button
+                          type="button"
+                          disabled={!supabase || !canBroadcast || broadcastDeletingId === row.id}
+                          onClick={async () => {
+                            if (!supabase || !canBroadcast) return;
+                            if (!window.confirm('이 공지와 연결된 사용자 알림을 모두 삭제할까요?')) return;
+                            setBroadcastDeletingId(row.id);
+                            setBroadcastMessage(null);
+                            const { error: delErr } = await supabase.rpc('admin_delete_broadcast', {
+                              p_broadcast_id: row.id,
+                            });
+                            setBroadcastDeletingId(null);
+                            if (delErr) {
+                              setBroadcastMessage(`삭제 실패: ${delErr.message}`);
+                              return;
+                            }
+                            await loadBroadcastHistory();
+                            setBroadcastMessage('삭제되었습니다.');
+                          }}
+                          className="mt-2 rounded-full border border-red-200 bg-white px-3 py-1 text-[11px] font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+                        >
+                          {broadcastDeletingId === row.id ? '삭제 중…' : '삭제'}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </aside>
+          </div>
+        </section>
+      )}
+
       {tab === 'orders' && (
         <section className="mt-4 w-full min-w-0 space-y-4 xl:max-w-[96rem]">
           {/* 포인트 정책 요약 테이블: 관리자 주문 탭 상단에 정리 */}
           <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
             <h2 className="border-b border-slate-100 px-4 py-3 text-xs font-semibold text-slate-900">포인트 정책 요약</h2>
-            <div className="overflow-x-auto">
+            <div className="hidden overflow-x-auto md:block">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50/80">
@@ -3464,6 +3884,24 @@ export const Admin: React.FC = () => {
                   </tr>
                 </tbody>
               </table>
+            </div>
+            <div className="space-y-2 p-4 md:hidden">
+              <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3">
+                <p className="text-[11px] font-medium text-slate-500">테스트 완료 후 가입</p>
+                <p className="mt-0.5 text-sm text-slate-700">300 pt (피부 테스트 완료 후 가입 시 1회)</p>
+              </div>
+              <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3">
+                <p className="text-[11px] font-medium text-slate-500">텔레그램 연동</p>
+                <p className="mt-0.5 text-sm text-slate-700">200 pt (연동 시 1회, 재연동 시 중복 지급 불가)</p>
+              </div>
+              <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3">
+                <p className="text-[11px] font-medium text-slate-500">결제 시 포인트 사용</p>
+                <p className="mt-0.5 text-sm text-slate-700">최대 1 000 pt (1 pt = 1 ₽), 주문 금액의 10% 한도</p>
+              </div>
+              <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3">
+                <p className="text-[11px] font-medium text-slate-500">리뷰 포인트 (일반/특별)</p>
+                <p className="mt-0.5 text-sm text-slate-700">일반 200 pt, 특별 500 pt</p>
+              </div>
             </div>
           </div>
 
@@ -3512,7 +3950,9 @@ export const Admin: React.FC = () => {
             ) : ordersList.length === 0 ? (
               <p className="py-6 text-center text-xs text-slate-500">주문이 없습니다.</p>
             ) : (
-              <div className="w-full max-w-full overflow-x-auto">
+              <>
+                {/* 데스크톱: 테이블 */}
+                <div className="hidden w-full max-w-full overflow-x-auto md:block">
                 <table className="w-full min-w-[900px] text-left text-xs">
                   <thead>
                     <tr className="border-b border-slate-200 text-slate-600">
@@ -3746,7 +4186,234 @@ export const Admin: React.FC = () => {
                     ))}
                   </tbody>
                 </table>
-              </div>
+                </div>
+
+                {/* 모바일: 카드 뷰 */}
+                <div className="space-y-4 md:hidden">
+                  {ordersList.map((o) => (
+                    <div
+                      key={o.id}
+                      onClick={() => {
+                        setSelectedOrder(o);
+                        setOrderEditForm({
+                          receiver_name: o.receiver_name ?? '',
+                          receiver_phone: o.receiver_phone ?? '',
+                          shipping_address: o.shipping_address ?? '',
+                          tracking_url: o.tracking_url ?? '',
+                        });
+                      }}
+                      className={`cursor-pointer rounded-xl border border-slate-200 bg-white p-4 shadow-sm active:bg-slate-50 ${o.is_test ? 'border-amber-200 bg-amber-50/30' : ''}`}
+                    >
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-semibold text-slate-900">{o.order_number ?? o.id.slice(0, 8)}</span>
+                        <span className="text-sm tabular-nums font-medium text-slate-800">{(o.total_cents / 100).toLocaleString('ko-KR')} ₽</span>
+                      </div>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-xs text-slate-500">주문일</span>
+                          <span className="tabular-nums">{new Date(o.created_at).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-xs text-slate-500">포인트</span>
+                          <span>{o.points_used != null && o.points_used > 0 ? `${(o.points_used / 100).toLocaleString('ko-KR')} P` : '—'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-xs text-slate-500">상태</span>
+                          <span>
+                            {o.status === 'pending' && <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[11px] font-medium text-slate-700">대기</span>}
+                            {o.status === 'completed' && <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-medium text-emerald-800">완료</span>}
+                            {o.status === 'product_preparing' && <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[11px] font-medium text-blue-800">제품준비</span>}
+                            {o.status === 'shipping_soon' && <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-[11px] font-medium text-indigo-800">배송준비</span>}
+                            {o.status === 'shipped' && <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[11px] font-medium text-sky-800">발송</span>}
+                            {o.status === 'delivered' && <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[11px] font-medium text-violet-800">도착</span>}
+                            {o.status === 'confirmed' && <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-medium text-emerald-800">구매확정</span>}
+                            {o.status === 'failed' && <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[11px] font-medium text-rose-800">실패</span>}
+                            {o.status === 'canceled' && <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[11px] font-medium text-slate-600">취소</span>}
+                            {o.status === 'refunded' && <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[11px] font-medium text-violet-800">환불</span>}
+                            {o.status && !['pending', 'completed', 'product_preparing', 'shipping_soon', 'shipped', 'delivered', 'confirmed', 'failed', 'canceled', 'refunded'].includes(o.status) && <span className="text-slate-600">{o.status}</span>}
+                            {!o.status && '—'}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-xs text-slate-500">품목</span>
+                          <span className="truncate max-w-[60%] text-right">{formatOrderItemsSummary(o.items ?? o.snapshot_items)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-xs text-slate-500">수령인</span>
+                          <span className="truncate max-w-[60%] text-right">{o.receiver_name || '—'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-xs text-slate-500">전화</span>
+                          <span className="tabular-nums">{o.receiver_phone || '—'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-xs text-slate-500">배송지</span>
+                          <span className="truncate max-w-[60%] text-right text-slate-600">{o.shipping_address || '—'}</span>
+                        </div>
+                      </div>
+                      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3" onClick={(e) => e.stopPropagation()}>
+                        <div className="relative" data-personal-info-popover={o.id}>
+                          <button
+                            type="button"
+                            onClick={() => setExpandedPersonalInfoOrderId((prev) => (prev === o.id ? null : o.id))}
+                            className="min-h-[44px] rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-600 hover:bg-slate-100"
+                          >
+                            개인정보
+                          </button>
+                          {expandedPersonalInfoOrderId === o.id && (
+                            <div className="absolute left-0 top-full z-50 mt-1 min-w-[220px] rounded-lg border border-slate-200 bg-white px-3 py-2.5 shadow-lg">
+                              <p className="mb-2 border-b border-slate-100 pb-1.5 text-[11px] font-semibold text-slate-600">주문 시점 저장 데이터</p>
+                              <p className="text-xs text-slate-800">INN: {o.inn ?? '—'}</p>
+                              <p className="mt-1 text-xs text-slate-800">여권: {[o.passport_series, o.passport_number].filter(Boolean).join(' ') || '—'}</p>
+                            </div>
+                          )}
+                        </div>
+                        {(o.status === 'pending' || o.status === 'completed' || o.status === 'product_preparing' || o.status === 'shipping_soon') && (
+                          <button
+                            type="button"
+                            disabled={orderStatusUpdating === o.id || !canGrantPermission}
+                            onClick={async () => {
+                              if (!supabase || !canGrantPermission) return;
+                              if (!window.confirm('이 주문을 취소 처리하시겠습니까?')) return;
+                              setOrderStatusUpdating(o.id);
+                              try {
+                                const { error } = await supabase.from('orders').update({ status: 'canceled' }).eq('id', o.id);
+                                if (error) throw error;
+                                setOrdersList((prev) => prev.map((ord) => (ord.id === o.id ? { ...ord, status: 'canceled' } : ord)));
+                              } catch (err) {
+                                console.error(err);
+                                window.alert(err instanceof Error ? err.message : '취소 처리 실패');
+                              } finally {
+                                setOrderStatusUpdating(null);
+                              }
+                            }}
+                            className="min-h-[44px] rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+                          >
+                            취소
+                          </button>
+                        )}
+                        {o.status === 'completed' && (
+                          <>
+                            <button
+                              type="button"
+                              disabled={orderStatusUpdating === o.id || !canGrantPermission}
+                              onClick={async () => {
+                                if (!supabase || !canGrantPermission) return;
+                                setOrderStatusUpdating(o.id);
+                                try {
+                                  const { error } = await supabase.from('orders').update({ status: 'shipping_soon' }).eq('id', o.id);
+                                  if (error) throw error;
+                                  setOrdersList((prev) => prev.map((ord) => (ord.id === o.id ? { ...ord, status: 'shipping_soon' } : ord)));
+                                } catch (err) {
+                                  console.error(err);
+                                  window.alert(err instanceof Error ? err.message : '상태 변경 실패');
+                                } finally {
+                                  setOrderStatusUpdating(null);
+                                }
+                              }}
+                              className="min-h-[44px] rounded-lg border border-indigo-300 px-3 py-2 text-xs text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+                            >
+                              배송준비
+                            </button>
+                            <button
+                              type="button"
+                              disabled={orderStatusUpdating === o.id || !canGrantPermission}
+                              onClick={async () => {
+                                if (!supabase || !canGrantPermission) return;
+                                if (!window.confirm('이 주문을 환불 처리하시겠습니까?')) return;
+                                setOrderStatusUpdating(o.id);
+                                try {
+                                  const { error } = await supabase.from('orders').update({ status: 'refunded' }).eq('id', o.id);
+                                  if (error) throw error;
+                                  setOrdersList((prev) => prev.map((ord) => (ord.id === o.id ? { ...ord, status: 'refunded' } : ord)));
+                                } catch (err) {
+                                  console.error(err);
+                                  window.alert(err instanceof Error ? err.message : '환불 처리 실패');
+                                } finally {
+                                  setOrderStatusUpdating(null);
+                                }
+                              }}
+                              className="min-h-[44px] rounded-lg border border-violet-300 px-3 py-2 text-xs text-violet-700 hover:bg-violet-50 disabled:opacity-50"
+                            >
+                              환불
+                            </button>
+                          </>
+                        )}
+                        {o.status === 'product_preparing' && (
+                          <button
+                            type="button"
+                            disabled={orderStatusUpdating === o.id || !canGrantPermission}
+                            onClick={async () => {
+                              if (!supabase || !canGrantPermission) return;
+                              setOrderStatusUpdating(o.id);
+                              try {
+                                const { error } = await supabase.from('orders').update({ status: 'shipping_soon' }).eq('id', o.id);
+                                if (error) throw error;
+                                setOrdersList((prev) => prev.map((ord) => (ord.id === o.id ? { ...ord, status: 'shipping_soon' } : ord)));
+                              } catch (err) {
+                                console.error(err);
+                                window.alert(err instanceof Error ? err.message : '상태 변경 실패');
+                              } finally {
+                                setOrderStatusUpdating(null);
+                              }
+                            }}
+                            className="min-h-[44px] rounded-lg border border-indigo-300 px-3 py-2 text-xs text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+                          >
+                            배송준비
+                          </button>
+                        )}
+                        {o.status === 'shipping_soon' && (
+                          <button
+                            type="button"
+                            disabled={orderStatusUpdating === o.id || !canGrantPermission}
+                            onClick={async () => {
+                              if (!supabase || !canGrantPermission) return;
+                              if (!window.confirm('발송 처리하시겠습니까?')) return;
+                              setOrderStatusUpdating(o.id);
+                              try {
+                                const { error } = await supabase.from('orders').update({ status: 'shipped' }).eq('id', o.id);
+                                if (error) throw error;
+                                setOrdersList((prev) => prev.map((ord) => (ord.id === o.id ? { ...ord, status: 'shipped' } : ord)));
+                              } catch (err) {
+                                console.error(err);
+                                window.alert(err instanceof Error ? err.message : '상태 변경 실패');
+                              } finally {
+                                setOrderStatusUpdating(null);
+                              }
+                            }}
+                            className="min-h-[44px] rounded-lg border border-sky-300 px-3 py-2 text-xs text-sky-700 hover:bg-sky-50 disabled:opacity-50"
+                          >
+                            발송
+                          </button>
+                        )}
+                        {o.status === 'shipped' && (
+                          <button
+                            type="button"
+                            disabled={orderStatusUpdating === o.id || !canGrantPermission}
+                            onClick={async () => {
+                              if (!supabase || !canGrantPermission) return;
+                              setOrderStatusUpdating(o.id);
+                              try {
+                                const { error } = await supabase.from('orders').update({ status: 'delivered' }).eq('id', o.id);
+                                if (error) throw error;
+                                setOrdersList((prev) => prev.map((ord) => (ord.id === o.id ? { ...ord, status: 'delivered' } : ord)));
+                              } catch (err) {
+                                console.error(err);
+                                window.alert(err instanceof Error ? err.message : '상태 변경 실패');
+                              } finally {
+                                setOrderStatusUpdating(null);
+                              }
+                            }}
+                            className="min-h-[44px] rounded-lg border border-emerald-300 px-3 py-2 text-xs text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                          >
+                            도착
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
           </div>
         </section>
@@ -3814,7 +4481,7 @@ export const Admin: React.FC = () => {
             {adminList.length > 0 ? (
               <div className="flex flex-col rounded-xl border border-slate-200 bg-slate-50/50 p-4">
                 <h3 className="mb-3 shrink-0 text-xs font-semibold text-slate-800">관리자 명단</h3>
-                <div className="min-h-0 flex-1 overflow-x-auto">
+                <div className="hidden min-h-0 flex-1 overflow-x-auto md:block">
                   <table className="min-w-full text-xs">
                     <thead className="border-b border-slate-200 text-slate-600">
                       <tr>
@@ -3867,6 +4534,42 @@ export const Admin: React.FC = () => {
                     </tbody>
                   </table>
                 </div>
+                <div className="space-y-2 md:hidden">
+                  {adminList.map((m) => {
+                    const isDeveloperMember = m.email && DEVELOPER_EMAILS.includes(m.email.trim().toLowerCase());
+                    return (
+                      <div key={m.id} className="rounded-lg border border-slate-200 bg-white p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <p className="font-medium text-slate-900">{m.name || '—'}</p>
+                            <p className="text-[11px] text-slate-500">{m.email || '—'}</p>
+                          </div>
+                          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${m.is_admin ? 'bg-brand/20 text-brand' : 'bg-slate-200 text-slate-700'}`}>
+                            {m.is_admin ? '관리자' : '매니저'}
+                          </span>
+                        </div>
+                        {canGrantPermission && (
+                          <div className="mt-2">
+                            {isDeveloperMember ? (
+                              <span className="text-[11px] text-slate-500">개발자 계정</span>
+                            ) : (
+                              <select
+                                value={m.is_admin ? 'admin' : 'manager'}
+                                onChange={(e) => handleUpdateMemberRole(m.id, e.target.value as 'member' | 'manager' | 'admin')}
+                                disabled={updatingRoleUserId === m.id}
+                                className={inputClass + ' w-full max-w-[180px]'}
+                              >
+                                <option value="member">회원</option>
+                                <option value="manager">매니저</option>
+                                <option value="admin" disabled={!canGrantAdminRole}>관리자</option>
+                              </select>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             ) : (
               <div className="flex flex-col rounded-xl border border-slate-200 bg-slate-50/50 p-4">
@@ -3908,7 +4611,8 @@ export const Admin: React.FC = () => {
           {/* 일반 회원 목록 */}
           <div>
             <h3 className="mb-2 text-xs font-semibold text-slate-800">일반 회원</h3>
-          <div className="relative overflow-x-auto overflow-y-visible rounded-xl border border-slate-200 bg-white z-30">
+          {/* 데스크톱: 테이블 */}
+          <div className="relative hidden overflow-x-auto overflow-y-visible rounded-xl border border-slate-200 bg-white z-30 md:block">
             <table className="min-w-full text-xs">
               <thead className="border-b border-slate-100 bg-slate-50/70">
                 <tr>
@@ -4071,6 +4775,93 @@ export const Admin: React.FC = () => {
               </tbody>
             </table>
           </div>
+          {/* 모바일: 일반 회원 카드 뷰 */}
+          {!membersLoading && regularMembers.length > 0 && (
+            <div className="space-y-4 md:hidden">
+              {regularMembers.map((m) => (
+                <div key={m.id} className="rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="mb-3 flex items-start justify-between gap-2">
+                    <div>
+                      <p className="font-medium text-slate-900">{m.name || '—'}</p>
+                      <p className="text-xs text-slate-500">{m.email || '—'}</p>
+                    </div>
+                    {canGrantPermission && (
+                      <input
+                        type="checkbox"
+                        className="mt-1 h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
+                        checked={selectedMemberIds.includes(m.id)}
+                        onChange={(e) => {
+                          setSelectedMemberIds((prev) =>
+                            e.target.checked ? [...prev, m.id] : prev.filter((id) => id !== m.id)
+                          );
+                        }}
+                      />
+                    )}
+                  </div>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-xs text-slate-500">등급</span>
+                      <span>{m.tier === 'family' ? '가족' : m.tier === 'premium' ? '프리미엄' : '일반'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-xs text-slate-500">포인트</span>
+                      <span className="tabular-nums">{m.points.toLocaleString('ru-RU')} pt</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-xs text-slate-500">주문</span>
+                      <span>{m.order_count}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-xs text-slate-500">스킨 테스트</span>
+                      <span>{m.has_skin_test ? (m.skin_type ?? '완료') : '-'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-xs text-slate-500">텔레그램</span>
+                      <span>{m.telegram_id ? '연동' : '미연동'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-xs text-slate-500">가입일</span>
+                      <span>{m.created_at ? new Date(m.created_at).toLocaleDateString('ru-RU') : '—'}</span>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+                    {canGrantPermission && (
+                      <select
+                        value="member"
+                        onChange={(e) => handleUpdateMemberRole(m.id, e.target.value as 'member' | 'manager' | 'admin')}
+                        disabled={updatingRoleUserId === m.id}
+                        className={inputClass + ' max-w-[140px]'}
+                      >
+                        <option value="member">회원</option>
+                        <option value="manager">매니저</option>
+                        {canGrantAdminRole && <option value="admin">관리자</option>}
+                      </select>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => { setOrdersFilterUserId(m.id); setTab('orders'); }}
+                      className="min-h-[44px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      주문
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setReviewFilterUserId(m.id); setTab('reviewManagement'); }}
+                      className="min-h-[44px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      리뷰
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {!membersLoading && regularMembers.length === 0 && (
+            <p className="py-6 text-center text-xs text-slate-500 md:hidden">등록된 일반 회원이 없습니다.</p>
+          )}
+          {membersLoading && (
+            <p className="py-6 text-center text-xs text-slate-500 md:hidden">회원 목록을 불러오는 중입니다…</p>
+          )}
           </div>
         </section>
         );
@@ -4083,13 +4874,13 @@ export const Admin: React.FC = () => {
             <p className="mb-3 text-[11px] text-slate-500">
               고객이 결제 단계에서 본 가격(checkout_price_viewed)과 결제 버튼 클릭(clicked_pay_button) 시각·메타데이터. 특정 user_id로 필터하면 해당 고객 타임라인만 볼 수 있습니다.
             </p>
-            <div className="mb-2 flex gap-2">
+            <div className="mb-3 flex gap-2">
               <input
                 type="text"
                 placeholder="user_id (UUID) 필터"
                 value={activityLogsFilterUserId}
                 onChange={(e) => setActivityLogsFilterUserId(e.target.value)}
-                className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs"
+                className={inputClass}
               />
             </div>
             {activityLogsLoading ? (
@@ -4097,38 +4888,69 @@ export const Admin: React.FC = () => {
             ) : activityLogsList.length === 0 ? (
               <p className="py-6 text-center text-xs text-slate-500">로그가 없거나 필터에 맞는 항목이 없습니다.</p>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[900px] text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-200 text-slate-600">
-                      <th className="pb-1.5 pr-2 font-medium">시각</th>
-                      <th className="pb-1.5 pr-2 font-medium">user_id</th>
-                      <th className="pb-1.5 pr-2 font-medium">action</th>
-                      <th className="min-w-[200px] pb-1.5 font-medium">metadata</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {activityLogsList.map((row) => (
-                      <tr key={row.id} className="border-b border-slate-100">
-                        <td className="py-1.5 pr-2 text-slate-700">
-                          {new Date(row.created_at).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'medium' })}
-                        </td>
-                        <td className="max-w-[10rem] truncate py-1.5 pr-2 font-mono text-[11px]" title={row.user_id ?? ''}>{row.user_id ?? '—'}</td>
-                        <td className="py-1.5 pr-2 font-medium">{row.action}</td>
-                        <td className="min-w-[200px] max-w-[400px] py-1.5 text-slate-600" title={JSON.stringify(row.metadata)}>
-                          {row.action === 'checkout_price_viewed' && row.metadata && (
-                            <span>final_cents: {(row.metadata as { final_cents?: number }).final_cents ?? '—'} · total_cents: {(row.metadata as { total_cents?: number }).total_cents ?? '—'}</span>
-                          )}
-                          {row.action === 'clicked_pay_button' && row.metadata && (
-                            <span>final_cents: {(row.metadata as { final_cents?: number }).final_cents ?? '—'} (클릭 시점)</span>
-                          )}
-                          {row.action !== 'checkout_price_viewed' && row.action !== 'clicked_pay_button' && JSON.stringify(row.metadata)}
-                        </td>
+              <>
+                <div className="hidden overflow-x-auto md:block">
+                  <table className="w-full min-w-[900px] text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-slate-600">
+                        <th className="pb-1.5 pr-2 font-medium">시각</th>
+                        <th className="pb-1.5 pr-2 font-medium">user_id</th>
+                        <th className="pb-1.5 pr-2 font-medium">action</th>
+                        <th className="min-w-[200px] pb-1.5 font-medium">metadata</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {activityLogsList.map((row) => (
+                        <tr key={row.id} className="border-b border-slate-100">
+                          <td className="py-1.5 pr-2 text-slate-700">
+                            {new Date(row.created_at).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'medium' })}
+                          </td>
+                          <td className="max-w-[10rem] truncate py-1.5 pr-2 font-mono text-[11px]" title={row.user_id ?? ''}>{row.user_id ?? '—'}</td>
+                          <td className="py-1.5 pr-2 font-medium">{row.action}</td>
+                          <td className="min-w-[200px] max-w-[400px] py-1.5 text-slate-600" title={JSON.stringify(row.metadata)}>
+                            {row.action === 'checkout_price_viewed' && row.metadata && (
+                              <span>final_cents: {(row.metadata as { final_cents?: number }).final_cents ?? '—'} · total_cents: {(row.metadata as { total_cents?: number }).total_cents ?? '—'}</span>
+                            )}
+                            {row.action === 'clicked_pay_button' && row.metadata && (
+                              <span>final_cents: {(row.metadata as { final_cents?: number }).final_cents ?? '—'} (클릭 시점)</span>
+                            )}
+                            {row.action !== 'checkout_price_viewed' && row.action !== 'clicked_pay_button' && JSON.stringify(row.metadata)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="space-y-3 md:hidden">
+                  {activityLogsList.map((row) => (
+                    <div key={row.id} className="rounded-xl border border-slate-200 bg-slate-50/50 p-4">
+                      <div className="mb-2 font-medium text-slate-800">{row.action}</div>
+                      <div className="space-y-1.5 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-xs text-slate-500">시각</span>
+                          <span className="tabular-nums">{new Date(row.created_at).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'medium' })}</span>
+                        </div>
+                        <div className="flex justify-between gap-2">
+                          <span className="shrink-0 text-xs text-slate-500">user_id</span>
+                          <span className="truncate font-mono text-[11px]">{row.user_id ?? '—'}</span>
+                        </div>
+                        <div className="flex justify-between gap-2">
+                          <span className="shrink-0 text-xs text-slate-500">metadata</span>
+                          <span className="truncate text-right text-slate-600">
+                            {row.action === 'checkout_price_viewed' && row.metadata && (
+                              <>final: {(row.metadata as { final_cents?: number }).final_cents ?? '—'} / total: {(row.metadata as { total_cents?: number }).total_cents ?? '—'}</>
+                            )}
+                            {row.action === 'clicked_pay_button' && row.metadata && (
+                              <>final_cents: {(row.metadata as { final_cents?: number }).final_cents ?? '—'}</>
+                            )}
+                            {row.action !== 'checkout_price_viewed' && row.action !== 'clicked_pay_button' && (JSON.stringify(row.metadata) || '—')}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
           </div>
         </section>
@@ -4149,38 +4971,72 @@ export const Admin: React.FC = () => {
             ) : cartAbandonmentList.length === 0 ? (
               <p className="py-6 text-center text-xs text-slate-500">명단이 없습니다.</p>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[700px] text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-200 text-slate-600">
-                      <th className="pb-1.5 pr-2 font-medium">이메일</th>
-                      <th className="pb-1.5 pr-2 font-medium">이름</th>
-                      <th className="pb-1.5 pr-2 font-medium">텔레그램</th>
-                      <th className="pb-1.5 pr-2 font-medium">장바구니 금액</th>
-                      <th className="pb-1.5 pr-2 font-medium">장바구니에 담은 시간</th>
-                      <th className="pb-1.5 pr-2 font-medium">마지막 갱신</th>
-                      <th className="pb-1.5 font-medium">품목 요약</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cartAbandonmentList.map((r) => (
-                      <tr key={r.user_id} className="border-b border-slate-100">
-                        <td className="py-1.5 pr-2 text-slate-800">{r.email ?? '—'}</td>
-                        <td className="py-1.5 pr-2 text-slate-700">{r.name ?? '—'}</td>
-                        <td className="py-1.5 pr-2">
-                          {r.telegram_id ? <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-medium text-emerald-800">연동됨</span> : <span className="text-slate-400">—</span>}
-                        </td>
-                        <td className="py-1.5 pr-2">{(r.total_cents / 100).toLocaleString('ko-KR')} ₽</td>
-                        <td className="py-1.5 pr-2 text-slate-600">{r.created_at ? new Date(r.created_at).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' }) : '—'}</td>
-                        <td className="py-1.5 pr-2 text-slate-600">{new Date(r.updated_at).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' })}</td>
-                        <td className="max-w-[200px] py-1.5 text-slate-600" title={r.items.map((i) => `${i.name} ×${i.quantity}`).join(', ')}>
-                          {r.items.slice(0, 2).map((i) => `${i.name} ×${i.quantity}`).join(', ')}{r.items.length > 2 ? ` 외 ${r.items.length - 2}건` : ''}
-                        </td>
+              <>
+                <div className="hidden overflow-x-auto md:block">
+                  <table className="w-full min-w-[700px] text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-slate-600">
+                        <th className="pb-1.5 pr-2 font-medium">이메일</th>
+                        <th className="pb-1.5 pr-2 font-medium">이름</th>
+                        <th className="pb-1.5 pr-2 font-medium">텔레그램</th>
+                        <th className="pb-1.5 pr-2 font-medium">장바구니 금액</th>
+                        <th className="pb-1.5 pr-2 font-medium">장바구니에 담은 시간</th>
+                        <th className="pb-1.5 pr-2 font-medium">마지막 갱신</th>
+                        <th className="pb-1.5 font-medium">품목 요약</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {cartAbandonmentList.map((r) => (
+                        <tr key={r.user_id} className="border-b border-slate-100">
+                          <td className="py-1.5 pr-2 text-slate-800">{r.email ?? '—'}</td>
+                          <td className="py-1.5 pr-2 text-slate-700">{r.name ?? '—'}</td>
+                          <td className="py-1.5 pr-2">
+                            {r.telegram_id ? <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-medium text-emerald-800">연동됨</span> : <span className="text-slate-400">—</span>}
+                          </td>
+                          <td className="py-1.5 pr-2">{(r.total_cents / 100).toLocaleString('ko-KR')} ₽</td>
+                          <td className="py-1.5 pr-2 text-slate-600">{r.created_at ? new Date(r.created_at).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' }) : '—'}</td>
+                          <td className="py-1.5 pr-2 text-slate-600">{new Date(r.updated_at).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' })}</td>
+                          <td className="max-w-[200px] py-1.5 text-slate-600" title={r.items.map((i) => `${i.name} ×${i.quantity}`).join(', ')}>
+                            {r.items.slice(0, 2).map((i) => `${i.name} ×${i.quantity}`).join(', ')}{r.items.length > 2 ? ` 외 ${r.items.length - 2}건` : ''}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="space-y-4 md:hidden">
+                  {cartAbandonmentList.map((r) => (
+                    <div key={r.user_id} className="rounded-xl border border-slate-200 bg-slate-50/50 p-4">
+                      <div className="mb-3 flex items-center justify-between gap-2">
+                        <span className="font-medium text-slate-900">{r.email ?? '—'}</span>
+                        {r.telegram_id ? <span className="rounded bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-800">연동됨</span> : null}
+                      </div>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-xs text-slate-500">이름</span>
+                          <span>{r.name ?? '—'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-xs text-slate-500">장바구니 금액</span>
+                          <span className="tabular-nums font-medium">{(r.total_cents / 100).toLocaleString('ko-KR')} ₽</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-xs text-slate-500">담은 시간</span>
+                          <span className="tabular-nums">{r.created_at ? new Date(r.created_at).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' }) : '—'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-xs text-slate-500">마지막 갱신</span>
+                          <span className="tabular-nums">{new Date(r.updated_at).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                        </div>
+                        <div className="flex justify-between gap-2">
+                          <span className="shrink-0 text-xs text-slate-500">품목</span>
+                          <span className="truncate text-right text-slate-600">{r.items.slice(0, 2).map((i) => `${i.name} ×${i.quantity}`).join(', ')}{r.items.length > 2 ? ` 외 ${r.items.length - 2}건` : ''}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
           </div>
         </section>
@@ -4271,15 +5127,15 @@ export const Admin: React.FC = () => {
                         </div>
                       )}
                     </div>
-                    {/* 조치 버튼: 삭제 / 200pt / 500pt */}
-                    <div className="flex flex-wrap gap-2">
+                    {/* 조치 버튼: 삭제 / 200pt / 500pt — 모바일 터치 영역·간격 */}
+                    <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:gap-2">
                       <button
                         type="button"
                         disabled={reviewActionLoading != null}
                         onClick={() => handleReviewDelete(r.id)}
-                        className="rounded border border-red-200 bg-white px-2 py-1 text-[11px] text-red-700 hover:bg-red-50 disabled:opacity-50"
+                        className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 sm:min-h-0 sm:px-2 sm:py-1 sm:text-[11px] sm:font-normal"
                       >
-                        삭제
+                        🗑️ 삭제
                       </button>
                       {r.review_reward_points === 0 && (
                         <>
@@ -4287,17 +5143,17 @@ export const Admin: React.FC = () => {
                             type="button"
                             disabled={reviewActionLoading != null}
                             onClick={() => handleReviewReward(r.id, 200)}
-                            className="rounded border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                            className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50 sm:min-h-0 sm:px-2 sm:py-1 sm:text-[11px] sm:font-normal"
                           >
-                            200pt 지급 (일반)
+                            ⭐ 200pt (일반)
                           </button>
                           <button
                             type="button"
                             disabled={reviewActionLoading != null}
                             onClick={() => handleReviewReward(r.id, 500)}
-                            className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                            className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50 sm:min-h-0 sm:px-2 sm:py-1 sm:text-[11px]"
                           >
-                            500pt 지급 (특별)
+                            ✨ 500pt (특별)
                           </button>
                         </>
                       )}
@@ -4320,7 +5176,7 @@ export const Admin: React.FC = () => {
                 <label className="mb-1 block text-xs font-medium text-slate-600">ФИО (수령인 이름)</label>
                 <input
                   type="text"
-                  className="w-full rounded border border-slate-200 px-3 py-2 text-sm"
+                  className={inputClass}
                   value={orderEditForm.receiver_name}
                   onChange={(e) => setOrderEditForm((f) => ({ ...f, receiver_name: e.target.value }))}
                   placeholder="IVANOV IVAN IVANOVICH"
@@ -4330,7 +5186,7 @@ export const Admin: React.FC = () => {
                 <label className="mb-1 block text-xs font-medium text-slate-600">Телефон</label>
                 <input
                   type="text"
-                  className="w-full rounded border border-slate-200 px-3 py-2 text-sm"
+                  className={inputClass}
                   value={orderEditForm.receiver_phone}
                   onChange={(e) => setOrderEditForm((f) => ({ ...f, receiver_phone: e.target.value }))}
                   placeholder="+7 ..."
@@ -4340,7 +5196,7 @@ export const Admin: React.FC = () => {
                 <label className="mb-1 block text-xs font-medium text-slate-600">Адрес доставки</label>
                 <textarea
                   rows={3}
-                  className="w-full rounded border border-slate-200 px-3 py-2 text-sm"
+                  className={`${inputClass} min-h-[120px] resize-y`}
                   value={orderEditForm.shipping_address}
                   onChange={(e) => setOrderEditForm((f) => ({ ...f, shipping_address: e.target.value }))}
                   placeholder="Индекс, город, улица, дом..."
@@ -4350,14 +5206,14 @@ export const Admin: React.FC = () => {
                 <label className="mb-1 block text-xs font-medium text-slate-600">배송 추적 URL (СДЭК, Почта России 등)</label>
                 <input
                   type="url"
-                  className="w-full rounded border border-slate-200 px-3 py-2 text-sm"
+                  className={inputClass}
                   value={orderEditForm.tracking_url}
                   onChange={(e) => setOrderEditForm((f) => ({ ...f, tracking_url: e.target.value }))}
                   placeholder="https://..."
                 />
               </div>
             </div>
-            <div className="mt-4 flex gap-2">
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:gap-2">
               <button
                 type="button"
                 disabled={orderSaving}
@@ -4402,14 +5258,14 @@ export const Admin: React.FC = () => {
                     setOrderSaving(false);
                   }
                 }}
-                className="rounded-full bg-brand px-4 py-1.5 text-xs font-medium text-white hover:bg-brand/90 disabled:opacity-50"
+                className="inline-flex min-h-[48px] w-full items-center justify-center rounded-full bg-brand px-5 font-medium text-white hover:bg-brand/90 disabled:opacity-50 sm:min-h-0 sm:w-auto sm:px-4 sm:py-1.5 sm:text-xs"
               >
                 {orderSaving ? '저장 중…' : '저장'}
               </button>
               <button
                 type="button"
                 onClick={() => setSelectedOrder(null)}
-                className="rounded-full border border-slate-200 px-4 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
+                className="inline-flex min-h-[48px] w-full items-center justify-center rounded-full border border-slate-200 px-5 font-medium text-slate-600 hover:bg-slate-50 sm:min-h-0 sm:w-auto sm:px-4 sm:py-1.5 sm:text-xs"
               >
                 취소
               </button>

@@ -1,14 +1,33 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth, ADMIN_DUMMY_USER_ID } from '../context/AuthContext';
-import { getProfile } from '../lib/profileStorage';
 import { supabase } from '../lib/supabase';
 import { resendSignupConfirmationEmail } from '../lib/authSignupResend';
-import { BackArrow } from '../components/BackArrow';
+
+/** 세션 내 텔레그램 연동 여부 캐시 — 프로필 API 응답 전에도 버튼 깜빡임 완화 */
+const TG_CACHE_PREFIX = 'semo_profile_tg_';
+function readTelegramCache(userId: string): boolean | null {
+  try {
+    const v = sessionStorage.getItem(TG_CACHE_PREFIX + userId);
+    if (v === '1') return true;
+    if (v === '0') return false;
+  } catch {
+    /* private mode */
+  }
+  return null;
+}
+function writeTelegramCache(userId: string, linked: boolean) {
+  try {
+    sessionStorage.setItem(TG_CACHE_PREFIX + userId, linked ? '1' : '0');
+  } catch {
+    /* */
+  }
+}
 
 /**
- * 로그인된 사용자 개인화면 — 인사/등급/포인트 박스. Supabase 로그인 시 DB 포인트(테스트 완료 300p 등 이벤트별) 표시.
- * 텔레그램 연동: fetch 실패 시 기존 상태 유지, localStorage는 성공 응답에서만 갱신.
+ * 로그인된 사용자 개인화면 — 인사/등급/포인트 박스.
+ * 이름·등급(표시)·포인트의 유일한 근거는 Supabase `profiles`(및 주문 기반 membershipTier) — 브라우저에 이름/포인트를 캐시하지 않음.
+ * Telegram 연동 여부만 세션 스토리지로 깜빡임 완화(0/1 플래그, 개인정보 아님).
  */
 export const Profile: React.FC = () => {
   const navigate = useNavigate();
@@ -36,12 +55,10 @@ export const Profile: React.FC = () => {
   const currentUserIdRef = useRef<string | null>(null);
   currentUserIdRef.current = userId;
 
-  const localProfile = useMemo(() => (userEmail ? getProfile(userEmail) : null), [userEmail]);
-
-  const refreshProfile = useCallback(() => {
+  const refreshProfile = useCallback((): Promise<void> => {
     if (!supabase || !userId) {
       setDbProfile(null);
-      return;
+      return Promise.resolve();
     }
     const requestedUserId = userId;
 
@@ -63,6 +80,12 @@ export const Profile: React.FC = () => {
       }
       prevTelegramIdRef.current = nextTelegramId;
 
+      if (data) {
+        writeTelegramCache(requestedUserId, !!nextTelegramId);
+      } else {
+        writeTelegramCache(requestedUserId, false);
+      }
+
       setDbProfile(
         data
           ? {
@@ -75,34 +98,39 @@ export const Profile: React.FC = () => {
       );
     };
 
-    void (async () => {
-      const res = await supabase
-        .from('profiles')
-        .select('name, grade, points, telegram_id, telegram_reward_given')
-        .eq('id', userId)
-        .single();
+    return (async () => {
+      try {
+        const res = await supabase
+          .from('profiles')
+          .select('name, grade, points, telegram_id, telegram_reward_given')
+          .eq('id', userId)
+          .single();
 
-      if (userId === ADMIN_DUMMY_USER_ID) {
-        if (!res.error && res.data) {
-          applyRow(res.data);
-        } else {
-          const r2 = await supabase
-            .from('profiles')
-            .select('name, grade, points, telegram_id, telegram_reward_given')
-            .eq('id', userId)
-            .single();
-          if (!r2.error) applyRow(r2.data);
+        if (userId === ADMIN_DUMMY_USER_ID) {
+          if (!res.error && res.data) {
+            applyRow(res.data);
+          } else {
+            const r2 = await supabase
+              .from('profiles')
+              .select('name, grade, points, telegram_id, telegram_reward_given')
+              .eq('id', userId)
+              .single();
+            if (!r2.error) applyRow(r2.data);
+          }
+          return;
         }
-        return;
-      }
 
-      if (res.error || !res.data) {
+        if (res.error || !res.data) {
+          if (currentUserIdRef.current !== requestedUserId) return;
+          applyRow(null);
+          return;
+        }
+
+        applyRow(res.data);
+      } catch {
         if (currentUserIdRef.current !== requestedUserId) return;
         applyRow(null);
-        return;
       }
-
-      applyRow(res.data);
     })();
   }, [userId]);
 
@@ -112,7 +140,7 @@ export const Profile: React.FC = () => {
       setDbProfile(null);
       return;
     }
-    refreshProfile();
+    void refreshProfile();
   }, [refreshProfile, userId]);
 
   // 마지막 тип кожи (карточка «Тесты»: «Последний: …»)
@@ -211,7 +239,23 @@ export const Profile: React.FC = () => {
     }
   }, [userId, userEmail]);
 
-  const profile = dbProfile ?? localProfile;
+  /** 표시용 이름: DB(profiles.name)만 — 로드 전에는 이메일 @ 앞부분만 플레이스홀더 */
+  const displayName =
+    (dbProfile?.name && String(dbProfile.name).trim()) ||
+    (userEmail ? userEmail.split('@')[0] : 'SEMO клиент');
+  /** 포인트: DB 조회 완료 후에만 숫자 표시(로딩 중 스켈레톤) */
+  const pointsLoaded = dbProfile !== null;
+  const displayPoints = dbProfile?.points ?? 0;
+
+  /** 텔레그램 버튼: DB 로드 전에는 sessionStorage 캐시로 즉시 표시(깜빡임 완화), 없으면 스켈레톤 */
+  const telegramButtonState = useMemo((): 'linked' | 'unlinked' | 'loading' | null => {
+    if (!userId || userId === ADMIN_DUMMY_USER_ID) return null;
+    if (dbProfile != null) return dbProfile.telegram_id ? 'linked' : 'unlinked';
+    const c = readTelegramCache(userId);
+    if (c === true) return 'linked';
+    if (c === false) return 'unlinked';
+    return 'loading';
+  }, [userId, dbProfile]);
 
   if (!initialized) return null;
   if (!isLoggedIn || !userEmail) return <Navigate to="/login" replace />;
@@ -266,7 +310,7 @@ export const Profile: React.FC = () => {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <p className="break-words text-base font-medium text-slate-800 sm:text-lg">
-              Здравствуйте, {profile?.name || (userEmail ? userEmail.split('@')[0] : 'SEMO клиент')}!
+              Здравствуйте, {displayName}!
             </p>
             <div
               className="relative mt-1 inline-flex items-center gap-1 text-sm text-brand"
@@ -297,11 +341,21 @@ export const Profile: React.FC = () => {
           <Link
             to="/profile/points"
             className="inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-brand/30 bg-white px-4 py-2.5 text-sm font-medium text-slate-800 transition hover:bg-brand-soft/20"
+            aria-busy={!pointsLoaded}
           >
-            <span className="tabular-nums">{profile?.points ?? 0}</span>
-            <span className="text-amber-500" aria-hidden>
-              ★
-            </span>
+            {pointsLoaded ? (
+              <>
+                <span className="tabular-nums">{displayPoints}</span>
+                <span className="text-amber-500" aria-hidden>
+                  ★
+                </span>
+              </>
+            ) : (
+              <span
+                className="inline-block h-5 min-w-[3rem] animate-pulse rounded bg-slate-200/90"
+                aria-label="Загрузка баллов"
+              />
+            )}
           </Link>
         </div>
       </div>
@@ -309,9 +363,10 @@ export const Profile: React.FC = () => {
       {/* Telegram + E-mail: 2 колонки, тонкий разделитель (어드민 테스트 제외) */}
       {userId && userId !== ADMIN_DUMMY_USER_ID && (
         <div className="mt-6 overflow-hidden rounded-2xl border border-sky-100/90 bg-sky-50/95 px-3 pt-3 pb-2 shadow-sm sm:px-5 sm:pt-5 sm:pb-3">
-          <div className="grid grid-cols-1 md:grid-cols-2 md:gap-0">
+          {/* 모바일도 2열(텔레그램 | 이메일), md 이상은 동일 + 여백만 넓게 */}
+          <div className="grid grid-cols-2 gap-x-2 sm:gap-x-4 md:gap-x-0">
             {/* Левая колонка: Telegram — порядок: заголовок → кнопка → пояснение */}
-            <div className="flex min-h-0 flex-col md:border-r md:border-slate-200/60 md:pr-5">
+            <div className="flex min-h-0 min-w-0 flex-col border-r border-slate-200/60 pr-2 sm:pr-3 md:pr-5">
               <div className="flex items-center justify-center gap-2.5">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/80 text-[#26A5E4] shadow-sm ring-1 ring-sky-100/80">
                   <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden>
@@ -321,7 +376,13 @@ export const Profile: React.FC = () => {
                 <p className="text-sm font-semibold tracking-tight text-slate-900">Telegram</p>
               </div>
               <div className="mt-2.5">
-                {dbProfile?.telegram_id ? (
+                {telegramButtonState === 'loading' && (
+                  <div
+                    className="h-11 w-full animate-pulse rounded-xl bg-slate-200/70"
+                    aria-hidden
+                  />
+                )}
+                {telegramButtonState === 'linked' && (
                   <button
                     type="button"
                     disabled
@@ -330,7 +391,8 @@ export const Profile: React.FC = () => {
                   >
                     Telegram привязан ✅
                   </button>
-                ) : (
+                )}
+                {telegramButtonState === 'unlinked' && (
                   <Link
                     to="/profile/edit?focus=phone"
                     className="inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-[#26A5E4] px-2 py-2.5 text-center text-xs font-semibold text-white shadow-md shadow-sky-500/25 transition hover:bg-[#2298d4] hover:shadow-lg hover:shadow-sky-500/30"
@@ -339,7 +401,7 @@ export const Profile: React.FC = () => {
                   </Link>
                 )}
               </div>
-              {!dbProfile?.telegram_id && (
+              {telegramButtonState === 'unlinked' && (
                 <p className="prose-ru mx-auto mt-3 max-w-[19rem] text-center text-[10px] leading-snug text-[#6B7280] sm:max-w-[20rem] sm:text-[11px] sm:leading-snug">
                   Привяжите Telegram для доступа к закрытым акциям
                   <br />
@@ -349,7 +411,7 @@ export const Profile: React.FC = () => {
             </div>
 
             {/* Правая колонка: E-mail — заголовок → кнопка/статус → пояснение */}
-            <div className="mt-5 flex min-h-0 flex-col border-t border-slate-200/60 pt-5 md:mt-0 md:border-t-0 md:pl-5 md:pt-0">
+            <div className="flex min-h-0 min-w-0 flex-col pl-2 sm:pl-3 md:pl-5">
               <div className="flex items-center justify-center gap-2.5">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/80 text-slate-600 shadow-sm ring-1 ring-slate-200/80">
                   <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" aria-hidden>
@@ -365,7 +427,7 @@ export const Profile: React.FC = () => {
                   <button
                     type="button"
                     disabled
-                    className="flex min-h-11 w-full cursor-default items-center justify-center rounded-xl border border-emerald-200/90 bg-emerald-50/95 px-2 py-2.5 text-center text-xs font-semibold text-emerald-800 shadow-sm"
+                    className="flex min-h-10 w-full cursor-default items-center justify-center whitespace-nowrap rounded-xl border border-emerald-200/90 bg-emerald-50/95 px-1.5 py-2 text-center text-[10px] font-semibold leading-none text-emerald-800 shadow-sm sm:min-h-11 sm:px-2 sm:text-xs"
                     aria-label="Email подтверждён"
                   >
                     Email подтверждён ✅
@@ -451,7 +513,7 @@ export const Profile: React.FC = () => {
           </span>
           <div className="min-w-0 px-0.5">
             <p className="text-center text-sm font-semibold text-slate-800 sm:text-base md:whitespace-nowrap">Отзывы</p>
-            <p className="prose-ru mt-0.5 text-center text-[10px] text-slate-500 sm:text-xs">Мои сообщения</p>
+            <p className="prose-ru mt-0.5 text-center text-[10px] text-slate-500 sm:text-xs">Мои отзывы о товарах</p>
           </div>
         </Link>
 
@@ -470,12 +532,6 @@ export const Profile: React.FC = () => {
           </div>
         </Link>
       </nav>
-
-      <p className="mt-6 text-center">
-        <Link to="/" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90">
-          <BackArrow /> На главную
-        </Link>
-      </p>
 
       {telegramLinkedToast && (
         <div className="fixed bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-sky-600 px-5 py-2.5 text-sm font-medium text-white shadow-lg md:bottom-8" role="status" aria-live="polite">
