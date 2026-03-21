@@ -31,7 +31,12 @@ import {
   deliveryFormFieldLabelClass,
   deliveryFormFioCellClass,
   deliveryFormHintClass,
+  deliveryFormInnerCardClass,
   deliveryFormInputClass,
+  deliveryFormNoteRowClass,
+  deliveryFormNoteScrollClass,
+  deliveryFormNoteTextClass,
+  deliveryFormSectionStackClass,
 } from '../lib/profileDeliveryFormUi';
 
 function formatPrice(price: number): string {
@@ -89,6 +94,43 @@ function buildInitialDeliveryForm(
   if (o.fioFirst) o.fioFirst = o.fioFirst.replace(/[^A-Za-z\s-']/g, '').toUpperCase();
   if (o.fioMiddle) o.fioMiddle = o.fioMiddle.replace(/[^A-Za-z\s-']/g, '').toUpperCase();
   return o as DeliveryForm;
+}
+
+function normalizePhoneDigitsForCheckout(value: string | null | undefined): string {
+  let digits = (value ?? '').replace(/\D/g, '').slice(0, 11);
+  if (digits.length === 0) return '';
+  if (digits.startsWith('8')) digits = '7' + digits.slice(1);
+  else if (!digits.startsWith('7')) digits = '7' + digits;
+  return digits;
+}
+
+/** 텔레그램 연동됨 + 폼·프로필 전화 동일 + «Изменить номер» 플로우 아님 */
+function isTelegramVerifiedForCheckout(
+  form: DeliveryForm,
+  profile: { phone: string | null; telegram_id: string | null } | null,
+  phoneUnlinkRequested: boolean,
+): boolean {
+  if (!profile?.telegram_id) return false;
+  if (phoneUnlinkRequested) return false;
+  const a = normalizePhoneDigitsForCheckout(form.phone);
+  const b = normalizePhoneDigitsForCheckout(profile.phone ?? '');
+  return a.length >= 11 && a === b;
+}
+
+function deliveryFormToShippingFormCamel(form: DeliveryForm): ShippingFormCamel {
+  return {
+    fioLast: form.fioLast ?? '',
+    fioFirst: form.fioFirst ?? '',
+    fioMiddle: form.fioMiddle ?? '',
+    cityRegion: form.cityRegion ?? '',
+    streetHouse: form.streetHouse ?? '',
+    apartmentOffice: form.apartmentOffice ?? '',
+    postcode: form.postcode ?? '',
+    phone: form.phone ?? '',
+    inn: form.inn ?? '',
+    passportSeries: form.passportSeries ?? '',
+    passportNumber: form.passportNumber ?? '',
+  };
 }
 
 /** 결제 시 포인트 최대 사용 한도 (점) — 1점 = 1 руб */
@@ -150,22 +192,10 @@ export const Checkout: React.FC = () => {
   /** 결제 시점 클라이언트 IP (결제 단계 진입 시 한 번 조회) */
   const clientIpRef = useRef<string | null>(null);
 
-  const hasPhone = !!deliveryForm.phone?.trim();
-  const hasCity = !!deliveryForm.cityRegion?.trim();
-  const hasStreet = !!deliveryForm.streetHouse?.trim();
-  const hasPostcode = !!deliveryForm.postcode?.trim();
-  const hasFioLast = !!deliveryForm.fioLast?.trim();
-  const hasFioFirst = !!deliveryForm.fioFirst?.trim();
-  const hasInn = !!deliveryForm.inn?.trim();
-  const hasPassport = !!deliveryForm.passportSeries?.trim() && !!deliveryForm.passportNumber?.trim();
-  const deliveryComplete =
-    hasPhone &&
-    hasCity &&
-    hasStreet &&
-    hasPostcode &&
-    hasFioLast &&
-    hasFioFirst;
-  const canProceedDelivery = deliveryComplete && hasInn && hasPassport;
+  /** Доставка: ИНН 12 / индекс 6 / паспорт 4+6 / телефон +7 полный — validateShippingComplete */
+  const shippingValidation = validateShippingComplete(deliveryFormToShippingFormCamel(deliveryForm));
+  const telegramVerifiedForCheckout = isTelegramVerifiedForCheckout(deliveryForm, profile, phoneUnlinkRequested);
+  const canProceedDelivery = shippingValidation.ok && telegramVerifiedForCheckout;
 
   const loadProfile = useCallback(() => {
     if (!supabase || !userId) {
@@ -267,19 +297,7 @@ export const Checkout: React.FC = () => {
     /** Снятие Telegram при «Изменить номер» должно записаться даже если галочка «сохранить адрес» снята */
     if (!saveDeliveryAsDefault && !phoneUnlinkRequested) return true;
 
-    const shippingForm: ShippingFormCamel = {
-      fioLast: deliveryForm.fioLast ?? '',
-      fioFirst: deliveryForm.fioFirst ?? '',
-      fioMiddle: deliveryForm.fioMiddle ?? '',
-      cityRegion: deliveryForm.cityRegion ?? '',
-      streetHouse: deliveryForm.streetHouse ?? '',
-      apartmentOffice: deliveryForm.apartmentOffice ?? '',
-      postcode: deliveryForm.postcode ?? '',
-      phone: deliveryForm.phone ?? '',
-      inn: deliveryForm.inn ?? '',
-      passportSeries: deliveryForm.passportSeries ?? '',
-      passportNumber: deliveryForm.passportNumber ?? '',
-    };
+    const shippingForm = deliveryFormToShippingFormCamel(deliveryForm);
     const profilesPatch = {
       phone: deliveryForm.phone?.trim() || null,
       ...(phoneUnlinkRequested ? { telegram_id: null as null, phone_verified: false } : {}),
@@ -411,6 +429,8 @@ export const Checkout: React.FC = () => {
   const phoneFieldClass = phoneLockedByTelegram ? deliveryContactInputLocked : deliveryContactInputEditable;
   /** Checkout: всегда в режиме редактирования — «Изменить номер» при активной привязке Telegram */
   const showChangePhoneControl = dbTelegramLinked && !phoneUnlinkRequested;
+  /** Смена номера или нет привязки — снова показать «Подтвердить» (Telegram) */
+  const showTelegramVerifyButton = !dbTelegramLinked || phoneUnlinkRequested;
 
   const handlePhoneInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -495,7 +515,7 @@ export const Checkout: React.FC = () => {
   // ——— 아래부터는 early return만 허용. 새 훅(useState/useEffect/useCallback 등) 추가 시 반드시 위쪽에 선언 ———
   if (!initialized || loading) {
     return (
-      <main className={`${SEMO_FULL_PAGE_LOADING_MAIN_CLASS} max-w-2xl`}>
+      <main className={SEMO_FULL_PAGE_LOADING_MAIN_CLASS}>
         <SemoPageSpinner />
       </main>
     );
@@ -537,7 +557,21 @@ export const Checkout: React.FC = () => {
     }
     setOrderFlowError(null);
     setCheckoutWarning(null);
-    if (!canProceedDelivery && step === 'delivery') return;
+
+    const shipCheck = validateShippingComplete(deliveryFormToShippingFormCamel(deliveryForm));
+    if (!shipCheck.ok) {
+      setOrderFlowError(shipCheck.messageRu);
+      return;
+    }
+    if (!isTelegramVerifiedForCheckout(deliveryForm, profile, phoneUnlinkRequested)) {
+      setOrderFlowError(
+        phoneUnlinkRequested
+          ? 'После смены номера снова подтвердите его через Telegram (кнопка «Подтвердить»).'
+          : 'Подтвердите номер телефона в Telegram — без подтверждения оформить заказ нельзя.',
+      );
+      return;
+    }
+
     if (step === 'delivery') {
       setStep('payment');
       return;
@@ -857,7 +891,7 @@ export const Checkout: React.FC = () => {
   };
 
   return (
-    <main className="mx-auto max-w-2xl px-4 py-10 sm:px-6 sm:py-14">
+    <main className="mx-auto min-w-0 max-w-2xl px-4 py-10 sm:px-6 sm:py-14">
       <p className="mb-6">
         <Link
           to="/cart"
@@ -923,16 +957,16 @@ export const Checkout: React.FC = () => {
         </div>
       </section>
 
-      {/* 2. 배송 — ProfileEdit «Доставка»와 동일 순서·마크업·스타일 */}
-      <section className="mt-6 rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
+      {/* 2. 배송 — ProfileEdit와 동일 폭(추가 흰 카드 패딩 없음) + 동일 inner card */}
+      <section className="mt-6 min-w-0">
         <h2 className="mb-4 text-lg font-semibold text-slate-900">
           Доставка <span className={deliveryFormHintClass}>(при заказе — обязательно)</span>
         </h2>
         <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
           Укажите данные фактического получателя. Заказы из-за рубежа проходят личную таможенную очистку. Неверные данные могут повлечь задержки, возврат посылки или отказ в выдаче — просим указывать данные внимательно.
         </p>
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-4 rounded-xl border border-brand/20 bg-brand-soft/10 px-4 py-4">
+        <div className={deliveryFormSectionStackClass}>
+          <div className={deliveryFormInnerCardClass}>
             <div className={deliveryFormFieldColClass}>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-3 sm:items-start">
                 <div className={deliveryFormFioCellClass}>
@@ -1022,16 +1056,15 @@ export const Checkout: React.FC = () => {
                 )}
               </div>
               {!isEmailConfirmed && (
-                <div
-                  className="flex w-full min-w-0 items-start gap-1 overflow-x-auto leading-tight [-webkit-overflow-scrolling:touch] [scrollbar-width:thin] text-gray-500 max-sm:text-[clamp(7px,2.65vw,9.5px)] sm:overflow-x-visible sm:text-[10px]"
-                  role="note"
-                >
+                <div className={deliveryFormNoteRowClass} role="note">
                   <span aria-hidden className="shrink-0 select-none">
                     *
                   </span>
-                  <span className="min-w-0 whitespace-nowrap leading-[inherit]">
-                    Подтвердите email для оформления заказа.
-                  </span>
+                  <div className={deliveryFormNoteScrollClass}>
+                    <span className={deliveryFormNoteTextClass}>
+                      Подтвердите email для оформления заказа.
+                    </span>
+                  </div>
                 </div>
               )}
               {verifyEmailError && (
@@ -1064,7 +1097,7 @@ export const Checkout: React.FC = () => {
                   readOnly={phoneLockedByTelegram}
                   maxLength={16}
                 />
-                {!dbTelegramLinked && (
+                {showTelegramVerifyButton && (
                   <button
                     type="button"
                     disabled={(deliveryForm.phone ?? '').replace(/\D/g, '').length < 10 || pollingForTelegram}
@@ -1075,16 +1108,15 @@ export const Checkout: React.FC = () => {
                   </button>
                 )}
               </div>
-              <div
-                className="flex w-full min-w-0 items-start gap-1 overflow-x-auto leading-tight [-webkit-overflow-scrolling:touch] [scrollbar-width:thin] text-gray-500 max-sm:text-[clamp(7px,2.65vw,9.5px)] sm:overflow-x-visible sm:text-[10px]"
-                role="note"
-              >
+              <div className={deliveryFormNoteRowClass} role="note">
                 <span aria-hidden className="shrink-0 select-none">
                   *
                 </span>
-                <span className="min-w-0 whitespace-nowrap leading-[inherit]">
-                  Подтверждается через Telegram, за подтверждение +200 баллов.
-                </span>
+                <div className={deliveryFormNoteScrollClass}>
+                  <span className={deliveryFormNoteTextClass}>
+                    Подтверждается через Telegram, за подтверждение +200 баллов.
+                  </span>
+                </div>
               </div>
               {showChangePhoneControl && (
                 <div className="mt-3">
@@ -1378,6 +1410,18 @@ export const Checkout: React.FC = () => {
             {orderFlowError}
           </div>
         )}
+        {step === 'delivery' && isEmailConfirmed && !canProceedDelivery && (
+          <div className="space-y-1 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-snug text-amber-900">
+            {!shippingValidation.ok && <p>{shippingValidation.messageRu}</p>}
+            {shippingValidation.ok && !telegramVerifiedForCheckout && (
+              <p>
+                {phoneUnlinkRequested
+                  ? 'После смены номера снова подтвердите его через Telegram — кнопка «Подтвердить» у поля телефона.'
+                  : 'Подтвердите номер в Telegram (кнопка «Подтвердить») — без этого перейти к оплате нельзя.'}
+              </p>
+            )}
+          </div>
+        )}
         {step === 'delivery' ? (
           <button
             type="button"
@@ -1391,7 +1435,7 @@ export const Checkout: React.FC = () => {
           <button
             type="button"
             onClick={handleConfirmOrder}
-            disabled={confirming || !isEmailConfirmed}
+            disabled={confirming || !isEmailConfirmed || !canProceedDelivery}
             className="w-full rounded-full bg-brand py-3.5 text-base font-semibold text-white hover:bg-brand/90 disabled:opacity-50"
           >
             {confirming ? 'Подтверждение…' : 'Подтвердить заказ'}

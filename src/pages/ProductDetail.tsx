@@ -604,7 +604,7 @@ export const ProductDetail: React.FC = () => {
   }
   if (isLoading) {
     return (
-      <main className={`${SEMO_FULL_PAGE_LOADING_MAIN_CLASS} max-w-3xl`}>
+      <main className={SEMO_FULL_PAGE_LOADING_MAIN_CLASS}>
         <SemoPageSpinner />
         <p className="mt-8 text-center">
           <Link to="/shop" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> В каталог</Link>

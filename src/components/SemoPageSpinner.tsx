@@ -1,8 +1,12 @@
 import React from 'react';
 
-/** 피부테스트(skinLimitLoading) 전체 화면과 동일 — 위치·여백·중앙 정렬 */
+/**
+ * 전체 화면 로딩 — 뷰포트 정중앙(모바일/데스크톱 공통).
+ * 레이아웃 flex 자식 + 헤더 pt 때문에 문서 흐름만 쓰면 스피너가 화면 중앙보다 아래로 보임 → fixed inset-0 로 보정.
+ * z-[80]: Navbar(z-40) 위, 일반 모달(z-100) 아래.
+ */
 export const SEMO_FULL_PAGE_LOADING_MAIN_CLASS =
-  'mx-auto flex min-h-[100dvh] w-full flex-col items-center justify-center bg-white px-4 py-5 sm:min-h-screen sm:px-6 sm:py-10 md:py-14';
+  'fixed inset-0 z-[80] flex min-h-[100dvh] w-full flex-col items-center justify-center bg-white px-4 py-0 sm:px-6';
 
 /**
  * 헤더·페이지 제목 아래 영역만 로딩 — 삼각형(h-12)·글자(text-sm)·gap-4는 동일, 세로만 확보

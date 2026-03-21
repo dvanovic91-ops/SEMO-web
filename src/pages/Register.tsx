@@ -6,6 +6,11 @@ import { AddressSuggest } from '../components/AddressSuggest';
 import { BackArrow } from '../components/BackArrow';
 import { useAuth } from '../context/AuthContext';
 import { accountPrimaryCtaClass } from '../lib/accountLinkUi';
+import {
+  deliveryFormNoteRowClass,
+  deliveryFormNoteScrollClass,
+  deliveryFormNoteTextClass,
+} from '../lib/profileDeliveryFormUi';
 import { isValidEmailFormat } from '../lib/emailValidation';
 import { clampDigits } from '../lib/digitsOnly';
 import { CustomsPassportNotice } from '../components/CustomsPassportNotice';
@@ -413,14 +418,13 @@ export const Register: React.FC = () => {
                   Подтвердить
                 </button>
               </div>
-              <div
-                className="flex w-full min-w-0 items-start gap-1 overflow-x-auto leading-tight [-webkit-overflow-scrolling:touch] [scrollbar-width:thin] text-gray-500 max-sm:text-[clamp(7px,2.65vw,9.5px)] sm:overflow-x-visible sm:text-[10px]"
-                role="note"
-              >
+              <div className={deliveryFormNoteRowClass} role="note">
                 <span aria-hidden className="shrink-0 select-none">*</span>
-                <span className="min-w-0 whitespace-nowrap leading-[inherit]">
-                  Подтверждается через Telegram, за подтверждение +200 баллов.
-                </span>
+                <div className={deliveryFormNoteScrollClass}>
+                  <span className={deliveryFormNoteTextClass}>
+                    Подтверждается через Telegram, за подтверждение +200 баллов.
+                  </span>
+                </div>
               </div>
             </div>
             <AddressSuggest

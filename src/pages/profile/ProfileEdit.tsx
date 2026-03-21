@@ -32,7 +32,12 @@ import {
   deliveryFormFieldLabelClass as fieldLabelClass,
   deliveryFormFioCellClass as fioCellClass,
   deliveryFormHintClass as hintClass,
+  deliveryFormInnerCardClass,
   deliveryFormInputClass as inputClass,
+  deliveryFormNoteRowClass,
+  deliveryFormNoteScrollClass,
+  deliveryFormNoteTextClass,
+  deliveryFormSectionStackClass,
 } from '../../lib/profileDeliveryFormUi';
 
 /**
@@ -637,12 +642,12 @@ export const ProfileEdit: React.FC = () => {
             </div>
           </section>
 
-          <section>
+          <section className="min-w-0">
             <h2 className="mb-4 text-lg font-semibold text-slate-900">
               Доставка <span className={hintClass}>(при заказе — обязательно)</span>
             </h2>
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-4 rounded-xl border border-brand/20 bg-brand-soft/10 px-4 py-4">
+            <div className={deliveryFormSectionStackClass}>
+              <div className={deliveryFormInnerCardClass}>
                 {/* ФИО — Register.tsx와 동일한 그리드·«Нет отчества»·힌트 */}
                 <div className={fieldColClass}>
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-3 sm:items-start">
@@ -737,16 +742,15 @@ export const ProfileEdit: React.FC = () => {
                     )}
                   </div>
                   {!isEmailConfirmed && (
-                    <div
-                      className="flex w-full min-w-0 items-start gap-1 overflow-x-auto leading-tight [-webkit-overflow-scrolling:touch] [scrollbar-width:thin] text-gray-500 max-sm:text-[clamp(7px,2.65vw,9.5px)] sm:overflow-x-visible sm:text-[10px]"
-                      role="note"
-                    >
+                    <div className={deliveryFormNoteRowClass} role="note">
                       <span aria-hidden className="shrink-0 select-none">
                         *
                       </span>
-                      <span className="min-w-0 whitespace-nowrap leading-[inherit]">
-                        Подтвердите email для оформления заказа.
-                      </span>
+                      <div className={deliveryFormNoteScrollClass}>
+                        <span className={deliveryFormNoteTextClass}>
+                          Подтвердите email для оформления заказа.
+                        </span>
+                      </div>
                     </div>
                   )}
                   {verifyEmailError && (
@@ -790,16 +794,15 @@ export const ProfileEdit: React.FC = () => {
                       </button>
                     )}
                   </div>
-                  <div
-                    className="flex w-full min-w-0 items-start gap-1 overflow-x-auto leading-tight [-webkit-overflow-scrolling:touch] [scrollbar-width:thin] text-gray-500 max-sm:text-[clamp(7px,2.65vw,9.5px)] sm:overflow-x-visible sm:text-[10px]"
-                    role="note"
-                  >
+                  <div className={deliveryFormNoteRowClass} role="note">
                     <span aria-hidden className="shrink-0 select-none">
                       *
                     </span>
-                    <span className="min-w-0 whitespace-nowrap leading-[inherit]">
-                      Подтверждается через Telegram, за подтверждение +200 баллов.
-                    </span>
+                    <div className={deliveryFormNoteScrollClass}>
+                      <span className={deliveryFormNoteTextClass}>
+                        Подтверждается через Telegram, за подтверждение +200 баллов.
+                      </span>
+                    </div>
                   </div>
                   {showChangePhoneControl && (
                     <div className="mt-3">
