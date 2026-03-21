@@ -57,15 +57,34 @@ export const ProfilePoints: React.FC = () => {
         setCoupons([]);
       });
 
-    supabase
-      .from('points_ledger')
-      .select('id, delta_points, reason, created_at')
-      .eq('user_id', requestedUserId)
-      .order('created_at', { ascending: false })
-      .then(({ data, error }) => {
+    Promise.allSettled([
+      supabase
+        .from('points_ledger')
+        .select('id, delta_points, reason, created_at, source_table, source_id')
+        .eq('user_id', requestedUserId)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('orders')
+        .select('id, created_at, points_used')
+        .eq('user_id', requestedUserId)
+        .gt('points_used', 0),
+    ]).then((res) => {
         if (currentUserIdRef.current !== requestedUserId) return;
-        if (!error && data && data.length > 0) {
-          const rows = (data as { id: string; delta_points: number; reason: string; created_at: string }[]).map((r) => {
+        const ledgerOk = res[0].status === 'fulfilled' && !res[0].value.error;
+        const ledgerData = ledgerOk ? (res[0].value.data as {
+          id: string;
+          delta_points: number;
+          reason: string;
+          created_at: string;
+          source_table?: string | null;
+          source_id?: string | null;
+        }[] | null) : null;
+        const ordersData = res[1].status === 'fulfilled'
+          ? (res[1].value.data as { id: string; created_at: string; points_used?: number | null }[] | null)
+          : null;
+
+        if (ledgerData && ledgerData.length > 0) {
+          const rows = ledgerData.map((r) => {
             let label = 'Изменение баллов';
             if (r.reason === 'review_reward_general') label = 'Награда за подробный отзыв';
             else if (r.reason === 'review_reward_special') label = 'Награда за специальный отзыв';
@@ -79,6 +98,25 @@ export const ProfilePoints: React.FC = () => {
               date: r.created_at,
             };
           });
+
+          // 원장 누락 케이스 보완: 주문 points_used가 있는데 원장에 없는 차감건은 보강 표시
+          const deductedOrderIds = new Set(
+            ledgerData
+              .filter((r) => r.reason === 'order_points_used' && (r.source_id ?? ''))
+              .map((r) => String(r.source_id))
+          );
+          (ordersData ?? []).forEach((o) => {
+            const used = Number(o.points_used ?? 0);
+            if (used <= 0) return;
+            if (deductedOrderIds.has(String(o.id))) return;
+            rows.push({
+              id: `order-points-fallback-${o.id}`,
+              label: 'Использование баллов при оплате',
+              amount: -Math.floor(used / 100),
+              date: o.created_at,
+            });
+          });
+
           setHistory(rows);
           return;
         }

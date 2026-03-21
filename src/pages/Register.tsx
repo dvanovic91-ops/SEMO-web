@@ -4,17 +4,16 @@ import { InnHelpTooltip } from '../components/InnHelpTooltip';
 import { supabase } from '../lib/supabase';
 import { AddressSuggest } from '../components/AddressSuggest';
 import { BackArrow } from '../components/BackArrow';
+import { useAuth } from '../context/AuthContext';
+import { REGISTER_EMAIL_HINT_RU, isValidEmailFormat } from '../lib/emailValidation';
 
 /**
  * 회원가입 — 기본인적 / 배송(주소 세분화). 이메일 인증 구조, 전화 포맷, INN/우편 제한.
  */
 const inputClass =
-  'w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 placeholder:text-xs placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand';
+  'w-full min-h-[44px] rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 placeholder:text-xs placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand sm:min-h-0';
 const labelClass = 'mb-1 block text-sm font-medium text-slate-700';
 const hintClass = 'text-[11px] text-slate-500 font-normal';
-
-/** 이메일 형식: 로컬부(영문·숫자·._%+-), @, 도메인(하이픈 포함 예: semo-box.ru), TLD 2자 이상 */
-const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 
 function normalizeLatin(value: string): string {
   // 여권용 FIO: 라틴 문자, пробел, -, ' 만 허용
@@ -39,6 +38,7 @@ function formatPhone(value: string): string {
 
 export const Register: React.FC = () => {
   const navigate = useNavigate();
+  const { applySession } = useAuth();
   const [email, setEmail] = useState('');
   const [emailError, setEmailError] = useState(false);
   const [codeSent, setCodeSent] = useState(false);
@@ -49,6 +49,7 @@ export const Register: React.FC = () => {
   const [nickname, setNickname] = useState('');
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [fioLast, setFioLast] = useState('');
   const [fioFirst, setFioFirst] = useState('');
@@ -62,7 +63,7 @@ export const Register: React.FC = () => {
       setEmailError(false);
       return;
     }
-    setEmailError(!emailRegex.test(trimmed));
+    setEmailError(!isValidEmailFormat(trimmed));
   };
 
   const handleSendCode = () => {
@@ -83,7 +84,7 @@ export const Register: React.FC = () => {
     if (!trimmedEmail) {
       setEmailError(true);
       hasError = true;
-    } else if (!emailRegex.test(trimmedEmail)) {
+    } else if (!isValidEmailFormat(trimmedEmail)) {
       setEmailError(true);
       hasError = true;
     }
@@ -104,10 +105,12 @@ export const Register: React.FC = () => {
 
     setSubmitting(true);
     try {
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email: trimmedEmail,
         password,
         options: {
+          // Подтверждение по ссылке из письма — после перехода личный кабинет
+          emailRedirectTo: `${window.location.origin}/profile`,
           data: {
             nickname,
           },
@@ -115,29 +118,77 @@ export const Register: React.FC = () => {
       });
       if (error) {
         const msg = (error.message || '').toLowerCase();
+        const code = (error as { code?: string | number })?.code;
+        // 운영 환경 원인 추적용(사용자에게는 노출하지 않음)
+        console.error('[Register] signUp failed', { code, message: error.message });
         if (msg.includes('invalid') && msg.includes('email')) {
           setSubmitError('Этот адрес электронной почты не принимается сервисом. Попробуйте другой адрес или свяжитесь с нами.');
         } else if (msg.includes('rate limit') || msg.includes('rate_limit')) {
           setSubmitError('Слишком много попыток. Подождите около часа и попробуйте снова.');
+        } else if (msg.includes('email not confirmed') || msg.includes('confirmation') || msg.includes('smtp')) {
+          setSubmitError('Регистрация временно недоступна: проблема с отправкой письма подтверждения. Проверьте настройки почты в сервисе и повторите попытку.');
+        } else if (msg.includes('database') || msg.includes('saving new user')) {
+          setSubmitError('Регистрация отклонена настройками базы данных. Требуется проверка серверных правил (триггер/политики профиля).');
+        } else if (msg.includes('captcha')) {
+          setSubmitError('Сервис попросил проверку безопасности (CAPTCHA). Обновите страницу и попробуйте снова.');
+        } else if (msg.includes('signup is disabled')) {
+          setSubmitError('Регистрация по email отключена в настройках сервиса.');
+        } else if (msg.includes('already registered') || msg.includes('already exists') || msg.includes('user already registered')) {
+          setSubmitError('Этот email уже зарегистрирован. Если письмо подтверждения не пришло, проверьте почту и папку «Спам».');
         } else {
           setSubmitError(error.message || 'Не удалось завершить регистрацию.');
         }
         return;
       }
-      setSubmitSuccess('Регистрация прошла. Теперь войдите с email и паролем.');
-      try {
-        localStorage.setItem('userEmail', trimmedEmail);
-      } catch {
-        // ignore
+
+      // Сессия из signUp (Confirm email OFF) или вход паролем сразу после регистрации
+      let session = data.session ?? null;
+      if (!session && supabase) {
+        const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
+          email: trimmedEmail,
+          password,
+        });
+        if (!signInErr && signInData.session) {
+          session = signInData.session;
+        }
       }
-      setTimeout(() => navigate('/login'), 1500);
+
+      if (session) {
+        try {
+          await applySession(session);
+        } catch (e) {
+          console.error('[Register] applySession', e);
+          setSubmitError('Регистрация создана, но сессия не применилась. Войдите вручную.');
+          return;
+        }
+        setToastMessage('Добро пожаловать!');
+        window.setTimeout(() => setToastMessage(null), 2500);
+        navigate('/', { replace: true });
+        return;
+      }
+
+      // Confirm email ON в Supabase: вход только после ссылки в письме — подтверждение в личном кабинете
+      setSubmitSuccess(
+        'Аккаунт создан. Откройте письмо и перейдите по ссылке, затем войдите — или подтвердите email в личном кабинете.',
+      );
+      setToastMessage('Проверьте почту (папка «Спам»).');
+      window.setTimeout(() => setToastMessage(null), 3500);
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <main className="mx-auto max-w-lg px-4 py-12 sm:px-6 sm:py-16">
+    <main className="relative mx-auto min-w-0 max-w-4xl px-3 py-8 sm:px-10 sm:py-16">
+      {toastMessage && (
+        <div
+          className="fixed right-4 top-20 z-50 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white shadow-lg"
+          role="status"
+          aria-live="polite"
+        >
+          {toastMessage}
+        </div>
+      )}
       <header className="mb-10 text-center">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
           Регистрация
@@ -167,11 +218,17 @@ export const Register: React.FC = () => {
                 onBlur={handleEmailBlur}
                 required
               />
+              <span className="prose-ru mt-1 block text-xs text-red-500">
+                Используйте реальный e-mail. Без подтверждения заказ невозможен, а перенос бонусов на другой аккаунт запрещен.
+              </span>
               {emailError && (
                 <p className="mt-1 text-xs text-red-500">
-                  Введите корректный адрес email.
+                  Введите корректный адрес: латиница, цифры и . _ % + - до @; домен как mail.ru или semo-box.ru.
                 </p>
               )}
+              <p className="prose-ru mt-1.5 min-w-0 text-[11px] leading-snug text-slate-500 sm:text-xs">
+                {REGISTER_EMAIL_HINT_RU}
+              </p>
             </div>
             <div>
               <label htmlFor="password" className={labelClass}>
@@ -366,8 +423,9 @@ export const Register: React.FC = () => {
               </div>
             </div>
             {/* ФИО для доставки — 참고용, 필수 아님 */}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-3 sm:items-end">
-              <div className="flex flex-col">
+            {/* items-start: 세 열 라벨·인풋 상단 정렬 (부칭 열에만 체크박스가 있어 items-end 시 높이 어긋남) */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-3 sm:items-start">
+              <div className="flex min-h-0 flex-col">
                 <label htmlFor="lastName" className={`${labelClass} flex flex-wrap items-center gap-x-1`}>
                   Фамилия
                 </label>
@@ -380,7 +438,7 @@ export const Register: React.FC = () => {
                   onChange={(e) => setFioLast(normalizeLatin(e.target.value).toUpperCase())}
                 />
               </div>
-              <div className="flex flex-col">
+              <div className="flex min-h-0 flex-col">
                 <label htmlFor="firstName" className={`${labelClass} flex flex-wrap items-center gap-x-1`}>
                   Имя
                 </label>
@@ -393,7 +451,7 @@ export const Register: React.FC = () => {
                   onChange={(e) => setFioFirst(normalizeLatin(e.target.value).toUpperCase())}
                 />
               </div>
-              <div className="flex flex-col">
+              <div className="flex min-h-0 flex-col">
                 <label htmlFor="patronymic" className={`${labelClass} flex flex-wrap items-center gap-x-1`}>
                   Отчество
                 </label>
@@ -406,7 +464,7 @@ export const Register: React.FC = () => {
                   onChange={(e) => setFioMiddle(normalizeLatin(e.target.value).toUpperCase())}
                   disabled={noPatronymic}
                 />
-                <label className="mt-1.5 flex cursor-pointer items-center gap-1.5 text-xs text-slate-500">
+                <label className="mt-1.5 flex cursor-pointer items-center gap-1.5 self-start text-xs text-slate-500">
                   <input type="checkbox" checked={noPatronymic} onChange={(e) => { const v = e.target.checked; setNoPatronymic(v); if (v) setFioMiddle(''); }} className="h-3 w-3 rounded border-slate-300 text-brand focus:ring-brand" />
                   <span>Нет отчества</span>
                 </label>
@@ -432,12 +490,12 @@ export const Register: React.FC = () => {
                 <button
                   type="button"
                   disabled={phoneValue.replace(/\D/g, '').length < 10}
-                  className="shrink-0 rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-xs font-medium text-sky-700 transition hover:bg-sky-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="inline-flex min-h-11 w-full shrink-0 items-center justify-center rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-xs font-medium text-sky-700 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                 >
                   Подтвердить в Telegram
                 </button>
               </div>
-              <p className="mt-1 text-[11px] text-slate-500 whitespace-nowrap">
+              <p className="prose-ru mt-1 text-[11px] leading-snug text-slate-500">
                 * Подтверждается через Telegram, за подтверждение +200 баллов.
               </p>
             </div>
@@ -449,7 +507,7 @@ export const Register: React.FC = () => {
         <button
           type="submit"
           disabled={submitting}
-          className="w-full rounded-full bg-brand py-3.5 text-base font-semibold text-white transition hover:bg-brand/90 disabled:opacity-60"
+          className="min-h-11 w-full rounded-full bg-brand py-3 text-base font-semibold text-white transition hover:bg-brand/90 disabled:opacity-60"
         >
           {submitting ? 'Регистрация…' : 'Зарегистрироваться'}
         </button>
@@ -459,9 +517,15 @@ export const Register: React.FC = () => {
           </p>
         )}
         {submitSuccess && (
-          <p className="mt-2 text-sm text-emerald-600">
-            {submitSuccess}
-          </p>
+          <div className="mt-3 text-sm leading-snug text-emerald-800" role="status">
+            <p>{submitSuccess}</p>
+            <Link
+              to="/login"
+              className="mt-2 inline-flex font-medium text-brand underline decoration-brand/30 underline-offset-2 hover:opacity-90"
+            >
+              Перейти к входу
+            </Link>
+          </div>
         )}
       </form>
 

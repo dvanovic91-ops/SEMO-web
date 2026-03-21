@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { useAuth } from './AuthContext';
 
 export interface CartItem {
   id: string;
@@ -22,12 +23,12 @@ interface CartContextValue {
 
 const CartContext = createContext<CartContextValue | null>(null);
 
-const CART_STORAGE_KEY = 'semo_beautybox_cart';
+const LEGACY_CART_STORAGE_KEY = 'semo_beautybox_cart';
 
-function loadCartFromStorage(): CartItem[] {
+function loadCartFromStorage(key: string): CartItem[] {
   if (typeof window === 'undefined') return [];
   try {
-    const raw = localStorage.getItem(CART_STORAGE_KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -48,15 +49,44 @@ function loadCartFromStorage(): CartItem[] {
 }
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
-  const [items, setItems] = useState<CartItem[]>(loadCartFromStorage);
+  const { userId } = useAuth();
+  const storageKey = `semo_beautybox_cart:${userId ?? 'anon'}`;
+  const [items, setItems] = useState<CartItem[]>([]);
 
   useEffect(() => {
+    // 계정 전환 시 계정별 장바구니만 로드
+    const scoped = loadCartFromStorage(storageKey);
+    if (scoped.length > 0) {
+      setItems(scoped);
+      return;
+    }
+    // 레거시 단일 키가 남아 있으면 anon 세션에만 1회 마이그레이션
+    if (!userId) {
+      const legacy = loadCartFromStorage(LEGACY_CART_STORAGE_KEY);
+      if (legacy.length > 0) setItems(legacy);
+      else setItems([]);
+    } else {
+      setItems([]);
+    }
+  }, [storageKey, userId]);
+
+  useEffect(() => {
+    // 레거시 단일 키는 더 이상 사용하지 않으므로 로그인 시 정리
+    if (!userId) return;
     try {
-      localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
+      localStorage.removeItem(LEGACY_CART_STORAGE_KEY);
     } catch {
       // ignore
     }
-  }, [items]);
+  }, [userId]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(items));
+    } catch {
+      // ignore
+    }
+  }, [items, storageKey]);
 
   const addItem = useCallback((item: Omit<CartItem, 'quantity'>, qty = 1) => {
     setItems((prev) => {

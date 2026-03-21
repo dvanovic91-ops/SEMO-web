@@ -3,10 +3,19 @@
 @tailwind utilities;
 
 /* 모바일에서 가로 스크롤 방지, 텍스트 한 화면 안에 */
-html, body {
+html,
+body,
+#root {
   @apply bg-white text-slate-900 font-sans antialiased;
   overflow-x: hidden;
   max-width: 100vw;
+  min-width: 0;
+}
+
+/* 긴 러시아어/라틴 문구 줄바꿈 */
+.prose-ru {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 ::selection {

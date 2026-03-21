@@ -13,6 +13,7 @@ import { getRecommendationPath } from '../config/skinTypeRecommendations';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { BackArrow } from '../components/BackArrow';
+import { getOrCreateVisitSessionId } from '../lib/clientSession';
 
 const MAX_TEST_COUNT = 2;
 /** 어드민 이메일 — 웹에서도 테스트 횟수 제한 없음 (봇 ADMIN_IDS와 별도) */
@@ -143,8 +144,9 @@ export const SkinTest: React.FC = () => {
       }
     } else {
       try {
-        localStorage.setItem('semo_anon_result', JSON.stringify({ skin_type: type }));
-        localStorage.setItem('semo_anon_test_done', '1');
+        const sid = getOrCreateVisitSessionId();
+        localStorage.setItem(`semo_anon_result:${sid}`, JSON.stringify({ skin_type: type }));
+        localStorage.setItem(`semo_anon_test_done:${sid}`, '1');
       } catch {
         // ignore
       }
@@ -154,7 +156,9 @@ export const SkinTest: React.FC = () => {
 
   // ─── 인트로: 비회원 1회 허용, 2회째부터 가입 유도. 회원 2회 제한 ───
   const anonAlreadyUsed =
-    typeof window !== 'undefined' && !userId && localStorage.getItem('semo_anon_test_done') === '1';
+    typeof window !== 'undefined' &&
+    !userId &&
+    localStorage.getItem(`semo_anon_test_done:${getOrCreateVisitSessionId()}`) === '1';
 
   if (stage === 'intro') {
     if (anonAlreadyUsed) {

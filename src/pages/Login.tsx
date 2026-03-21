@@ -3,9 +3,10 @@ import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { BackArrow } from '../components/BackArrow';
 import { supabase, setRememberMe } from '../lib/supabase';
+import { isValidEmailFormat } from '../lib/emailValidation';
 
 const inputClass =
-  'w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand';
+  'w-full min-h-[44px] rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-base text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand sm:min-h-0';
 
 /**
  * 로그인 — 이메일/비밀번호 + 구글/얀덱스 OAuth 연동.
@@ -64,6 +65,11 @@ export const Login: React.FC = () => {
     if (!trimmedEmail) {
       setEmailError('Введите email.');
       hasError = true;
+    } else if (!isValidEmailFormat(trimmedEmail)) {
+      setEmailError(
+        'Только латиница, цифры и . _ % + - до @; домен как mail.ru или semo-box.ru.',
+      );
+      hasError = true;
     }
     if (!password) {
       setPasswordError('Введите пароль.');
@@ -84,7 +90,9 @@ export const Login: React.FC = () => {
       });
       if (error) {
         const msg = (error.message || '').toLowerCase();
-        if (msg.includes('invalid login credentials') || msg.includes('invalid_credentials') || msg.includes('wrong') || msg.includes('password')) {
+        if (msg.includes('email not confirmed') || msg.includes('not confirmed')) {
+          setLoginError('Email не подтверждён. Откройте письмо и подтвердите адрес, затем войдите снова.');
+        } else if (msg.includes('invalid login credentials') || msg.includes('invalid_credentials') || msg.includes('wrong') || msg.includes('password')) {
           setLoginError('Неверный email или пароль. Проверьте введённые данные.');
         } else {
           setLoginError(error.message || 'Не удалось войти. Попробуйте снова.');
@@ -101,9 +109,9 @@ export const Login: React.FC = () => {
   };
 
   return (
-    <main className="mx-auto max-w-md px-4 py-12 sm:px-6 sm:py-16">
-      <header className="mb-10 text-center">
-        <h1 className="whitespace-nowrap text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
+    <main className="mx-auto min-w-0 max-w-md px-3 py-10 sm:px-6 sm:py-16">
+      <header className="mb-8 text-center sm:mb-10">
+        <h1 className="prose-ru text-xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
           Войти / зарегистрироваться
         </h1>
       </header>
@@ -130,7 +138,19 @@ export const Login: React.FC = () => {
               setEmail(e.target.value);
               if (emailError) setEmailError(null);
             }}
+            onBlur={() => {
+              const t = email.trim();
+              if (!t) return;
+              setEmailError(
+                isValidEmailFormat(t)
+                  ? null
+                  : 'Только латиница, цифры и . _ % + - до @; домен как mail.ru или semo-box.ru.',
+              );
+            }}
           />
+          <span className="prose-ru mt-1 block text-xs text-red-500">
+            Используйте реальный e-mail. Без подтверждения заказ невозможен, а перенос бонусов на другой аккаунт запрещен.
+          </span>
           {emailError && (
             <p className="mt-1 text-xs text-red-500">{emailError}</p>
           )}
@@ -160,7 +180,7 @@ export const Login: React.FC = () => {
         <button
           type="submit"
           disabled={loginLoading}
-          className="w-full rounded-full bg-brand py-3.5 text-base font-semibold text-white transition hover:bg-brand/90 disabled:opacity-60"
+          className="min-h-11 w-full rounded-full bg-brand py-3 text-base font-semibold text-white transition hover:bg-brand/90 disabled:opacity-60"
         >
           {loginLoading ? 'Вход…' : 'Войти'}
         </button>

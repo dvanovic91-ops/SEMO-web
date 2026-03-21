@@ -5,22 +5,7 @@ import { CartProvider } from './context/CartContext';
 import { Footer } from './components/Footer';
 import { Navbar } from './components/Navbar';
 import { supabase } from './lib/supabase';
-
-const VISIT_SESSION_KEY = 'bb_visit_sid';
-
-/** 비로그인 방문자 구분용 세션 ID (localStorage). 없으면 생성 후 저장 */
-function getOrCreateSessionId(): string {
-  try {
-    let sid = localStorage.getItem(VISIT_SESSION_KEY);
-    if (!sid || sid.length < 10) {
-      sid = crypto.randomUUID?.() ?? `anon-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      localStorage.setItem(VISIT_SESSION_KEY, sid);
-    }
-    return sid;
-  } catch {
-    return `anon-${Date.now()}`;
-  }
-}
+import { getOrCreateVisitSessionId } from './lib/clientSession';
 
 /** 라우트 변경 시 방문 기록 (site_visits). 로그인 시 user_id, 비로그인 시 session_id로 트래픽 집계 */
 function TrackVisit() {
@@ -40,7 +25,7 @@ function TrackVisit() {
       throttleRef.current = null;
       const payload = userId
         ? { user_id: userId }
-        : { user_id: null, session_id: getOrCreateSessionId() };
+        : { user_id: null, session_id: getOrCreateVisitSessionId() };
       supabase.from('site_visits').insert(payload).then(({ error }) => {
         if (error) console.warn('[TrackVisit]', error.message);
       });
@@ -94,14 +79,14 @@ function ProductDetailWithKey() {
 
 const App: React.FC = () => {
   return (
-    <div className="flex min-h-screen flex-col bg-white">
+    <div className="flex min-h-screen min-w-0 flex-col overflow-x-hidden bg-white">
       <AuthProvider>
         <CartProvider>
           <Navbar />
           <TrackVisit />
           <ScrollToTop />
           {/* 모바일에서 하단 고정 바 때문에 본문이 가려지지 않도록 패딩 */}
-          <div className="flex-1 pb-16 md:pb-0">
+          <div className="min-w-0 flex-1 overflow-x-hidden pb-16 md:pb-0">
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/about" element={<About />} />

@@ -7,6 +7,7 @@ import { AddressSuggest } from '../components/AddressSuggest';
 import { generateOrderNumber } from '../lib/orderNumber';
 import { executePayment } from '../lib/paymentGateway';
 import { supabase } from '../lib/supabase';
+import { resendSignupConfirmationEmail } from '../lib/authSignupResend';
 
 function formatPrice(price: number): string {
   return `${price.toLocaleString('ru-RU')} руб.`;
@@ -76,7 +77,7 @@ const POINTS_MAX_PERCENT_OF_TOTAL = 0.1;
 export const Checkout: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { isLoggedIn, userId, initialized } = useAuth();
+  const { isLoggedIn, userId, userEmail, initialized, isEmailConfirmed } = useAuth();
   /** 가짜(테스트) 주문 여부. URL에 ?test=1 있으면 true → is_test로 저장해 나중에 구분·삭제 가능 */
   const isTestOrder = searchParams.get('test') === '1';
   const { items, total, totalCount } = useCart();
@@ -87,6 +88,15 @@ export const Checkout: React.FC = () => {
   >([]);
   const [selectedCouponId, setSelectedCouponId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  /** 프로필 조회 실패 시만(러시아어) — 주문 게이트는 Auth isEmailConfirmed */
+  const [emailGateNotice, setEmailGateNotice] = useState<string | null>(null);
+  const [verifyEmailSending, setVerifyEmailSending] = useState(false);
+  const [verifyEmailMessage, setVerifyEmailMessage] = useState<string | null>(null);
+  const [verifyEmailError, setVerifyEmailError] = useState<string | null>(null);
+  /** 주문 INSERT·결제 단계 오류(인라인, 러시아어) */
+  const [orderFlowError, setOrderFlowError] = useState<string | null>(null);
+  /** телефон/localStorage 저장 실패 등 — 결제는 계속, 알림만 인라인 */
+  const [checkoutWarning, setCheckoutWarning] = useState<string | null>(null);
   const [step, setStep] = useState<'delivery' | 'payment'>('delivery');
   const [paymentMethod, setPaymentMethod] = useState<string>('card');
   const [pointsToUse, setPointsToUse] = useState<number>(0);
@@ -129,42 +139,39 @@ export const Checkout: React.FC = () => {
       setLoading(false);
       return;
     }
-    supabase
-      .from('profiles')
-      .select('name, phone, points')
-      .eq('id', userId)
-      .single()
-      .then(({ data }) => {
-        setProfile(
-          data
-            ? { name: data.name ?? null, phone: data.phone ?? null }
-            : null
-        );
-        setUserPoints(Math.max(0, Number(data?.points ?? 0)));
-      })
-      .catch(() => {
+    setEmailGateNotice(null);
+
+    const load = async () => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('name, phone, points')
+        .eq('id', userId)
+        .single();
+
+      if (error || !data) {
         setProfile(null);
         setUserPoints(0);
-      });
+        setEmailGateNotice('Не удалось проверить профиль. Обновите страницу или войдите снова.');
+      } else {
+        setProfile({ name: data.name ?? null, phone: data.phone ?? null });
+        setUserPoints(Math.max(0, Number(data.points ?? 0)));
+      }
 
-    supabase
-      .from('membership_coupons')
-      .select('id, amount, expires_at, used_at')
-      .eq('user_id', userId)
-      .is('used_at', null)
-      .gt('expires_at', new Date().toISOString())
-      .order('expires_at', { ascending: true })
-      .then(({ data }) => {
-        setMembershipCoupons(
-          (data as { id: string; amount: number; expires_at: string; used_at: string | null }[]) ?? [],
-        );
-        setSelectedCouponId(null);
-      })
-      .catch(() => {
-        setMembershipCoupons([]);
-        setSelectedCouponId(null);
-      })
-      .finally(() => setLoading(false));
+      const { data: coupons } = await supabase
+        .from('membership_coupons')
+        .select('id, amount, expires_at, used_at')
+        .eq('user_id', userId)
+        .is('used_at', null)
+        .gt('expires_at', new Date().toISOString())
+        .order('expires_at', { ascending: true });
+      setMembershipCoupons(
+        (coupons as { id: string; amount: number; expires_at: string; used_at: string | null }[]) ?? [],
+      );
+      setSelectedCouponId(null);
+      setLoading(false);
+    };
+
+    void load();
   }, [userId]);
 
   useEffect(() => {
@@ -206,7 +213,7 @@ export const Checkout: React.FC = () => {
           .eq('id', userId);
       } catch (e) {
         console.warn('[Checkout] profiles phone update failed', e);
-        window.alert('Данные телефона не сохранены в профиль. Заказ оформлен.');
+        setCheckoutWarning('Телефон не сохранён в профиль — заказ всё равно будет оформлен.');
       }
     }
 
@@ -228,7 +235,7 @@ export const Checkout: React.FC = () => {
       localStorage.setItem(scopedProfileEditKey, JSON.stringify(existing));
     } catch (e) {
       console.warn('[Checkout] profileEdit localStorage failed', e);
-      window.alert('Данные доставки не сохранены в браузере. Заказ оформлен.');
+      setCheckoutWarning('Данные доставки не сохранены в браузере — заказ всё равно будет оформлен.');
     }
   }, [saveDeliveryAsDefault, deliveryForm, userId, scopedProfileEditKey]);
 
@@ -273,6 +280,33 @@ export const Checkout: React.FC = () => {
       .catch(() => {});
   }, [step, total, userPoints, pointsToUse, items, userId]);
 
+  const handleSendCheckoutVerifyEmail = useCallback(async () => {
+    if (!supabase || !userId || !userEmail?.trim()) {
+      setVerifyEmailError('Не удалось определить email. Войдите снова.');
+      return;
+    }
+    setVerifyEmailSending(true);
+    setVerifyEmailMessage(null);
+    setVerifyEmailError(null);
+    try {
+      const testQs = isTestOrder ? '?test=1' : '';
+      const result = await resendSignupConfirmationEmail(
+        supabase,
+        userEmail.trim(),
+        `/checkout${testQs}`,
+      );
+      if (!result.ok) {
+        setVerifyEmailError(result.message);
+        return;
+      }
+      setVerifyEmailMessage(
+        'Письмо отправлено. Перейдите по ссылке из письма — после подтверждения обновите страницу, если кнопка заказа всё ещё неактивна.',
+      );
+    } finally {
+      setVerifyEmailSending(false);
+    }
+  }, [userId, userEmail, isTestOrder]);
+
   // ——— 아래부터는 early return만 허용. 새 훅(useState/useEffect/useCallback 등) 추가 시 반드시 위쪽에 선언 ———
   if (!initialized || loading) {
     return (
@@ -310,6 +344,14 @@ export const Checkout: React.FC = () => {
   const finalAmount = total - clampedPointsToUse - couponDiscount;
 
   const handleConfirmOrder = async () => {
+    if (!isEmailConfirmed) {
+      window.alert(
+        'Для оформления заказа подтвердите email. Проверьте письмо от сервиса (включая «Спам») или нажмите «Отправить письмо снова» ниже.',
+      );
+      return;
+    }
+    setOrderFlowError(null);
+    setCheckoutWarning(null);
     if (!canProceedDelivery && step === 'delivery') return;
     if (step === 'delivery') {
       setStep('payment');
@@ -320,7 +362,7 @@ export const Checkout: React.FC = () => {
       await saveDeliveryToProfile();
 
       if (!supabase || !userId) {
-        window.alert('Сессия не найдена. Войдите снова.');
+        setOrderFlowError('Сессия не найдена. Войдите снова.');
         return;
       }
 
@@ -366,7 +408,9 @@ export const Checkout: React.FC = () => {
       const passportSeries = deliveryForm.passportSeries?.trim() ?? '';
       const passportNumber = deliveryForm.passportNumber?.trim() ?? '';
       if (!receiverName || !phone || !shippingAddress || !inn || !passportSeries || !passportNumber) {
-        window.alert('Заполните все обязательные поля: ФИО, телефон, адрес, ИНН, серия и номер паспорта.');
+        setOrderFlowError(
+          'Заполните все обязательные поля: ФИО, телефон, адрес, ИНН, серия и номер паспорта.',
+        );
         return;
       }
 
@@ -487,8 +531,16 @@ export const Checkout: React.FC = () => {
             metadata: { context: 'order_insert', details: orderError.details },
           }).then(() => {});
         }
-        const errHint = orderError?.message ? `\n(오류: ${orderError.message})` : '';
-        window.alert('Не удалось оформить заказ. Попробуйте ещё раз.' + errHint);
+        const msgLower = (orderError?.message ?? '').toLowerCase();
+        const isRls =
+          orderError?.code === '42501' ||
+          msgLower.includes('row-level security') ||
+          msgLower.includes('policy');
+        setOrderFlowError(
+          isRls
+            ? 'Подтвердите email в личном кабинете или по письму (profiles.email_verified_at). SQL: docs/SUPABASE_ORDERS_RLS_AUTH_EMAIL_CONFIRMED.sql.'
+            : `Не удалось оформить заказ. Попробуйте ещё раз.${orderError?.message ? ` (${orderError.message})` : ''}`,
+        );
         return;
       }
 
@@ -514,7 +566,7 @@ export const Checkout: React.FC = () => {
           error_message: paymentResult.errorMessage ?? null,
           metadata: { context: 'payment_gateway' },
         });
-        window.alert(paymentResult.errorMessage || 'Ошибка оплаты. Попробуйте ещё раз.');
+        setOrderFlowError(paymentResult.errorMessage || 'Ошибка оплаты. Попробуйте ещё раз.');
         return;
       }
 
@@ -545,7 +597,9 @@ export const Checkout: React.FC = () => {
             error_message: statusOnlyError.message ?? null,
             metadata: { context: 'payment_success_order_update_failed' },
           }).then(() => {});
-          window.alert('Оплата прошла, но запись заказа не обновилась. Проверьте «История заказов». При проблеме обратитесь в поддержку.');
+          setOrderFlowError(
+            'Оплата прошла, но запись заказа не обновилась. Проверьте «История заказов». При проблеме обратитесь в поддержку.',
+          );
         }
       }
 
@@ -608,7 +662,7 @@ export const Checkout: React.FC = () => {
           })
           .then(() => {});
       }
-      window.alert('Произошла ошибка. Попробуйте ещё раз.\n\n' + errMsg);
+      setOrderFlowError('Произошла ошибка. Попробуйте ещё раз.\n\n' + errMsg);
     } finally {
       setConfirming(false);
     }
@@ -627,6 +681,52 @@ export const Checkout: React.FC = () => {
       <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
         Оформление заказа
       </h1>
+
+      {emailGateNotice && (
+        <div
+          role="alert"
+          className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-relaxed text-red-900"
+        >
+          {emailGateNotice}
+        </div>
+      )}
+
+      {checkoutWarning && (
+        <div
+          role="status"
+          className="mt-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-900"
+        >
+          {checkoutWarning}
+        </div>
+      )}
+
+      {!isEmailConfirmed && (
+        <section className="mt-6 rounded-xl border border-brand/30 bg-brand-soft/20 p-4 sm:p-5">
+          <h2 className="text-sm font-semibold text-slate-900">Подтверждение email</h2>
+          <p className="mt-2 text-sm leading-relaxed text-slate-700">
+            Для заказа нужно подтвердить email в системе входа. Проверьте почту{' '}
+            <span className="font-medium text-slate-900">{userEmail}</span> или запросите письмо снова.
+          </p>
+          <button
+            type="button"
+            disabled={verifyEmailSending}
+            onClick={() => void handleSendCheckoutVerifyEmail()}
+            className="mt-4 w-full rounded-full bg-brand py-3 text-sm font-semibold text-white hover:bg-brand/90 disabled:opacity-60 sm:w-auto sm:px-8"
+          >
+            {verifyEmailSending ? 'Отправка…' : 'Отправить письмо снова'}
+          </button>
+          {verifyEmailError && (
+            <p className="mt-3 text-sm text-red-700" role="alert">
+              {verifyEmailError}
+            </p>
+          )}
+          {verifyEmailMessage && (
+            <p className="mt-3 text-xs leading-snug text-slate-600" role="status">
+              {verifyEmailMessage}
+            </p>
+          )}
+        </section>
+      )}
 
       {/* 1. 주문 요약 — 맨 위: 품목별 사진·가격·수량 (읽기 전용) */}
       <section className="mt-8 rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
@@ -850,11 +950,19 @@ export const Checkout: React.FC = () => {
 
       {/* 버튼: 배송 데이터 채워져 있으면 결제 단계로, 결제 단계에서는 결제 확인 */}
       <div className="mt-8 flex flex-col gap-3">
+        {orderFlowError && (
+          <div
+            role="alert"
+            className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-relaxed text-red-900 whitespace-pre-wrap"
+          >
+            {orderFlowError}
+          </div>
+        )}
         {step === 'delivery' ? (
           <button
             type="button"
             onClick={handleConfirmOrder}
-            disabled={!canProceedDelivery}
+            disabled={!canProceedDelivery || !isEmailConfirmed}
             className="w-full rounded-full bg-brand py-3.5 text-base font-semibold text-white hover:bg-brand/90 disabled:opacity-50"
           >
             Далее — способ оплаты
@@ -863,7 +971,7 @@ export const Checkout: React.FC = () => {
           <button
             type="button"
             onClick={handleConfirmOrder}
-            disabled={confirming}
+            disabled={confirming || !isEmailConfirmed}
             className="w-full rounded-full bg-brand py-3.5 text-base font-semibold text-white hover:bg-brand/90 disabled:opacity-50"
           >
             {confirming ? 'Подтверждение…' : 'Подтвердить заказ'}

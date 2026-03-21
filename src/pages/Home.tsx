@@ -83,9 +83,9 @@ function HowStep({
       <span className="text-6xl font-light tabular-nums text-brand sm:text-7xl">{step.id}</span>
       <div className="text-slate-400">{step.icon}</div>
       {/* 웹에서 설명 문장 한 줄 유지: sm~에서 폭 확대 (max-w-xl → 2xl/3xl) */}
-      <div className="max-w-xl text-center sm:max-w-2xl md:max-w-3xl">
-        <h2 className="text-xl font-semibold text-slate-900 sm:text-2xl">{step.title}</h2>
-        <p className="mt-2 whitespace-pre-line text-base leading-relaxed text-slate-600">{step.sub}</p>
+      <div className="max-w-xl min-w-0 px-1 text-center sm:max-w-2xl md:max-w-3xl">
+        <h2 className="prose-ru text-lg font-semibold text-slate-900 sm:text-2xl">{step.title}</h2>
+        <p className="prose-ru mt-2 whitespace-pre-line text-sm leading-relaxed text-slate-600 sm:text-base">{step.sub}</p>
       </div>
     </div>
   );
@@ -99,25 +99,25 @@ export const Home: React.FC = () => {
   return (
     <>
       {/* 상단 여백 후, 중앙 블록: 메인 타이틀 + CTA */}
-      <main className="flex min-h-[75vh] flex-col items-center justify-center px-4 py-16 sm:py-24">
-        <section className="mx-auto w-full max-w-4xl px-0 text-center">
-          <h1 className="text-xl font-semibold leading-snug tracking-tight text-slate-900 sm:text-2xl md:text-4xl break-words">
+      <main className="flex min-h-[75vh] flex-col items-center justify-center px-3 py-12 sm:px-4 sm:py-24">
+        <section className="mx-auto w-full min-w-0 max-w-4xl px-0 text-center">
+          <h1 className="prose-ru text-lg font-semibold leading-snug tracking-tight text-slate-900 sm:text-2xl md:text-4xl">
             Узнайте свой тип кожи — персональный корейский бьюти-бокс ждёт вас!
           </h1>
-          <p className="mt-5 text-sm leading-relaxed text-slate-600 sm:mt-7 sm:text-base md:text-lg break-words">
+          <p className="prose-ru mt-5 text-sm leading-relaxed text-slate-600 sm:mt-7 sm:text-base md:text-lg">
             <span className="block">Пройдите тест, и мы подберём корейскую премиальную косметику под ваш профиль.</span>
             <span className="mt-2 block">Доставка в Россию раз в квартал или полгода.</span>
           </p>
-          <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
+          <div className="mx-auto mt-10 flex w-full max-w-md flex-col gap-3 sm:max-w-none sm:flex-row sm:flex-wrap sm:justify-center">
             <Link
               to="/skin-test"
-              className="inline-flex items-center justify-center rounded-full bg-brand px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand/90"
+              className="inline-flex min-h-11 w-full items-center justify-center rounded-full bg-brand px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-brand/90 sm:w-auto sm:py-2.5"
             >
               Узнать тип кожи
             </Link>
             <Link
               to="/shop"
-              className="inline-flex items-center justify-center rounded-full border border-slate-200 px-6 py-2.5 text-sm font-semibold text-slate-800 transition hover:border-brand hover:text-brand"
+              className="inline-flex min-h-11 w-full items-center justify-center rounded-full border border-slate-200 px-6 py-3 text-sm font-semibold text-slate-800 transition hover:border-brand hover:text-brand sm:w-auto sm:py-2.5"
             >
               Сезонные наборы
             </Link>

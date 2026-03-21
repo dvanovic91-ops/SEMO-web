@@ -67,11 +67,6 @@ export const Navbar: React.FC = () => {
         }
         prevTelegramLinkedRef.current = linked;
         setTelegramLinked((prevState) => (prevState === linked ? prevState : linked));
-        try {
-          localStorage.setItem('telegram_linked', linked ? '1' : '0');
-        } catch {
-          // ignore
-        }
       })
       .catch(() => {
         // fetch 실패 시 기존 상태 유지 — 네트워크 오류로 풀린 것처럼 보이지 않도록
@@ -126,7 +121,7 @@ export const Navbar: React.FC = () => {
     <>
       {/* 상단: 좌측 로고·중앙 메뉴·우측 아이콘 여백 확대 */}
       <header className="sticky top-0 z-20 border-b border-slate-100 bg-white/80 backdrop-blur-md">
-        <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between gap-4 pl-2 pr-4 sm:h-16 sm:pl-4 sm:pr-6 lg:pl-6 lg:pr-8">
+        <div className="mx-auto flex h-14 w-full min-w-0 max-w-7xl items-center justify-between gap-2 pl-2 pr-3 sm:h-16 sm:gap-4 sm:pl-4 sm:pr-6 lg:pl-6 lg:pr-8">
           <Link to="/" className="flex shrink-0 items-center" aria-label="SEMO box">
             <span className="font-semibold tracking-[0.2em] text-brand">SEMO </span>
             <span className="font-semibold tracking-[0.2em] text-slate-700">box</span>
@@ -156,7 +151,7 @@ export const Navbar: React.FC = () => {
                   setNotificationOpen(false);
                   setCartPopoverOpen((v) => !v);
                 }}
-                className="relative flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:border-brand hover:text-brand"
+                className="relative flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:border-brand hover:text-brand md:h-9 md:w-9 md:min-h-0 md:min-w-0"
               >
                 <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
                   <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
@@ -255,7 +250,7 @@ export const Navbar: React.FC = () => {
                 setCartPopoverOpen(false);
                 setNotificationOpen((v) => !v);
               }}
-              className={`relative flex h-9 w-9 items-center justify-center rounded-full border bg-white text-slate-600 transition ${
+              className={`relative flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-full border bg-white text-slate-600 transition md:h-9 md:w-9 md:min-h-0 md:min-w-0 ${
                 notificationOpen ? 'border-brand text-brand' : 'border-slate-200 hover:border-brand hover:text-brand'
               }`}
             >
@@ -269,7 +264,7 @@ export const Navbar: React.FC = () => {
               target="_blank"
               rel="noopener noreferrer"
               aria-label="Telegram: поддержка"
-              className={`flex h-9 w-9 items-center justify-center rounded-full border bg-white transition ${
+              className={`flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-full border bg-white transition md:h-9 md:w-9 md:min-h-0 md:min-w-0 ${
                 telegramLinked ? 'border-[#0088cc] text-[#0088cc]' : 'border-slate-200 text-slate-600 hover:border-[#0088cc] hover:text-[#0088cc]'
               }`}
             >
@@ -280,7 +275,7 @@ export const Navbar: React.FC = () => {
             <Link
               to={isLoggedIn ? '/profile' : '/login'}
               aria-label={isLoggedIn ? 'Profile' : 'Личный кабинет'}
-              className={`flex h-9 w-9 items-center justify-center rounded-full border bg-white shadow-sm transition ${
+              className={`flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-full border bg-white shadow-sm transition md:h-9 md:w-9 md:min-h-0 md:min-w-0 ${
                 isLoggedIn ? 'border-2 border-[#0088cc] text-[#0088cc]' : 'border border-slate-200 text-slate-700 hover:border-brand hover:text-brand'
               }`}
             >

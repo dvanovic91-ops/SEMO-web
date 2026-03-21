@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth, ADMIN_DUMMY_USER_ID } from '../../context/AuthContext';
+import { resendSignupConfirmationEmail } from '../../lib/authSignupResend';
 import { getProfile, setProfile } from '../../lib/profileStorage';
 import { InnHelpTooltip } from '../../components/InnHelpTooltip';
 import { AddressSuggest } from '../../components/AddressSuggest';
@@ -119,7 +120,7 @@ export const ProfileEdit: React.FC = () => {
   const focusPhone = searchParams.get('focus') === 'phone';
   const phoneInputRef = useRef<HTMLInputElement>(null);
 
-  const { userEmail, userId, isLoggedIn, initialized } = useAuth();
+  const { userEmail, userId, isLoggedIn, initialized, isEmailConfirmed, refreshEmailConfirmationFromServer } = useAuth();
 
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
@@ -135,6 +136,10 @@ export const ProfileEdit: React.FC = () => {
   const [addressSearch, setAddressSearch] = useState('');
   const [phoneError, setPhoneError] = useState('');
   const [noPatronymic, setNoPatronymic] = useState(false);
+  /** Письмо подтверждения email (как на странице профиля) */
+  const [verifyEmailSending, setVerifyEmailSending] = useState(false);
+  const [verifyEmailMessage, setVerifyEmailMessage] = useState<string | null>(null);
+  const [verifyEmailError, setVerifyEmailError] = useState<string | null>(null);
 
   /** 페이지 진입 시 세션 재검사 — 없으면 로그인으로 보냄 */
   const [sessionChecked, setSessionChecked] = useState(false);
@@ -202,6 +207,32 @@ export const ProfileEdit: React.FC = () => {
     if (!userId) return;
     loadProfileFromDb();
   }, [loadProfileFromDb, userId]);
+
+  useEffect(() => {
+    void refreshEmailConfirmationFromServer();
+  }, [userId, refreshEmailConfirmationFromServer]);
+
+  const handleSendProfileVerifyEmail = useCallback(async () => {
+    if (!supabase || !userId || !safeUserEmail?.trim()) {
+      setVerifyEmailError('Не удалось определить email. Войдите снова.');
+      return;
+    }
+    setVerifyEmailSending(true);
+    setVerifyEmailMessage(null);
+    setVerifyEmailError(null);
+    try {
+      const result = await resendSignupConfirmationEmail(supabase, safeUserEmail.trim(), '/profile');
+      if (!result.ok) {
+        setVerifyEmailError(result.message);
+        return;
+      }
+      setVerifyEmailMessage(
+        'Письмо отправлено. Перейдите по ссылке — после подтверждения обновите страницу.',
+      );
+    } finally {
+      setVerifyEmailSending(false);
+    }
+  }, [userId, safeUserEmail]);
 
   // focus=phone 이면 연동 목적 진입 → 편집 모드 자동 켜서 전화 입력·"Подтвердить в Telegram" 바로 사용 가능
   useEffect(() => {
@@ -395,7 +426,7 @@ export const ProfileEdit: React.FC = () => {
 
   return (
     <ProfileEditErrorBoundary>
-      <main className="mx-auto max-w-xl px-4 py-6 sm:px-6 sm:py-10 md:py-14">
+      <main className="mx-auto min-w-0 max-w-xl px-3 py-5 sm:px-6 sm:py-10 md:py-14">
         <p className="mb-6">
           <Link to="/profile" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> Profile</Link>
         </p>
@@ -423,16 +454,133 @@ export const ProfileEdit: React.FC = () => {
                   {...inputProps('name')}
                 />
               </div>
-              <div>
-                <label htmlFor="pe-email" className={labelClass}>Email</label>
-                <input
-                  id="pe-email"
-                  type="email"
-                  className={`${inputClass} cursor-default bg-slate-50`}
-                  value={form?.email ?? ''}
-                  readOnly
-                />
-              </div>
+              {/* Telegram + E-mail — как на странице профиля; при подтверждённом email — акцент изумрудным */}
+              {userId && userId !== ADMIN_DUMMY_USER_ID && (
+                <div
+                  className={`overflow-hidden rounded-2xl border px-3 pt-3 pb-2 shadow-sm sm:px-5 sm:pt-5 sm:pb-3 ${
+                    isEmailConfirmed
+                      ? 'border-emerald-200/85 bg-gradient-to-br from-sky-50/95 via-emerald-50/20 to-emerald-50/55 ring-1 ring-emerald-100/70'
+                      : 'border-sky-100/90 bg-sky-50/95'
+                  }`}
+                >
+                  <div className="grid grid-cols-1 md:grid-cols-2 md:gap-0">
+                    <div className="flex min-h-0 flex-col md:border-r md:border-slate-200/60 md:pr-5">
+                      <div className="flex items-center justify-center gap-2.5">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/80 text-[#26A5E4] shadow-sm ring-1 ring-sky-100/80">
+                          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden>
+                            <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
+                          </svg>
+                        </span>
+                        <p className="text-sm font-semibold tracking-tight text-slate-900">Telegram</p>
+                      </div>
+                      <div className="mt-2.5">
+                        {telegramLinked ? (
+                          <button
+                            type="button"
+                            disabled
+                            className="flex min-h-11 w-full cursor-default items-center justify-center rounded-xl border border-emerald-200/90 bg-emerald-50/95 px-2 py-2.5 text-center text-xs font-semibold text-emerald-800 shadow-sm"
+                            aria-label="Telegram привязан"
+                          >
+                            Telegram привязан ✅
+                          </button>
+                        ) : (
+                          <Link
+                            to="/profile/edit?focus=phone"
+                            className="inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-[#26A5E4] px-2 py-2.5 text-center text-xs font-semibold text-white shadow-md shadow-sky-500/25 transition hover:bg-[#2298d4] hover:shadow-lg hover:shadow-sky-500/30"
+                          >
+                            Привязать Telegram
+                          </Link>
+                        )}
+                      </div>
+                      {!telegramLinked && (
+                        <p className="prose-ru mx-auto mt-3 max-w-[19rem] text-center text-[10px] leading-snug text-[#6B7280] sm:max-w-[20rem] sm:text-[11px] sm:leading-snug">
+                          Привяжите Telegram для доступа к закрытым акциям
+                          <br />
+                          и бонус 200 баллов.
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="mt-5 flex min-h-0 flex-col border-t border-slate-200/60 pt-5 md:mt-0 md:border-t-0 md:pl-5 md:pt-0">
+                      <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
+                        <span
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full shadow-sm ring-1 ring-slate-200/80 ${
+                            isEmailConfirmed
+                              ? 'bg-emerald-50 text-emerald-700 ring-emerald-200/90'
+                              : 'bg-white/80 text-slate-600'
+                          }`}
+                        >
+                          <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" aria-hidden>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+                          </svg>
+                        </span>
+                        <p className="text-sm font-semibold tracking-tight text-slate-900">E-mail</p>
+                        {isEmailConfirmed && (
+                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-900">
+                            Подтверждён
+                          </span>
+                        )}
+                      </div>
+                      <p className="prose-ru mx-auto mt-1 max-w-[19rem] break-all px-1 text-center text-[10px] text-slate-500 sm:text-[11px]" title={safeUserEmail}>
+                        {safeUserEmail}
+                      </p>
+                      <div className="mt-2.5">
+                        {!initialized ? (
+                          <p className="text-center text-sm text-slate-500">Загрузка…</p>
+                        ) : isEmailConfirmed ? (
+                          <button
+                            type="button"
+                            disabled
+                            className="flex min-h-11 w-full cursor-default items-center justify-center rounded-xl border border-emerald-300/90 bg-gradient-to-b from-emerald-50 to-emerald-100/90 px-2 py-2.5 text-center text-xs font-semibold text-emerald-900 shadow-md shadow-emerald-900/10"
+                            aria-label="Email подтверждён"
+                          >
+                            Email подтверждён ✅
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={verifyEmailSending}
+                            onClick={() => void handleSendProfileVerifyEmail()}
+                            className="min-h-11 w-full rounded-xl bg-slate-800 px-2 py-2.5 text-center text-xs font-semibold text-white shadow-md shadow-slate-900/20 transition hover:bg-slate-900 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {verifyEmailSending ? 'Отправка…' : 'Подтвердить email'}
+                          </button>
+                        )}
+                      </div>
+                      {initialized && isEmailConfirmed && (
+                        <p className="prose-ru mx-auto mt-3 max-w-[19rem] text-center text-[10px] leading-snug text-emerald-800/90 sm:max-w-[20rem] sm:text-[11px] sm:leading-snug">
+                          Адрес подтверждён — можно оформлять заказы и получать письма.
+                        </p>
+                      )}
+                      {initialized && !isEmailConfirmed && (
+                        <>
+                          <p className="prose-ru mx-auto mt-3 max-w-[19rem] text-center text-[10px] leading-snug text-[#6B7280] sm:max-w-[20rem] sm:text-[11px] sm:leading-snug">
+                            Email нужен для подтверждения заказов.
+                            <br />
+                            Без подтверждения покупка заблокирована.
+                          </p>
+                          <span className="prose-ru mt-2 block text-center text-[10px] leading-snug text-red-500 sm:text-[11px]">
+                            Используйте реальный e-mail. Без подтверждения заказ невозможен, а перенос бонусов на другой аккаунт запрещен.
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  {verifyEmailError && (
+                    <p className="prose-ru mt-3 border-t border-slate-200/50 pt-3 text-xs text-red-700" role="alert">
+                      {verifyEmailError}
+                    </p>
+                  )}
+                  {verifyEmailMessage && (
+                    <p
+                      className={`prose-ru text-xs text-slate-600 ${verifyEmailError ? 'mt-1.5' : 'mt-3 border-t border-slate-200/50 pt-3'}`}
+                      role="status"
+                    >
+                      {verifyEmailMessage}
+                    </p>
+                  )}
+                </div>
+              )}
 
               <div className="mt-6 border-t border-slate-100 pt-4">
                 <h3 className="mb-3 text-sm font-semibold text-slate-900">Сменить пароль</h3>

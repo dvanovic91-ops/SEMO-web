@@ -3,9 +3,11 @@ import React, { useRef, useState, useEffect } from 'react';
 type Props = {
   images: string[];
   name: string;
+  /** 모바일 1열: 이미지 영역을 넓고 선명하게 */
+  layout?: 'mobile' | 'desktop';
 };
 
-export const ShopCardImage: React.FC<Props> = ({ images, name }) => {
+export const ShopCardImage: React.FC<Props> = ({ images, name, layout = 'desktop' }) => {
   const [index, setIndex] = useState(0);
   const touchStartX = useRef(0);
   /** 항상 최신 images 참조 — 데이터 로드 후 마우스가 이미 카드 위에 있어도 호버 시 전환되도록 */
@@ -55,27 +57,30 @@ export const ShopCardImage: React.FC<Props> = ({ images, name }) => {
     });
   };
 
+  const frameClass =
+    layout === 'mobile'
+      ? 'mt-2 flex aspect-[4/3] w-full min-w-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200/80 bg-white/80 sm:aspect-square'
+      : 'mt-2 flex aspect-square w-full min-w-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200/80 bg-white/80';
+
+  const emptyMinH = layout === 'mobile' ? 'min-h-[200px]' : 'min-h-[180px]';
+
   if (!images.length) {
     return (
-      <div
-        className="mt-2 flex aspect-square w-full items-center justify-center overflow-hidden rounded-lg border border-slate-200/80 bg-white/80"
-        style={{ minHeight: '180px' }}
-      >
-        <span className="text-base font-medium text-brand">{name}</span>
+      <div className={`${frameClass} ${emptyMinH}`}>
+        <span className="prose-ru px-2 text-center text-base font-medium text-brand">{name}</span>
       </div>
     );
   }
 
   return (
     <div
-      className="mt-2 flex aspect-square w-full items-center justify-center overflow-hidden rounded-lg border border-slate-200/80 bg-white/80"
-      style={{ minHeight: '180px' }}
+      className={frameClass}
       onMouseEnter={startHover}
       onMouseLeave={endHover}
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
     >
-      <img src={images[index]} alt={name} className="h-full w-full object-cover" />
+      <img src={images[index]} alt={name} className="h-full w-full object-cover object-center" />
     </div>
   );
 };
