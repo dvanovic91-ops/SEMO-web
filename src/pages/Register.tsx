@@ -6,6 +6,8 @@ import { AddressSuggest } from '../components/AddressSuggest';
 import { BackArrow } from '../components/BackArrow';
 import { useAuth } from '../context/AuthContext';
 import { REGISTER_EMAIL_HINT_RU, isValidEmailFormat } from '../lib/emailValidation';
+import { clampDigits } from '../lib/digitsOnly';
+import { CustomsPassportNotice } from '../components/CustomsPassportNotice';
 
 /**
  * 회원가입 — 기본인적 / 배송(주소 세분화). 이메일 인증 구조, 전화 포맷, INN/우편 제한.
@@ -309,7 +311,7 @@ export const Register: React.FC = () => {
                     <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 text-xs font-medium transition hover:border-brand hover:text-brand">
                       ?
                     </span>
-                    <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 w-[220px] -translate-x-1/2 rounded px-2.5 py-1.5 text-xs font-medium leading-snug text-brand bg-white shadow-md border border-slate-100 opacity-0 transition group-hover:opacity-100">
+                    <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 inline-block w-max -translate-x-1/2 whitespace-nowrap rounded border border-slate-100 bg-white px-2.5 py-1.5 text-left text-xs font-medium leading-none text-brand shadow-md opacity-0 transition group-hover:opacity-100">
                       При вводе адреса нижние поля заполнятся автоматически.
                     </span>
                   </span>
@@ -373,9 +375,11 @@ export const Register: React.FC = () => {
                 placeholder="123456"
                 className={inputClass}
                 maxLength={6}
-                pattern="[0-9]{0,6}"
                 inputMode="numeric"
                 autoComplete="off"
+                onChange={(e) => {
+                  e.target.value = clampDigits(e.target.value, 6);
+                }}
               />
             </div>
             <div>
@@ -389,9 +393,11 @@ export const Register: React.FC = () => {
                 placeholder="12 цифр"
                 className={inputClass}
                 maxLength={12}
-                pattern="[0-9]{0,12}"
                 inputMode="numeric"
                 autoComplete="off"
+                onChange={(e) => {
+                  e.target.value = clampDigits(e.target.value, 12);
+                }}
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -403,9 +409,11 @@ export const Register: React.FC = () => {
                   placeholder="1234"
                   className={inputClass}
                   maxLength={4}
-                  pattern="[0-9]{0,4}"
                   inputMode="numeric"
                   autoComplete="off"
+                  onChange={(e) => {
+                    e.target.value = clampDigits(e.target.value, 4);
+                  }}
                 />
               </div>
               <div>
@@ -416,12 +424,15 @@ export const Register: React.FC = () => {
                   placeholder="567890"
                   className={inputClass}
                   maxLength={6}
-                  pattern="[0-9]{0,6}"
                   inputMode="numeric"
                   autoComplete="off"
+                  onChange={(e) => {
+                    e.target.value = clampDigits(e.target.value, 6);
+                  }}
                 />
               </div>
             </div>
+            <CustomsPassportNotice />
             {/* ФИО для доставки — 참고용, 필수 아님 */}
             {/* items-start: 세 열 라벨·인풋 상단 정렬 (부칭 열에만 체크박스가 있어 items-end 시 높이 어긋남) */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-3 sm:items-start">
@@ -464,15 +475,17 @@ export const Register: React.FC = () => {
                   onChange={(e) => setFioMiddle(normalizeLatin(e.target.value).toUpperCase())}
                   disabled={noPatronymic}
                 />
-                <label className="mt-1.5 flex cursor-pointer items-center gap-1.5 self-start text-xs text-slate-500">
-                  <input type="checkbox" checked={noPatronymic} onChange={(e) => { const v = e.target.checked; setNoPatronymic(v); if (v) setFioMiddle(''); }} className="h-3 w-3 rounded border-slate-300 text-brand focus:ring-brand" />
-                  <span>Нет отчества</span>
-                </label>
               </div>
             </div>
-            <p className="mt-2 text-[11px] text-slate-500">
-              * ФИО как в паспорте (латинскими буквами).
-            </p>
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 sm:grid sm:grid-cols-3 sm:items-center sm:gap-x-3 sm:gap-y-0">
+              <p className="min-w-0 max-w-full text-[11px] leading-snug text-slate-500 sm:col-span-2">
+                * ФИО как в паспорте (латинскими буквами).
+              </p>
+              <label className="inline-flex w-fit shrink-0 cursor-pointer items-center gap-1.5 text-[11px] text-slate-500 sm:justify-self-end">
+                <input type="checkbox" checked={noPatronymic} onChange={(e) => { const v = e.target.checked; setNoPatronymic(v); if (v) setFioMiddle(''); }} className="h-3 w-3 rounded border-slate-300 text-brand focus:ring-brand" />
+                <span className="whitespace-nowrap">Нет отчества</span>
+              </label>
+            </div>
             <div>
               <label htmlFor="phone" className={labelClass}>
                 Номер телефона
@@ -490,13 +503,39 @@ export const Register: React.FC = () => {
                 <button
                   type="button"
                   disabled={phoneValue.replace(/\D/g, '').length < 10}
-                  className="inline-flex min-h-11 w-full shrink-0 items-center justify-center rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-xs font-medium text-sky-700 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                  className="inline-flex min-h-11 w-full shrink-0 items-center justify-center rounded-full border border-brand/35 bg-brand-soft px-4 py-2 text-xs font-medium text-brand transition hover:bg-brand-soft/80 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                 >
                   Подтвердить в Telegram
                 </button>
               </div>
               <p className="prose-ru mt-1 text-[11px] leading-snug text-slate-500">
                 * Подтверждается через Telegram, за подтверждение +200 баллов.
+              </p>
+            </div>
+            <div>
+              <label htmlFor="delivery-email" className={labelClass}>
+                E-mail
+              </label>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
+                <input
+                  id="delivery-email"
+                  type="email"
+                  readOnly
+                  value={email}
+                  className={`${inputClass} cursor-default bg-slate-50 sm:flex-1`}
+                  autoComplete="email"
+                />
+                <button
+                  type="button"
+                  disabled
+                  title="После регистрации откройте письмо и перейдите по ссылке"
+                  className="inline-flex min-h-11 w-full shrink-0 cursor-not-allowed items-center justify-center rounded-full border border-brand/35 bg-brand-soft px-4 py-2 text-xs font-medium text-brand opacity-70 sm:w-auto"
+                >
+                  Подтвердить email
+                </button>
+              </div>
+              <p className="prose-ru mt-1 text-[11px] leading-snug text-slate-500">
+                * Тот же email, что выше. После регистрации — подтверждение по ссылке из письма.
               </p>
             </div>
             </div>

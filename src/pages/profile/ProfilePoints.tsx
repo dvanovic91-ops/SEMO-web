@@ -199,12 +199,11 @@ export const ProfilePoints: React.FC = () => {
 
   /** 잔액은 오직 DB(profiles.points) — 조회 전에는 0으로 표시 */
   const points = dbPoints ?? 0;
-  const mergedHistory = profileMeta?.telegram_reward_given
-    ? [
-        ...history,
-        { id: 'telegram-reward', label: 'Бонус за привязку Telegram', amount: 200, date: '' },
-      ]
-    : history;
+  const hasTelegramLedger = history.some((h) => h.label === 'Бонус за привязку Telegram');
+  const mergedHistory =
+    profileMeta?.telegram_reward_given && !hasTelegramLedger
+      ? [...history, { id: 'telegram-reward', label: 'Бонус за привязку Telegram', amount: 200, date: '' }]
+      : history;
 
   if (!initialized) return null;
   if (!isLoggedIn) return <Navigate to="/login" replace />;
@@ -239,7 +238,8 @@ export const ProfilePoints: React.FC = () => {
               <p className="text-xs text-slate-500">{item.date ? new Date(item.date).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) : '—'}</p>
             </div>
             <span className={item.amount >= 0 ? 'text-brand font-medium' : 'text-slate-500'}>
-              {item.amount >= 0 ? '+' : ''}{item.amount} ★
+              {item.amount >= 0 ? '+' : ''}
+              {item.amount} ★
             </span>
           </li>
         ))}

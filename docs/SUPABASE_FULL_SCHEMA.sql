@@ -65,7 +65,7 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
 
--- ---------- skin_test_results: 테스트 완료 시 500점 지급 ----------
+-- ---------- skin_test_results: 테스트 완료 시 300점 지급 (POINTS_POLICY.md와 동일) ----------
 create table if not exists public.skin_test_results (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
@@ -84,7 +84,9 @@ create policy "본인 테스트 결과만 조회"
 create or replace function public.grant_points_on_test_complete()
 returns trigger as $$
 begin
-  update public.profiles set points = 500, updated_at = now() where id = new.user_id;
+  update public.profiles
+  set points = coalesce(points, 0) + 300, updated_at = now()
+  where id = new.user_id;
   return new;
 end;
 $$ language plpgsql security definer;

@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { InnHelpTooltip } from '../components/InnHelpTooltip';
+import { CustomsPassportNotice } from '../components/CustomsPassportNotice';
+import { clampDigits } from '../lib/digitsOnly';
 
 /**
  * OAuth 가입 후 배송 정보만 입력. 주소 세분화, INN 12자리+도움말, 우편 6자리.
@@ -84,10 +86,12 @@ export const RegisterShipping: React.FC = () => {
               placeholder="123456"
               className={inputClass}
               maxLength={6}
-              pattern="[0-9]{6}"
               inputMode="numeric"
               autoComplete="off"
               required
+              onChange={(e) => {
+                e.target.value = clampDigits(e.target.value, 6);
+              }}
             />
           </div>
           <div>
@@ -117,10 +121,12 @@ export const RegisterShipping: React.FC = () => {
               placeholder="12 цифр"
               className={inputClass}
               maxLength={12}
-              pattern="[0-9]{12}"
               inputMode="numeric"
               autoComplete="off"
               required
+              onChange={(e) => {
+                e.target.value = clampDigits(e.target.value, 12);
+              }}
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -134,10 +140,12 @@ export const RegisterShipping: React.FC = () => {
                 placeholder="1234"
                 className={inputClass}
                 maxLength={4}
-                pattern="[0-9]{4}"
                 inputMode="numeric"
                 autoComplete="off"
                 required
+                onChange={(e) => {
+                  e.target.value = clampDigits(e.target.value, 4);
+                }}
               />
             </div>
             <div>
@@ -150,17 +158,17 @@ export const RegisterShipping: React.FC = () => {
                 placeholder="567890"
                 className={inputClass}
                 maxLength={6}
-                pattern="[0-9]{6}"
                 inputMode="numeric"
                 autoComplete="off"
                 required
+                onChange={(e) => {
+                  e.target.value = clampDigits(e.target.value, 6);
+                }}
               />
             </div>
           </div>
         </section>
-        <p className="text-sm text-slate-500">
-          Для таможенного оформления необходимы ИНН и данные паспорта (серия и номер).
-        </p>
+        <CustomsPassportNotice />
         <button
           type="submit"
           className="w-full rounded-full bg-brand py-3.5 text-base font-semibold text-white transition hover:bg-brand/90"

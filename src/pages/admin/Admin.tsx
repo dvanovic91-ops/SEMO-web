@@ -69,24 +69,43 @@ type AnnouncementBroadcastRow = {
 const BROADCAST_CATEGORY_OPTIONS: { value: string; labelKo: string }[] = [
   { value: 'discount', labelKo: '할인·프로모' },
   { value: 'new_product', labelKo: '신제품' },
-  { value: 'event', labelKo: '이벤트' },
   { value: 'general', labelKo: '일반 소식' },
   { value: 'shipping', labelKo: '배송 안내' },
   { value: 'other', labelKo: '기타' },
 ];
 
 const BROADCAST_LINK_OPTIONS: { value: string; labelKo: string }[] = [
-  { value: 'promo', labelKo: 'Promo' },
-  { value: 'shop', labelKo: 'Shop' },
+  { value: 'promo', labelKo: '프로모' },
+  { value: 'shop', labelKo: '쇼핑' },
   { value: 'profile', labelKo: '프로필' },
   { value: 'points', labelKo: '포인트' },
   { value: 'orders', labelKo: '주문 내역' },
   { value: 'skin-test', labelKo: '피부 테스트' },
-  { value: 'support', labelKo: 'Support' },
+  { value: 'support', labelKo: '고객 지원' },
   { value: 'home', labelKo: '홈' },
-  { value: 'journey', labelKo: 'Journey' },
-  { value: 'about', labelKo: 'About' },
+  { value: 'journey', labelKo: '여정' },
+  { value: 'about', labelKo: '소개' },
 ];
+
+function broadcastCategoryLabelKo(value: string | null | undefined): string {
+  if (!value) return '—';
+  return BROADCAST_CATEGORY_OPTIONS.find((o) => o.value === value)?.labelKo ?? value;
+}
+
+function broadcastLinkLabelKo(value: string | null | undefined): string {
+  if (!value) return '—';
+  return BROADCAST_LINK_OPTIONS.find((o) => o.value === value)?.labelKo ?? value;
+}
+
+/** 공지 발송: 유형·이동 셀렉트 — 동일 박스 */
+const broadcastUniformControlClass =
+  'mt-1 box-border h-11 w-full min-w-0 max-w-full shrink-0 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900';
+
+/** datetime-local: WebKit이 intrinsic min-width로 셀보다 넓게 그리는 경우가 있어 셸로 폭 고정 */
+const broadcastDatetimeShellClass =
+  'mt-1 flex h-11 w-full min-w-0 max-w-full shrink-0 items-center overflow-hidden rounded-lg border border-slate-200 bg-white px-3';
+const broadcastDatetimeInputClass =
+  'min-h-0 min-w-0 w-full flex-1 border-0 bg-transparent p-0 text-sm text-slate-900 outline-none ring-0 focus:outline-none focus:ring-0 [color-scheme:light]';
 
 /** ISO 주차 키 (YYYY-MM-DD → "YYYY-W01"~"YYYY-W53"). 트래픽 주별 집계용 */
 function getISOWeekKey(ymd: string): string {
@@ -3639,13 +3658,73 @@ export const Admin: React.FC = () => {
 
       {tab === 'broadcast' && (
         <section className="mt-4 w-full min-w-0 px-1 sm:px-0">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:gap-8">
-            <div className="min-w-0 flex-1 max-w-xl rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
+          <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-6 lg:flex-row lg:items-stretch lg:justify-center lg:gap-8">
+            <aside className="flex h-full min-h-0 w-full shrink-0 flex-col lg:w-80 xl:w-96">
+              <div className="flex h-full min-h-0 flex-col rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+                <h3 className="text-sm font-semibold text-slate-900">발송 이력</h3>
+                <p className="mt-1 text-[11px] leading-snug text-slate-500">
+                  삭제 시 해당 공지로 생성된 사용자 알림 행도 함께 제거됩니다.
+                </p>
+                <div className="mt-3 flex min-h-0 flex-1 flex-col">
+                  {broadcastHistoryLoading ? (
+                    <p className="text-xs text-slate-500">불러오는 중…</p>
+                  ) : broadcastHistory.length === 0 ? (
+                    <p className="text-xs text-slate-500">이력이 없거나 테이블이 아직 없습니다.</p>
+                  ) : (
+                    <ul className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+                      {broadcastHistory.map((row) => (
+                        <li
+                          key={row.id}
+                          className="rounded-lg border border-slate-100 bg-slate-50/80 p-3 text-xs text-slate-700"
+                        >
+                          <p className="font-medium text-slate-900 line-clamp-2">{row.title}</p>
+                          {row.body ? <p className="mt-1 line-clamp-2 text-slate-600">{row.body}</p> : null}
+                          {(row.category || row.link_to) && (
+                            <p className="mt-1 text-[11px] text-slate-500">
+                              유형 {broadcastCategoryLabelKo(row.category)} · 이동 {broadcastLinkLabelKo(row.link_to)}
+                            </p>
+                          )}
+                          <p className="mt-2 text-[11px] text-slate-500">
+                            {new Date(row.visible_from).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })} —{' '}
+                            {new Date(row.visible_until).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })}
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-slate-500">
+                            수신자 {row.recipient_count}명 ·{' '}
+                            {new Date(row.created_at).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })}
+                          </p>
+                          <button
+                            type="button"
+                            disabled={!supabase || !canBroadcast || broadcastDeletingId === row.id}
+                            onClick={async () => {
+                              if (!supabase || !canBroadcast) return;
+                              if (!window.confirm('이 공지와 연결된 사용자 알림을 모두 삭제할까요?')) return;
+                              setBroadcastDeletingId(row.id);
+                              setBroadcastMessage(null);
+                              const { error: delErr } = await supabase.rpc('admin_delete_broadcast', {
+                                p_broadcast_id: row.id,
+                              });
+                              setBroadcastDeletingId(null);
+                              if (delErr) {
+                                setBroadcastMessage(`삭제 실패: ${delErr.message}`);
+                                return;
+                              }
+                              await loadBroadcastHistory();
+                              setBroadcastMessage('삭제되었습니다.');
+                            }}
+                            className="mt-2 rounded-full border border-red-200 bg-white px-3 py-1 text-[11px] font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+                          >
+                            {broadcastDeletingId === row.id ? '삭제 중…' : '삭제'}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            </aside>
+
+            <div className="flex h-full min-h-0 w-full max-w-[32.4rem] shrink-0 flex-col rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
               <h2 className="text-sm font-semibold text-slate-900">전체 회원 공지</h2>
-              <p className="mt-1 text-xs text-slate-500">
-                제목·본문은 사용자 알림(종)에 표시되며, 아래 기간 안에서만 목록에 노출됩니다. 유형·이동 화면은 RPC 6인자 버전이 필요합니다 —{' '}
-                <code className="rounded bg-slate-100 px-1">SUPABASE_ANNOUNCEMENT_BROADCASTS.sql</code> 최신본 실행.
-              </p>
               <label className="mt-4 block text-xs font-medium text-slate-700">제목 (러시아어 권장)</label>
               <input
                 type="text"
@@ -3662,13 +3741,13 @@ export const Admin: React.FC = () => {
                 rows={5}
                 className="mt-1 w-full resize-y rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400"
               />
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div>
+              <div className="mt-4 grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="min-w-0 max-w-full">
                   <label className="block text-xs font-medium text-slate-700">공지 유형 (사용자 뱃지)</label>
                   <select
                     value={broadcastCategory}
                     onChange={(e) => setBroadcastCategory(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                    className={broadcastUniformControlClass}
                   >
                     {BROADCAST_CATEGORY_OPTIONS.map((o) => (
                       <option key={o.value} value={o.value}>
@@ -3677,12 +3756,12 @@ export const Admin: React.FC = () => {
                     ))}
                   </select>
                 </div>
-                <div>
+                <div className="min-w-0 max-w-full">
                   <label className="block text-xs font-medium text-slate-700">탭 시 이동할 화면</label>
                   <select
                     value={broadcastLinkTo}
                     onChange={(e) => setBroadcastLinkTo(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                    className={broadcastUniformControlClass}
                   >
                     {BROADCAST_LINK_OPTIONS.map((o) => (
                       <option key={o.value} value={o.value}>
@@ -3691,159 +3770,101 @@ export const Admin: React.FC = () => {
                     ))}
                   </select>
                 </div>
-              </div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div>
+                <div className="min-w-0 max-w-full">
                   <label className="block text-xs font-medium text-slate-700">노출 시작</label>
-                  <input
-                    type="datetime-local"
-                    value={broadcastVisibleFrom}
-                    onChange={(e) => setBroadcastVisibleFrom(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900"
-                  />
+                  <div className={broadcastDatetimeShellClass}>
+                    <input
+                      type="datetime-local"
+                      value={broadcastVisibleFrom}
+                      onChange={(e) => setBroadcastVisibleFrom(e.target.value)}
+                      className={broadcastDatetimeInputClass}
+                    />
+                  </div>
                 </div>
-                <div>
+                <div className="min-w-0 max-w-full">
                   <label className="block text-xs font-medium text-slate-700">노출 종료</label>
-                  <input
-                    type="datetime-local"
-                    value={broadcastVisibleUntil}
-                    onChange={(e) => setBroadcastVisibleUntil(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900"
-                  />
+                  <div className={broadcastDatetimeShellClass}>
+                    <input
+                      type="datetime-local"
+                      value={broadcastVisibleUntil}
+                      onChange={(e) => setBroadcastVisibleUntil(e.target.value)}
+                      className={broadcastDatetimeInputClass}
+                    />
+                  </div>
                 </div>
               </div>
-              {broadcastMessage && (
-                <p className="mt-3 text-xs text-slate-600" role="status">
-                  {broadcastMessage}
-                </p>
-              )}
-              <button
-                type="button"
-                disabled={
-                  broadcastSending ||
-                  !broadcastTitle.trim() ||
-                  !supabase ||
-                  !canBroadcast ||
-                  (() => {
-                    const a = new Date(broadcastVisibleFrom).getTime();
-                    const b = new Date(broadcastVisibleUntil).getTime();
-                    return !Number.isFinite(a) || !Number.isFinite(b) || b < a;
-                  })()
-                }
-                onClick={async () => {
-                  if (!supabase || !broadcastTitle.trim() || !canBroadcast) return;
-                  const fromMs = new Date(broadcastVisibleFrom).getTime();
-                  const untilMs = new Date(broadcastVisibleUntil).getTime();
-                  if (!Number.isFinite(fromMs) || !Number.isFinite(untilMs) || untilMs < fromMs) {
-                    setBroadcastMessage('노출 종료 시각은 시작 시각 이후여야 합니다.');
-                    return;
-                  }
-                  setBroadcastSending(true);
-                  setBroadcastMessage(null);
-                  setError(null);
-                  const { data: newBroadcastId, error: rpcErr } = await supabase.rpc('admin_broadcast_notifications', {
-                    p_title: broadcastTitle.trim(),
-                    p_body: broadcastBody.trim(),
-                    p_visible_from: new Date(broadcastVisibleFrom).toISOString(),
-                    p_visible_until: new Date(broadcastVisibleUntil).toISOString(),
-                    p_category: broadcastCategory,
-                    p_link_to: broadcastLinkTo,
-                  });
-                  setBroadcastSending(false);
-                  if (rpcErr) {
-                    setBroadcastMessage(`실패: ${rpcErr.message}`);
-                    return;
-                  }
-                  let countLabel = '';
-                  if (typeof newBroadcastId === 'string' && newBroadcastId) {
-                    const { data: row } = await supabase
-                      .from('announcement_broadcasts')
-                      .select('recipient_count')
-                      .eq('id', newBroadcastId)
-                      .maybeSingle();
-                    if (row && typeof row.recipient_count === 'number') {
-                      countLabel = `${row.recipient_count}명에게 알림 생성`;
-                    }
-                  }
-                  setBroadcastMessage(
-                    countLabel
-                      ? `전송 완료: ${countLabel}. (기간 외에는 종 목록에 표시되지 않습니다.)`
-                      : '전송 완료. (기간 외에는 종 목록에 표시되지 않습니다.)',
-                  );
-                  setBroadcastTitle('');
-                  setBroadcastBody('');
-                  setBroadcastVisibleFrom(defaultBroadcastVisibleFrom());
-                  setBroadcastVisibleUntil(defaultBroadcastVisibleUntil());
-                  await loadBroadcastHistory();
-                  setSaveSuccessAt(Date.now());
-                }}
-                className="mt-4 w-full rounded-full bg-brand py-2.5 text-sm font-medium text-white hover:bg-brand/90 disabled:opacity-50 sm:w-auto sm:px-8"
-              >
-                {broadcastSending ? '전송 중…' : '전체 회원에게 전송'}
-              </button>
-            </div>
-
-            <aside className="w-full shrink-0 lg:sticky lg:top-24 lg:w-80 xl:w-96">
-              <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
-                <h3 className="text-sm font-semibold text-slate-900">발송 이력</h3>
-                <p className="mt-1 text-[11px] leading-snug text-slate-500">
-                  삭제 시 해당 공지로 생성된 사용자 알림 행도 함께 제거됩니다.
-                </p>
-                {broadcastHistoryLoading ? (
-                  <p className="mt-4 text-xs text-slate-500">불러오는 중…</p>
-                ) : broadcastHistory.length === 0 ? (
-                  <p className="mt-4 text-xs text-slate-500">이력이 없거나 테이블이 아직 없습니다.</p>
-                ) : (
-                  <ul className="mt-3 max-h-[min(70vh,32rem)] space-y-3 overflow-y-auto pr-1">
-                    {broadcastHistory.map((row) => (
-                      <li
-                        key={row.id}
-                        className="rounded-lg border border-slate-100 bg-slate-50/80 p-3 text-xs text-slate-700"
-                      >
-                        <p className="font-medium text-slate-900 line-clamp-2">{row.title}</p>
-                        {row.body ? <p className="mt-1 line-clamp-2 text-slate-600">{row.body}</p> : null}
-                        {(row.category || row.link_to) && (
-                          <p className="mt-1 text-[11px] text-slate-500">
-                            유형 {row.category ?? '—'} · 이동 {row.link_to ?? '—'}
-                          </p>
-                        )}
-                        <p className="mt-2 text-[11px] text-slate-500">
-                          {new Date(row.visible_from).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })} —{' '}
-                          {new Date(row.visible_until).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })}
-                        </p>
-                        <p className="mt-0.5 text-[11px] text-slate-500">
-                          수신자 {row.recipient_count}명 ·{' '}
-                          {new Date(row.created_at).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })}
-                        </p>
-                        <button
-                          type="button"
-                          disabled={!supabase || !canBroadcast || broadcastDeletingId === row.id}
-                          onClick={async () => {
-                            if (!supabase || !canBroadcast) return;
-                            if (!window.confirm('이 공지와 연결된 사용자 알림을 모두 삭제할까요?')) return;
-                            setBroadcastDeletingId(row.id);
-                            setBroadcastMessage(null);
-                            const { error: delErr } = await supabase.rpc('admin_delete_broadcast', {
-                              p_broadcast_id: row.id,
-                            });
-                            setBroadcastDeletingId(null);
-                            if (delErr) {
-                              setBroadcastMessage(`삭제 실패: ${delErr.message}`);
-                              return;
-                            }
-                            await loadBroadcastHistory();
-                            setBroadcastMessage('삭제되었습니다.');
-                          }}
-                          className="mt-2 rounded-full border border-red-200 bg-white px-3 py-1 text-[11px] font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
-                        >
-                          {broadcastDeletingId === row.id ? '삭제 중…' : '삭제'}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
+              <div className="mt-auto pt-6">
+                {broadcastMessage && (
+                  <p className="mb-3 text-xs text-slate-600" role="status">
+                    {broadcastMessage}
+                  </p>
                 )}
+                <button
+                  type="button"
+                  disabled={
+                    broadcastSending ||
+                    !broadcastTitle.trim() ||
+                    !supabase ||
+                    !canBroadcast ||
+                    (() => {
+                      const a = new Date(broadcastVisibleFrom).getTime();
+                      const b = new Date(broadcastVisibleUntil).getTime();
+                      return !Number.isFinite(a) || !Number.isFinite(b) || b < a;
+                    })()
+                  }
+                  onClick={async () => {
+                    if (!supabase || !broadcastTitle.trim() || !canBroadcast) return;
+                    const fromMs = new Date(broadcastVisibleFrom).getTime();
+                    const untilMs = new Date(broadcastVisibleUntil).getTime();
+                    if (!Number.isFinite(fromMs) || !Number.isFinite(untilMs) || untilMs < fromMs) {
+                      setBroadcastMessage('노출 종료 시각은 시작 시각 이후여야 합니다.');
+                      return;
+                    }
+                    setBroadcastSending(true);
+                    setBroadcastMessage(null);
+                    setError(null);
+                    const { data: newBroadcastId, error: rpcErr } = await supabase.rpc('admin_broadcast_notifications', {
+                      p_title: broadcastTitle.trim(),
+                      p_body: broadcastBody.trim(),
+                      p_visible_from: new Date(broadcastVisibleFrom).toISOString(),
+                      p_visible_until: new Date(broadcastVisibleUntil).toISOString(),
+                      p_category: broadcastCategory,
+                      p_link_to: broadcastLinkTo,
+                    });
+                    setBroadcastSending(false);
+                    if (rpcErr) {
+                      setBroadcastMessage(`실패: ${rpcErr.message}`);
+                      return;
+                    }
+                    let countLabel = '';
+                    if (typeof newBroadcastId === 'string' && newBroadcastId) {
+                      const { data: row } = await supabase
+                        .from('announcement_broadcasts')
+                        .select('recipient_count')
+                        .eq('id', newBroadcastId)
+                        .maybeSingle();
+                      if (row && typeof row.recipient_count === 'number') {
+                        countLabel = `${row.recipient_count}명에게 알림 생성`;
+                      }
+                    }
+                    setBroadcastMessage(
+                      countLabel
+                        ? `전송 완료: ${countLabel}. (기간 외에는 종 목록에 표시되지 않습니다.)`
+                        : '전송 완료. (기간 외에는 종 목록에 표시되지 않습니다.)',
+                    );
+                    setBroadcastTitle('');
+                    setBroadcastBody('');
+                    setBroadcastVisibleFrom(defaultBroadcastVisibleFrom());
+                    setBroadcastVisibleUntil(defaultBroadcastVisibleUntil());
+                    await loadBroadcastHistory();
+                    setSaveSuccessAt(Date.now());
+                  }}
+                  className="w-full rounded-full bg-brand py-2.5 text-sm font-medium text-white hover:bg-brand/90 disabled:opacity-50 sm:w-auto sm:px-8"
+                >
+                  {broadcastSending ? '전송 중…' : '전체 회원에게 전송'}
+                </button>
               </div>
-            </aside>
+            </div>
           </div>
         </section>
       )}

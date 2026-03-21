@@ -16,6 +16,13 @@ import {
 } from '../../lib/profileDeliveryDb';
 import { clearPendingShippingBackup, flushPendingShippingBackup, savePendingShippingBackup } from '../../lib/profileDeliveryOffline';
 import { shippingHasAnyField, validateShippingOrEmpty } from '../../lib/shippingValidation';
+import { clampDigits } from '../../lib/digitsOnly';
+import { CustomsPassportNotice } from '../../components/CustomsPassportNotice';
+import {
+  accountLinkTwoColGridClass,
+  accountPrimaryCtaClass,
+  accountStatusPillClass,
+} from '../../lib/accountLinkUi';
 
 /**
  * 프로필 수정 — 기본 인적/배송 정보 보기·수정.
@@ -26,6 +33,13 @@ const inputClass =
 const labelClass = 'mb-1 block text-sm font-medium text-slate-700';
 const hintClass = 'text-[11px] text-slate-500 font-normal';
 const fieldHintSpacing = 'mt-4';
+
+/** Доставка: телефон и email — полная ширина, без дублирующих кнопок (статус — в «Основные данные») */
+const contactInputBase =
+  'w-full min-w-0 rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-800 placeholder:text-xs placeholder:text-slate-400 focus:outline-none';
+const contactInputLocked = `${contactInputBase} cursor-default !bg-slate-200 text-slate-600 focus:ring-0`;
+const contactInputEditable = `${contactInputBase} bg-white focus:border-brand focus:ring-1 focus:ring-brand`;
+const contactInputEmailPending = `${contactInputBase} cursor-default bg-slate-50 text-slate-800 focus:border-brand focus:ring-1 focus:ring-brand`;
 
 function formatPhone(value: string): string {
   let digits = (value ?? '').replace(/\D/g, '').slice(0, 11);
@@ -109,9 +123,13 @@ export const ProfileEdit: React.FC = () => {
   const { userEmail, userId, isLoggedIn, initialized, isEmailConfirmed, refreshEmailConfirmationFromServer } = useAuth();
 
   const [editing, setEditing] = useState(false);
+  /** «Изменить номер» только после нажатия «Редактировать» внизу (не только focus=phone) */
+  const [editStartedFromFooter, setEditStartedFromFooter] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
   const [initialForm, setInitialForm] = useState<Record<string, string> | null>(null);
   const [telegramLinked, setTelegramLinked] = useState(false);
+  /** true: пользователь нажал «Изменить номер» — поле открыто, но в БД telegram_id ещё не трогаем, пока не «Сохранить» */
+  const [phoneUnlinkRequested, setPhoneUnlinkRequested] = useState(false);
   const [passwordSection, setPasswordSection] = useState(false);
   /** 저장 중 / 결과 피드백 */
   const [saveLoading, setSaveLoading] = useState(false);
@@ -253,11 +271,6 @@ export const ProfileEdit: React.FC = () => {
     }
   }, [userId, safeUserEmail]);
 
-  // focus=phone 이면 연동 목적 진입 → 편집 모드 자동 켜서 전화 입력·"Подтвердить в Telegram" 바로 사용 가능
-  useEffect(() => {
-    if (searchParams.get('focus') === 'phone') setEditing(true);
-  }, [searchParams]);
-
   useEffect(() => {
     const onVisibility = () => {
       if (document.visibilityState !== 'visible' || !supabase || !userId) return;
@@ -286,6 +299,7 @@ export const ProfileEdit: React.FC = () => {
           if (pollingRef.current) clearInterval(pollingRef.current);
           pollingRef.current = null;
           setPollingForTelegram(false);
+          setPhoneUnlinkRequested(false);
           setTelegramLinked(true);
           setTelegramLinkedToast(true);
           setTimeout(() => setTelegramLinkedToast(false), 3000);
@@ -325,13 +339,12 @@ export const ProfileEdit: React.FC = () => {
     return () => window.removeEventListener('online', onOnline);
   }, [supabase, userId, loadProfileFromDb]);
 
+  /** ?focus=phone: после «Редактировать» фокус на поле телефона */
   useEffect(() => {
-    if (!focusPhone || !(form?.email)) return;
-    setEditing(true);
-    setInitialForm((prev) => prev ?? { ...form });
+    if (!focusPhone || !editing || !(form?.email)) return;
     const t = setTimeout(() => phoneInputRef.current?.focus(), 150);
     return () => clearTimeout(t);
-  }, [focusPhone, form?.email]);
+  }, [focusPhone, form?.email, editing]);
 
   // ——— [로딩 상태 처리] 최상단: 데이터 없으면 에러 안 뱉고 로딩만 ———
   if (!initialized || (!sessionChecked && !redirectToLogin)) {
@@ -347,6 +360,10 @@ export const ProfileEdit: React.FC = () => {
     setSaveError(null);
     let next = value ?? '';
     if (key === 'fioLast' || key === 'fioFirst' || key === 'fioMiddle') next = normalizeLatin(next).toUpperCase();
+    else if (key === 'inn') next = clampDigits(next, 12);
+    else if (key === 'passportSeries') next = clampDigits(next, 4);
+    else if (key === 'passportNumber') next = clampDigits(next, 6);
+    else if (key === 'postcode') next = clampDigits(next, 6);
     setForm((prev) => ({ ...prev, [key]: next }));
   };
 
@@ -374,6 +391,7 @@ export const ProfileEdit: React.FC = () => {
     const profilesPatch = {
       name: (form?.name ?? '').trim() || null,
       phone: (form?.phone ?? '').trim() || null,
+      ...(phoneUnlinkRequested ? { telegram_id: null as null, phone_verified: false } : {}),
     };
 
     const block = validateShippingOrEmpty(shippingForm);
@@ -393,6 +411,8 @@ export const ProfileEdit: React.FC = () => {
       }
       clearPendingShippingBackup(userId);
       setSyncNotice(null);
+      setPhoneUnlinkRequested(false);
+      setEditStartedFromFooter(false);
       setEditing(false);
       setInitialForm(null);
       setSaveSuccessToast(true);
@@ -443,20 +463,24 @@ export const ProfileEdit: React.FC = () => {
     }
   };
 
-  const handleUnlinkToChangePhone = async () => {
-    if (!supabase || !userId) return;
+  /** Номер можно править локально; в БД telegram_id снимается только при «Сохранить», чтобы «Назад» не ломал привязку */
+  const handleUnlinkToChangePhone = () => {
     setPhoneError('');
-    try {
-      // 의도적 연동 해제: 사용자가 "Изменить номер" 클릭 시에만 telegram_id null로 설정
-      await supabase.from('profiles').update({ telegram_id: null, phone_verified: false }).eq('id', userId);
-      setTelegramLinked(false);
-      setEditing(true);
-      setInitialForm((prev) => prev ?? { ...form });
-      setTimeout(() => phoneInputRef.current?.focus(), 100);
-    } catch {
-      setPhoneError('Не удалось отвязать. Попробуйте позже.');
-    }
+    setPhoneUnlinkRequested(true);
+    setTimeout(() => phoneInputRef.current?.focus(), 100);
   };
+
+  const showChangePhoneControl =
+    editing && editStartedFromFooter && telegramLinked && !phoneUnlinkRequested;
+
+  const phoneLockedByTelegram = telegramLinked && !phoneUnlinkRequested;
+  const phoneFieldClass = !editing
+    ? telegramLinked
+      ? contactInputLocked
+      : contactInputEmailPending
+    : phoneLockedByTelegram
+      ? contactInputLocked
+      : contactInputEditable;
 
   const inputProps = (key: string) =>
     editing
@@ -470,19 +494,13 @@ export const ProfileEdit: React.FC = () => {
           <Link to="/profile" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> Profile</Link>
         </p>
 
-        <header className="mb-8">
-          <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
-            Редактировать профиль
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Основные данные и адрес доставки. Ниже — смена пароля.
-          </p>
-          {syncNotice && (
-            <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" role="status">
+        {syncNotice && (
+          <div className="mb-8">
+            <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" role="status">
               {syncNotice}
             </p>
-          )}
-        </header>
+          </div>
+        )}
 
         <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
           <section>
@@ -498,20 +516,20 @@ export const ProfileEdit: React.FC = () => {
                   {...inputProps('name')}
                 />
               </div>
-              {/* Telegram + E-mail — как на странице профиля; при подтверждённом email — акцент изумрудным */}
+              {/* Telegram + E-mail — иконка Telegram только #26A5E4; остальное — фирменный оранжевый */}
               {userId && userId !== ADMIN_DUMMY_USER_ID && (
                 <div
                   className={`overflow-hidden rounded-2xl border px-3 pt-3 pb-2 shadow-sm sm:px-5 sm:pt-5 sm:pb-3 ${
                     isEmailConfirmed
-                      ? 'border-emerald-200/85 bg-gradient-to-br from-sky-50/95 via-emerald-50/20 to-emerald-50/55 ring-1 ring-emerald-100/70'
-                      : 'border-sky-100/90 bg-sky-50/95'
+                      ? 'border-brand/35 bg-gradient-to-br from-brand-soft/95 via-brand-soft/70 to-brand-soft ring-1 ring-brand/15'
+                      : 'border-brand/25 bg-brand-soft/95 ring-1 ring-brand/10'
                   }`}
                 >
                   {/* Личный кабинет과 동일: 모바일도 2열(텔еграм | email) */}
-                  <div className="grid grid-cols-2 gap-x-2 sm:gap-x-4 md:gap-x-0">
+                  <div className={`${accountLinkTwoColGridClass} md:gap-x-0`}>
                     <div className="flex min-h-0 min-w-0 flex-col border-r border-slate-200/60 pr-2 sm:pr-3 md:pr-5">
                       <div className="flex items-center justify-center gap-2.5">
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/80 text-[#26A5E4] shadow-sm ring-1 ring-sky-100/80">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/90 text-[#26A5E4] shadow-sm ring-1 ring-slate-200/80">
                           <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden>
                             <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
                           </svg>
@@ -520,21 +538,18 @@ export const ProfileEdit: React.FC = () => {
                       </div>
                       <div className="mt-2.5">
                         {telegramLinked ? (
-                          <button
-                            type="button"
-                            disabled
-                            className="flex min-h-11 w-full cursor-default items-center justify-center rounded-xl border border-emerald-200/90 bg-emerald-50/95 px-2 py-2.5 text-center text-xs font-semibold text-emerald-800 shadow-sm"
-                            aria-label="Telegram привязан"
-                          >
-                            Telegram привязан ✅
+                          <button type="button" disabled className={accountStatusPillClass} aria-label="Telegram привязан">
+                            Telegram привязан ✓
                           </button>
                         ) : (
-                          <Link
-                            to="/profile/edit?focus=phone"
-                            className="inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-[#26A5E4] px-2 py-2.5 text-center text-xs font-semibold text-white shadow-md shadow-sky-500/25 transition hover:bg-[#2298d4] hover:shadow-lg hover:shadow-sky-500/30"
+                          <button
+                            type="button"
+                            disabled={!editing || !form?.phone?.trim()}
+                            onClick={() => void handleTelegramVerify()}
+                            className={accountPrimaryCtaClass}
                           >
-                            Привязать Telegram
-                          </Link>
+                            Подтвердить в Telegram
+                          </button>
                         )}
                       </div>
                       {!telegramLinked && (
@@ -549,7 +564,7 @@ export const ProfileEdit: React.FC = () => {
                     <div className="flex min-h-0 min-w-0 flex-col pl-2 sm:pl-3 md:pl-5">
                       {/* Telegram 열과 동일: 아이콘+제목 한 줄, 버튼 한 줄, (선택) 짧은 안내만 */}
                       <div className="flex items-center justify-center gap-2.5">
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/80 text-slate-600 shadow-sm ring-1 ring-slate-200/80">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/90 text-brand shadow-sm ring-1 ring-brand/25">
                           <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" aria-hidden>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
                           </svg>
@@ -563,17 +578,17 @@ export const ProfileEdit: React.FC = () => {
                           <button
                             type="button"
                             disabled
-                            className="flex min-h-11 w-full cursor-default items-center justify-center whitespace-nowrap rounded-xl border border-emerald-200/90 bg-emerald-50/95 px-2 py-2.5 text-center text-[11px] font-semibold leading-none text-emerald-800 shadow-sm sm:text-xs"
+                            className={accountStatusPillClass}
                             aria-label="Email подтверждён"
                           >
-                            Email подтверждён ✅
+                            Email подтверждён ✓
                           </button>
                         ) : (
                           <button
                             type="button"
                             disabled={verifyEmailSending}
                             onClick={() => void handleSendProfileVerifyEmail()}
-                            className="flex min-h-11 w-full items-center justify-center whitespace-nowrap rounded-xl bg-slate-800 px-2 py-2.5 text-center text-[11px] font-semibold leading-none text-white shadow-md shadow-slate-900/20 transition hover:bg-slate-900 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60 sm:text-xs"
+                            className={accountPrimaryCtaClass}
                           >
                             {verifyEmailSending ? 'Отправка…' : 'Подтвердить email'}
                           </button>
@@ -670,7 +685,7 @@ export const ProfileEdit: React.FC = () => {
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 text-xs font-medium transition hover:border-brand hover:text-brand">
                         ?
                       </span>
-                      <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 w-[220px] -translate-x-1/2 rounded px-2.5 py-1.5 text-xs font-medium leading-snug text-brand bg-white shadow-md border border-slate-100 opacity-0 transition group-hover:opacity-100">
+                      <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 inline-block w-max -translate-x-1/2 whitespace-nowrap rounded border border-slate-100 bg-white px-2.5 py-1.5 text-left text-xs font-medium leading-none text-brand shadow-md opacity-0 transition group-hover:opacity-100">
                         При вводе адреса нижние поля заполнятся автоматически.
                       </span>
                     </span>
@@ -700,49 +715,87 @@ export const ProfileEdit: React.FC = () => {
                   <div>
                     <label htmlFor="pe-fio-middle" className={labelClass}>Отчество</label>
                     <input id="pe-fio-middle" type="text" placeholder="Ivanovich" className={inputClass} {...inputProps('fioMiddle')} disabled={noPatronymic} />
-                    <label className="mt-1.5 flex cursor-pointer items-center gap-1.5 text-xs text-slate-500">
-                      <input type="checkbox" checked={noPatronymic} onChange={(e) => { const v = e.target.checked; setNoPatronymic(v); if (v) handleChange('fioMiddle', ''); }} className="h-3 w-3 rounded border-slate-300 text-brand focus:ring-brand" />
-                      <span>Нет отчества</span>
-                    </label>
                   </div>
                 </div>
-                <p className={`${fieldHintSpacing} ${hintClass}`}>* ФИО как в паспорте (латинскими буквами).</p>
+                {/* ФИО: компактная строка; xs — flex-wrap рядом, sm+ — сетка 2+1 под колонки ФИО */}
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 sm:grid sm:grid-cols-3 sm:items-center sm:gap-x-3 sm:gap-y-0">
+                  <p className="min-w-0 max-w-full text-[11px] leading-snug text-slate-500 sm:col-span-2">
+                    * ФИО как в паспорте (латинскими буквами).
+                  </p>
+                  <label className="inline-flex w-fit shrink-0 cursor-pointer items-center gap-1.5 text-[11px] text-slate-500 sm:justify-self-end">
+                    <input type="checkbox" checked={noPatronymic} onChange={(e) => { const v = e.target.checked; setNoPatronymic(v); if (v) handleChange('fioMiddle', ''); }} className="h-3 w-3 rounded border-slate-300 text-brand focus:ring-brand" />
+                    <span className="whitespace-nowrap">Нет отчества</span>
+                  </label>
+                </div>
 
                 <div>
                   <label htmlFor="pe-phone" className={labelClass}>Номер телефона</label>
-                  <div className="flex min-w-0 flex-row items-stretch gap-2">
-                    <input
-                      ref={phoneInputRef}
-                      id="pe-phone"
-                      type="tel"
-                      placeholder="+7 999 999 9999"
-                      className={`min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 placeholder:text-xs placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand sm:px-4 ${telegramLinked ? 'cursor-default !bg-slate-200 text-slate-600' : ''}`}
-                      value={form?.phone ?? ''}
-                      onChange={editing && !telegramLinked ? handlePhoneChange : undefined}
-                      readOnly={!editing || telegramLinked}
-                    />
-                    {telegramLinked ? (
-                      <div className="flex shrink-0 flex-col justify-center gap-1 sm:flex-row sm:items-center">
-                        <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2.5 py-2 text-center text-[11px] font-medium leading-tight text-sky-700 sm:px-3 sm:text-xs">Telegram привязан</span>
-                        {editing && (
-                          <button type="button" onClick={handleUnlinkToChangePhone} className="whitespace-nowrap text-center text-[11px] font-medium text-sky-600 underline hover:text-sky-800 sm:text-xs">
-                            Изменить номер
-                          </button>
-                        )}
-                      </div>
-                    ) : (
+                  <input
+                    ref={phoneInputRef}
+                    id="pe-phone"
+                    type="tel"
+                    placeholder="+7 999 999 9999"
+                    title="+200 баллов за подтверждение в Telegram"
+                    className={phoneFieldClass}
+                    value={form?.phone ?? ''}
+                    onChange={editing && (!telegramLinked || phoneUnlinkRequested) ? handlePhoneChange : undefined}
+                    readOnly={!editing || phoneLockedByTelegram}
+                  />
+                  {!telegramLinked && editing && (
+                    <p className="mt-1.5 text-[11px] leading-snug text-slate-500">
+                      Подтвердите номер в Telegram — блок «Основные данные» выше.
+                    </p>
+                  )}
+                  {showChangePhoneControl && (
+                    <div className="mt-3">
                       <button
                         type="button"
-                        onClick={handleTelegramVerify}
-                        disabled={!editing}
-                        className="shrink-0 self-center rounded-full border border-sky-200 bg-sky-50 px-2.5 py-2 text-center text-[11px] font-medium leading-snug text-slate-700 transition hover:bg-sky-100 disabled:opacity-60 sm:max-w-[9.5rem] sm:px-3 sm:text-xs"
+                        onClick={handleUnlinkToChangePhone}
+                        className="w-full rounded-xl border border-slate-200 bg-white py-2.5 text-center text-xs font-semibold text-brand shadow-sm transition hover:border-brand/40 hover:bg-brand-soft/20"
                       >
-                        Подтвердить в Telegram
+                        Изменить номер
                       </button>
-                    )}
-                  </div>
-                  <p className={`${fieldHintSpacing} ${hintClass}`}>* Телефон подтверждается через Telegram, за подтверждение +200 баллов.</p>
+                    </div>
+                  )}
+                  {editing && phoneUnlinkRequested && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPhoneUnlinkRequested(false);
+                          void loadProfileFromDb();
+                        }}
+                        className="text-xs font-medium text-slate-600 underline hover:text-slate-800"
+                      >
+                        Отмена
+                      </button>
+                    </div>
+                  )}
+                  {phoneUnlinkRequested && (
+                    <p className="mt-2 text-[11px] leading-snug text-slate-600">
+                      Нажмите «Сохранить», чтобы записать номер и снять привязку Telegram. «Отмена» — без изменений в аккаунте.
+                    </p>
+                  )}
                   {phoneError && <p className="mt-1 text-xs text-red-500">{phoneError}</p>}
+                </div>
+
+                <div>
+                  <label htmlFor="pe-email-delivery" className={labelClass}>
+                    E-mail
+                  </label>
+                  <input
+                    id="pe-email-delivery"
+                    type="email"
+                    readOnly
+                    value={safeUserEmail}
+                    className={isEmailConfirmed ? contactInputLocked : contactInputEmailPending}
+                    autoComplete="email"
+                  />
+                  {!isEmailConfirmed && initialized && editing && (
+                    <p className={`mt-1.5 ${hintClass}`}>
+                      Подтвердите email — блок «Основные данные» выше.
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -759,28 +812,76 @@ export const ProfileEdit: React.FC = () => {
                 </div>
                 <div>
                   <label htmlFor="pe-postcode" className={labelClass}>Postcode <span className={hintClass}>(индекс, 6 цифр)</span></label>
-                  <input id="pe-postcode" type="text" placeholder="123456" maxLength={6} className={inputClass} {...inputProps('postcode')} />
+                  <input
+                    id="pe-postcode"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    placeholder="123456"
+                    maxLength={6}
+                    className={inputClass}
+                    {...inputProps('postcode')}
+                  />
                 </div>
                 <div>
                   <label htmlFor="pe-inn" className={`${labelClass} inline-flex items-center gap-1`}>INN <span className={hintClass}>(12 цифр)</span> <InnHelpTooltip /></label>
-                  <input id="pe-inn" type="text" placeholder="12 цифр" maxLength={12} className={inputClass} {...inputProps('inn')} />
+                  <input
+                    id="pe-inn"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    placeholder="12 цифр"
+                    maxLength={12}
+                    className={inputClass}
+                    {...inputProps('inn')}
+                  />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label htmlFor="pe-ps" className={labelClass}>Серия паспорта</label>
-                    <input id="pe-ps" type="text" placeholder="1234" maxLength={4} className={inputClass} {...inputProps('passportSeries')} />
+                    <input
+                      id="pe-ps"
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      placeholder="1234"
+                      maxLength={4}
+                      className={inputClass}
+                      {...inputProps('passportSeries')}
+                    />
                   </div>
                   <div>
                     <label htmlFor="pe-pn" className={labelClass}>Номер паспорта</label>
-                    <input id="pe-pn" type="text" placeholder="567890" maxLength={6} className={inputClass} {...inputProps('passportNumber')} />
+                    <input
+                      id="pe-pn"
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      placeholder="567890"
+                      maxLength={6}
+                      className={inputClass}
+                      {...inputProps('passportNumber')}
+                    />
                   </div>
                 </div>
+                <CustomsPassportNotice />
               </div>
             </div>
           </section>
 
           {!editing ? (
-            <button type="button" onClick={() => { setSaveError(null); setInitialForm(form); setEditing(true); }} className="w-full rounded-full border border-slate-200 py-3.5 text-base font-medium text-slate-700 transition hover:border-brand hover:bg-brand-soft/10">Редактировать</button>
+            <button
+              type="button"
+              onClick={() => {
+                setSaveError(null);
+                setInitialForm(form);
+                setEditing(true);
+                setEditStartedFromFooter(true);
+              }}
+              className="w-full rounded-full border border-slate-200 py-3.5 text-base font-medium text-slate-700 transition hover:border-brand hover:bg-brand-soft/10"
+            >
+              Редактировать
+            </button>
           ) : (
             isDirty && (
               <div className="space-y-3">
@@ -802,12 +903,8 @@ export const ProfileEdit: React.FC = () => {
           )}
         </form>
 
-        <p className="mt-8 text-center">
-          <Link to="/profile" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> Profile</Link>
-        </p>
-
         {telegramLinkedToast && (
-          <div className="fixed bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-sky-600 px-5 py-2.5 text-sm font-medium text-white shadow-lg md:bottom-8" role="status" aria-live="polite">
+          <div className="fixed bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-brand px-5 py-2.5 text-sm font-medium text-white shadow-lg md:bottom-8" role="status" aria-live="polite">
             Telegram привязан. Аккаунт успешно связан.
           </div>
         )}

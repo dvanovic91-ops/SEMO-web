@@ -18,9 +18,33 @@ import {
 } from '../lib/profileDeliveryDb';
 import { clearPendingShippingBackup, flushPendingShippingBackup, savePendingShippingBackup } from '../lib/profileDeliveryOffline';
 import { validateShippingComplete } from '../lib/shippingValidation';
+import { clampDigits } from '../lib/digitsOnly';
+import { CustomsPassportNotice } from '../components/CustomsPassportNotice';
+import { InnHelpTooltip } from '../components/InnHelpTooltip';
+import {
+  accountLinkTwoColGridClass,
+  accountPrimaryCtaClass,
+  accountStatusPillClass,
+} from '../lib/accountLinkUi';
 
 function formatPrice(price: number): string {
   return `${price.toLocaleString('ru-RU')} руб.`;
+}
+
+/** ProfileEdit / Register와 동일 — RU 휴대폰 마스크 */
+function formatPhone(value: string): string {
+  let digits = (value ?? '').replace(/\D/g, '').slice(0, 11);
+  if (digits.length === 0) return '';
+  if (digits.startsWith('8')) digits = '7' + digits.slice(1);
+  else if (!digits.startsWith('7')) digits = '7' + digits;
+  const a = digits.slice(0, 1);
+  const b = digits.slice(1, 4);
+  const c = digits.slice(4, 7);
+  const e = digits.slice(7, 11);
+  if (e.length) return `+${a} ${b} ${c} ${e}`;
+  if (c.length) return `+${a} ${b} ${c}`;
+  if (b.length) return `+${a} ${b}`;
+  return `+${a}`;
 }
 
 /** 배송 폼 필드 키 (개인정보·shipping_addresses 와 동일) */
@@ -72,7 +96,11 @@ export const Checkout: React.FC = () => {
   /** 가짜(테스트) 주문 여부. URL에 ?test=1 있으면 true → is_test로 저장해 나중에 구분·삭제 가능 */
   const isTestOrder = searchParams.get('test') === '1';
   const { items, total, totalCount } = useCart();
-  const [profile, setProfile] = useState<{ name: string | null; phone: string | null } | null>(null);
+  const [profile, setProfile] = useState<{
+    name: string | null;
+    phone: string | null;
+    telegram_id: string | null;
+  } | null>(null);
   const [userPoints, setUserPoints] = useState<number>(0);
   const [membershipCoupons, setMembershipCoupons] = useState<
     { id: string; amount: number; expires_at: string; used_at: string | null }[]
@@ -102,6 +130,12 @@ export const Checkout: React.FC = () => {
   const [saveDeliveryAsDefault, setSaveDeliveryAsDefault] = useState(true);
   const [noPatronymic, setNoPatronymic] = useState(false);
   const [addressQuery, setAddressQuery] = useState('');
+  /** Telegram 연동(개인정보 수정과 동일 UX) */
+  const [phoneError, setPhoneError] = useState('');
+  /** «Изменить номер» без мгновенного сброса telegram_id в БД — снятие привязки при сохранении заказа/адреса */
+  const [phoneUnlinkRequested, setPhoneUnlinkRequested] = useState(false);
+  const [pollingForTelegram, setPollingForTelegram] = useState(false);
+  const pollingForTelegramRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const deliveryFormInitialized = useRef(false);
   /** CS 방어: 결제 단계에서 가격 본 적 한 번만 로그 */
   const paymentStepViewedLoggedRef = useRef(false);
@@ -144,7 +178,7 @@ export const Checkout: React.FC = () => {
 
       const { data, error } = await supabase
         .from('profiles')
-        .select('name, phone, points')
+        .select('name, phone, points, telegram_id')
         .eq('id', userId)
         .single();
 
@@ -162,7 +196,11 @@ export const Checkout: React.FC = () => {
         setUserPoints(0);
         setEmailGateNotice('Не удалось проверить профиль. Обновите страницу или войдите снова.');
       } else {
-        setProfile({ name: data.name ?? null, phone: data.phone ?? null });
+        setProfile({
+          name: data.name ?? null,
+          phone: data.phone ?? null,
+          telegram_id: (data as { telegram_id?: string | null }).telegram_id ?? null,
+        });
         setUserPoints(Math.max(0, Number(data.points ?? 0)));
       }
 
@@ -191,6 +229,7 @@ export const Checkout: React.FC = () => {
   /** 계정 전환 시 배송 폼 다시 채움 */
   useEffect(() => {
     deliveryFormInitialized.current = false;
+    setPhoneUnlinkRequested(false);
   }, [userId]);
 
   /** profiles + shipping_addresses 로드 후 배송 폼 1회 초기화 */
@@ -206,12 +245,19 @@ export const Checkout: React.FC = () => {
   }, [loading, shippingLoaded, profile, shippingFromDb, userId]);
 
   const setDeliveryField = useCallback((key: keyof DeliveryForm, value: string) => {
-    setDeliveryForm((prev) => ({ ...prev, [key]: value }));
+    let v = value;
+    if (key === 'inn') v = clampDigits(value, 12);
+    else if (key === 'passportSeries') v = clampDigits(value, 4);
+    else if (key === 'passportNumber') v = clampDigits(value, 6);
+    else if (key === 'postcode') v = clampDigits(value, 6);
+    setDeliveryForm((prev) => ({ ...prev, [key]: v }));
   }, []);
 
   /** 결제 확정 시: profiles.phone + shipping_addresses upsert. @returns false 이면 주문 진행 중단(검증 실패·저장 실패). */
   const saveDeliveryToProfile = useCallback(async (): Promise<boolean> => {
-    if (!saveDeliveryAsDefault || !supabase || !userId) return true;
+    if (!supabase || !userId) return true;
+    /** Снятие Telegram при «Изменить номер» должно записаться даже если галочка «сохранить адрес» снята */
+    if (!saveDeliveryAsDefault && !phoneUnlinkRequested) return true;
 
     const shippingForm: ShippingFormCamel = {
       fioLast: deliveryForm.fioLast ?? '',
@@ -226,23 +272,33 @@ export const Checkout: React.FC = () => {
       passportSeries: deliveryForm.passportSeries ?? '',
       passportNumber: deliveryForm.passportNumber ?? '',
     };
-    const profilesPatch = { phone: deliveryForm.phone?.trim() || null };
+    const profilesPatch = {
+      phone: deliveryForm.phone?.trim() || null,
+      ...(phoneUnlinkRequested ? { telegram_id: null as null, phone_verified: false } : {}),
+    };
 
-    /** 결제 단계 진입 전 canProceedDelivery와 동일 규칙 — 불완전하면 pending 백업·upsert 시도 없음 */
-    const pre = validateShippingComplete(shippingForm);
-    if (!pre.ok) {
-      setCheckoutWarning(pre.messageRu);
-      setOrderFlowError(pre.messageRu);
-      return false;
+    if (saveDeliveryAsDefault) {
+      const pre = validateShippingComplete(shippingForm);
+      if (!pre.ok) {
+        setCheckoutWarning(pre.messageRu);
+        setOrderFlowError(pre.messageRu);
+        return false;
+      }
     }
 
     try {
       const { error: profErr } = await supabase.from('profiles').update(profilesPatch).eq('id', userId);
       if (profErr) throw profErr;
-      const shipErr = await upsertShippingFromForm(supabase, userId, shippingForm);
-      if (shipErr) throw new Error(shipErr.message);
-      clearPendingShippingBackup(userId);
+      if (saveDeliveryAsDefault) {
+        const shipErr = await upsertShippingFromForm(supabase, userId, shippingForm);
+        if (shipErr) throw new Error(shipErr.message);
+        clearPendingShippingBackup(userId);
+      }
       setCheckoutWarning(null);
+      if (phoneUnlinkRequested) {
+        setPhoneUnlinkRequested(false);
+        void loadProfile();
+      }
       return true;
     } catch (e) {
       console.warn('[Checkout] save delivery to server failed', e);
@@ -257,7 +313,7 @@ export const Checkout: React.FC = () => {
       );
       return false;
     }
-  }, [saveDeliveryAsDefault, deliveryForm, userId]);
+  }, [saveDeliveryAsDefault, deliveryForm, userId, phoneUnlinkRequested, loadProfile]);
 
   /** 온라인 복구 시 pending 배송 데이터 서버 전송 */
   useEffect(() => {
@@ -342,6 +398,88 @@ export const Checkout: React.FC = () => {
     }
   }, [userId, userEmail, isTestOrder]);
 
+  const dbTelegramLinked = !!profile?.telegram_id;
+  const phoneLockedByTelegram = dbTelegramLinked && !phoneUnlinkRequested;
+
+  const handlePhoneInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (profile?.telegram_id && !phoneUnlinkRequested) return;
+      setPhoneError('');
+      setDeliveryField('phone', formatPhone(e.target.value ?? ''));
+    },
+    [profile?.telegram_id, phoneUnlinkRequested, setDeliveryField],
+  );
+
+  const handleTelegramVerify = useCallback(async () => {
+    setPhoneError('');
+    if (!deliveryForm.phone?.trim()) {
+      setPhoneError('Укажите номер телефона.');
+      return;
+    }
+    if (!supabase || !userId) return;
+    try {
+      await supabase.from('profiles').update({ phone: deliveryForm.phone.trim() }).eq('id', userId);
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+      const { data, error } = await supabase
+        .from('link_tokens')
+        .insert({ user_id: userId, expires_at: expiresAt })
+        .select('token')
+        .single();
+      if (error || !data?.token) {
+        setPhoneError('Не удалось создать ссылку для Telegram. Проверьте доступ к link_tokens (RLS).');
+        return;
+      }
+      window.open(`https://t.me/My_SEMO_Beautybot?start=link_${data.token}`, '_blank');
+      setPollingForTelegram(true);
+    } catch {
+      setPhoneError('Не удалось подтвердить номер. Попробуйте позже.');
+    }
+  }, [deliveryForm.phone, userId]);
+
+  const handleUnlinkToChangePhone = useCallback(() => {
+    setPhoneError('');
+    setPhoneUnlinkRequested(true);
+  }, []);
+
+  /** Telegram 봇에서 연동 완료될 때까지 폴링 (ProfileEdit와 동일) */
+  useEffect(() => {
+    if (!pollingForTelegram || !supabase || !userId) return;
+    const maxUntil = Date.now() + 2 * 60 * 1000;
+    const tick = () => {
+      if (Date.now() > maxUntil) {
+        if (pollingForTelegramRef.current) clearInterval(pollingForTelegramRef.current);
+        pollingForTelegramRef.current = null;
+        setPollingForTelegram(false);
+        return;
+      }
+      supabase
+        .from('profiles')
+        .select('telegram_id, phone')
+        .eq('id', userId)
+        .single()
+        .then(({ data }) => {
+          if (data?.telegram_id) {
+            if (pollingForTelegramRef.current) clearInterval(pollingForTelegramRef.current);
+            pollingForTelegramRef.current = null;
+            setPollingForTelegram(false);
+            setPhoneUnlinkRequested(false);
+            setProfile((prev) =>
+              prev
+                ? { ...prev, telegram_id: data.telegram_id ?? null, phone: data.phone ?? prev.phone }
+                : null,
+            );
+            setDeliveryForm((prev) => ({ ...prev, phone: (data.phone as string) ?? prev.phone }));
+          }
+        });
+    };
+    tick();
+    pollingForTelegramRef.current = setInterval(tick, 3000);
+    return () => {
+      if (pollingForTelegramRef.current) clearInterval(pollingForTelegramRef.current);
+      pollingForTelegramRef.current = null;
+    };
+  }, [pollingForTelegram, userId, supabase]);
+
   // ——— 아래부터는 early return만 허용. 새 훅(useState/useEffect/useCallback 등) 추가 시 반드시 위쪽에 선언 ———
   if (!initialized || loading) {
     return (
@@ -381,7 +519,7 @@ export const Checkout: React.FC = () => {
   const handleConfirmOrder = async () => {
     if (!isEmailConfirmed) {
       window.alert(
-        'Для оформления заказа подтвердите email. Проверьте письмо от сервиса (включая «Спам») или нажмите «Отправить письмо снова» ниже.',
+        'Для оформления заказа подтвердите email. Проверьте письмо от сервиса (включая «Спам») или нажмите «Подтвердить email» в разделе «Доставка».',
       );
       return;
     }
@@ -738,34 +876,6 @@ export const Checkout: React.FC = () => {
         </div>
       )}
 
-      {!isEmailConfirmed && (
-        <section className="mt-6 rounded-xl border border-brand/30 bg-brand-soft/20 p-4 sm:p-5">
-          <h2 className="text-sm font-semibold text-slate-900">Подтверждение email</h2>
-          <p className="mt-2 text-sm leading-relaxed text-slate-700">
-            Для заказа нужно подтвердить email в системе входа. Проверьте почту{' '}
-            <span className="font-medium text-slate-900">{userEmail}</span> или запросите письмо снова.
-          </p>
-          <button
-            type="button"
-            disabled={verifyEmailSending}
-            onClick={() => void handleSendCheckoutVerifyEmail()}
-            className="mt-4 w-full rounded-full bg-brand py-3 text-sm font-semibold text-white hover:bg-brand/90 disabled:opacity-60 sm:w-auto sm:px-8"
-          >
-            {verifyEmailSending ? 'Отправка…' : 'Отправить письмо снова'}
-          </button>
-          {verifyEmailError && (
-            <p className="mt-3 text-sm text-red-700" role="alert">
-              {verifyEmailError}
-            </p>
-          )}
-          {verifyEmailMessage && (
-            <p className="mt-3 text-xs leading-snug text-slate-600" role="status">
-              {verifyEmailMessage}
-            </p>
-          )}
-        </section>
-      )}
-
       {/* 1. 주문 요약 — 맨 위: 품목별 사진·가격·수량 (읽기 전용) */}
       <section className="mt-8 rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
         <h2 className="mb-4 text-sm font-semibold text-slate-800">Ваш заказ</h2>
@@ -807,35 +917,22 @@ export const Checkout: React.FC = () => {
         <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
           Укажите данные фактического получателя. Заказы из-за рубежа проходят личную таможенную очистку. Неверные данные могут повлечь задержки, возврат посылки или отказ в выдаче — просим указывать данные внимательно.
         </p>
-        <div className="space-y-4 rounded-xl border border-brand/20 bg-brand-soft/10 px-4 py-4">
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Фамилия</label>
-              <input type="text" value={deliveryForm.fioLast} onChange={(e) => setDeliveryField('fioLast', e.target.value.replace(/[^A-Za-z\s-']/g, '').toUpperCase())} className={`min-h-[2.75rem] w-full rounded-xl border bg-white px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30 uppercase ${!deliveryForm.fioLast?.trim() ? 'border-brand ring-1 ring-brand/30' : 'border-slate-200'}`} placeholder="—" />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Имя</label>
-              <input type="text" value={deliveryForm.fioFirst} onChange={(e) => setDeliveryField('fioFirst', e.target.value.replace(/[^A-Za-z\s-']/g, '').toUpperCase())} className={`min-h-[2.75rem] w-full rounded-xl border bg-white px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30 uppercase ${!deliveryForm.fioFirst?.trim() ? 'border-brand ring-1 ring-brand/30' : 'border-slate-200'}`} placeholder="—" />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Отчество</label>
-              <input type="text" value={deliveryForm.fioMiddle} onChange={(e) => setDeliveryField('fioMiddle', e.target.value.replace(/[^A-Za-z\s-']/g, '').toUpperCase())} disabled={noPatronymic} className={`min-h-[2.75rem] w-full rounded-xl border bg-white px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30 uppercase disabled:bg-slate-50 disabled:text-slate-400 ${noPatronymic ? 'border-slate-200' : !deliveryForm.fioMiddle?.trim() ? 'border-brand ring-1 ring-brand/30' : 'border-slate-200'}`} placeholder="—" />
-              <label className="mt-1.5 flex cursor-pointer items-center gap-1.5 text-xs text-slate-500">
-                <input type="checkbox" checked={noPatronymic} onChange={(e) => { const v = e.target.checked; setNoPatronymic(v); if (v) setDeliveryField('fioMiddle', ''); }} className="h-3 w-3 rounded border-slate-300 text-brand focus:ring-brand" />
-                <span>Нет отчества</span>
-              </label>
-            </div>
-          </div>
-          <p className="text-xs font-normal text-slate-500">* ФИО как в паспорте (латинскими буквами).</p>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">Номер телефона</label>
-            <input type="tel" value={deliveryForm.phone} onChange={(e) => setDeliveryField('phone', e.target.value)} className={`min-h-[2.75rem] w-full rounded-xl border bg-white px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30 ${!deliveryForm.phone?.trim() ? 'border-brand ring-1 ring-brand/30' : 'border-slate-200'}`} placeholder="+7 …" />
-          </div>
-          {/* 주소 맨 위: Dadata 자동완성 — 선택 시 아래 필드 자동 채움 */}
+        <div className="space-y-4">
           <AddressSuggest
-            label="Адрес"
-            placeholder="Выберите адрес — ниже заполнится само"
-            title="Введите адрес и выберите из списка: город, улица, индекс и др. заполнятся автоматически."
+            label={
+              <span className="inline-flex items-center gap-2">
+                Адрес (поиск по базе)
+                <span className="group relative ml-0.5 inline-flex cursor-help" aria-label="Подсказка">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 text-xs font-medium transition hover:border-brand hover:text-brand">
+                    ?
+                  </span>
+                  <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 inline-block w-max -translate-x-1/2 whitespace-nowrap rounded border border-slate-100 bg-white px-2.5 py-1.5 text-left text-xs font-medium leading-none text-brand shadow-md opacity-0 transition group-hover:opacity-100">
+                    При вводе адреса нижние поля заполнятся автоматически.
+                  </span>
+                </span>
+              </span>
+            }
+            placeholder="Начните вводить адрес, затем выберите вариант из списка"
             value={addressQuery}
             onChange={setAddressQuery}
             onPartsChange={(parts) => {
@@ -848,6 +945,176 @@ export const Checkout: React.FC = () => {
               }));
             }}
           />
+          <div className="space-y-4 rounded-xl border border-brand/20 bg-brand-soft/10 px-4 py-4">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">Фамилия</label>
+              <input type="text" value={deliveryForm.fioLast} onChange={(e) => setDeliveryField('fioLast', e.target.value.replace(/[^A-Za-z\s-']/g, '').toUpperCase())} className={`min-h-[2.75rem] w-full rounded-xl border bg-white px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30 uppercase ${!deliveryForm.fioLast?.trim() ? 'border-brand ring-1 ring-brand/30' : 'border-slate-200'}`} placeholder="—" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">Имя</label>
+              <input type="text" value={deliveryForm.fioFirst} onChange={(e) => setDeliveryField('fioFirst', e.target.value.replace(/[^A-Za-z\s-']/g, '').toUpperCase())} className={`min-h-[2.75rem] w-full rounded-xl border bg-white px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30 uppercase ${!deliveryForm.fioFirst?.trim() ? 'border-brand ring-1 ring-brand/30' : 'border-slate-200'}`} placeholder="—" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">Отчество</label>
+              <input type="text" value={deliveryForm.fioMiddle} onChange={(e) => setDeliveryField('fioMiddle', e.target.value.replace(/[^A-Za-z\s-']/g, '').toUpperCase())} disabled={noPatronymic} className={`min-h-[2.75rem] w-full rounded-xl border bg-white px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30 uppercase disabled:bg-slate-50 disabled:text-slate-400 ${noPatronymic ? 'border-slate-200' : !deliveryForm.fioMiddle?.trim() ? 'border-brand ring-1 ring-brand/30' : 'border-slate-200'}`} placeholder="—" />
+            </div>
+          </div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 sm:grid sm:grid-cols-3 sm:items-center sm:gap-x-3 sm:gap-y-0">
+            <p className="min-w-0 max-w-full text-[11px] leading-snug text-slate-500 sm:col-span-2">
+              * ФИО как в паспорте (латинскими буквами).
+            </p>
+            <label className="inline-flex w-fit shrink-0 cursor-pointer items-center gap-1.5 text-[11px] text-slate-500 sm:justify-self-end">
+              <input type="checkbox" checked={noPatronymic} onChange={(e) => { const v = e.target.checked; setNoPatronymic(v); if (v) setDeliveryField('fioMiddle', ''); }} className="h-3 w-3 rounded border-slate-300 text-brand focus:ring-brand" />
+              <span className="whitespace-nowrap">Нет отчества</span>
+            </label>
+          </div>
+          <div>
+            <label htmlFor="ck-phone" className="mb-1 block text-sm font-medium text-slate-700">
+              Номер телефона
+            </label>
+            <input
+              id="ck-phone"
+              type="tel"
+              autoComplete="tel"
+              value={deliveryForm.phone}
+              onChange={handlePhoneInputChange}
+              readOnly={phoneLockedByTelegram}
+              placeholder="+7 999 999 9999"
+              title="+200 баллов за подтверждение в Telegram"
+              className={`min-h-[2.75rem] w-full rounded-xl border px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30 placeholder:text-xs placeholder:text-slate-400 ${
+                phoneLockedByTelegram
+                  ? 'cursor-default border-slate-200 !bg-slate-200 text-slate-600 focus:ring-0'
+                  : !deliveryForm.phone?.trim()
+                    ? 'border-brand bg-white ring-1 ring-brand/30'
+                    : 'border-slate-200 bg-white'
+              }`}
+            />
+            {dbTelegramLinked ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {!phoneUnlinkRequested ? (
+                  <button
+                    type="button"
+                    onClick={handleUnlinkToChangePhone}
+                    className="text-xs font-medium text-brand underline hover:text-brand/80"
+                  >
+                    Изменить номер
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPhoneUnlinkRequested(false);
+                      setDeliveryForm((prev) => ({ ...prev, phone: profile?.phone ?? prev.phone }));
+                    }}
+                    className="text-xs font-medium text-slate-600 underline hover:text-slate-800"
+                  >
+                    Отмена
+                  </button>
+                )}
+              </div>
+            ) : null}
+            <p className="mt-1 text-[11px] leading-snug text-slate-500">
+              * Телефон подтверждается через Telegram, за подтверждение +200 баллов.
+            </p>
+            {phoneUnlinkRequested ? (
+              <p className="mt-1 text-[11px] leading-snug text-slate-600">
+                Привязка Telegram снимется после подтверждения заказа с сохранением адреса. «Отмена» — без изменений.
+              </p>
+            ) : null}
+            {phoneError ? <p className="mt-1 text-xs text-red-600">{phoneError}</p> : null}
+          </div>
+
+          <div
+            className={`overflow-hidden rounded-2xl border px-3 pt-3 pb-2 shadow-sm sm:px-4 sm:pt-4 sm:pb-3 ${
+              isEmailConfirmed
+                ? 'border-brand/35 bg-gradient-to-br from-brand-soft/95 via-brand-soft/70 to-brand-soft ring-1 ring-brand/15'
+                : 'border-brand/25 bg-brand-soft/95 ring-1 ring-brand/10'
+            }`}
+          >
+            <div className={accountLinkTwoColGridClass}>
+              <div className="flex min-h-0 min-w-0 flex-col border-r border-slate-200/60 pr-2 sm:pr-3">
+                <div className="flex items-center justify-center gap-2">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/90 text-[#26A5E4] shadow-sm ring-1 ring-slate-200/80">
+                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor" aria-hidden>
+                      <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
+                    </svg>
+                  </span>
+                  <p className="text-xs font-semibold text-slate-900 sm:text-sm">Telegram</p>
+                </div>
+                <div className="mt-2">
+                  {dbTelegramLinked ? (
+                    <button type="button" disabled className={accountStatusPillClass} aria-label="Telegram привязан">
+                      Telegram привязан ✓
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={!deliveryForm.phone?.trim()}
+                      onClick={() => void handleTelegramVerify()}
+                      className={accountPrimaryCtaClass}
+                    >
+                      Подтвердить в Telegram
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="flex min-h-0 min-w-0 flex-col pl-2 sm:pl-3">
+                <div className="flex items-center justify-center gap-2">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/90 text-brand shadow-sm ring-1 ring-brand/25">
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" aria-hidden>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+                    </svg>
+                  </span>
+                  <p className="text-xs font-semibold text-slate-900 sm:text-sm">E-mail</p>
+                </div>
+                <div className="mt-2">
+                  {isEmailConfirmed ? (
+                    <button type="button" disabled className={accountStatusPillClass} aria-label="Email подтверждён">
+                      Email подтверждён ✓
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={verifyEmailSending}
+                      onClick={() => void handleSendCheckoutVerifyEmail()}
+                      className={accountPrimaryCtaClass}
+                    >
+                      {verifyEmailSending ? 'Отправка…' : 'Подтвердить email'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">E-mail</label>
+            <input
+              type="email"
+              readOnly
+              value={userEmail ?? ''}
+              className={`min-h-[2.75rem] w-full cursor-default rounded-xl border border-slate-200 px-4 py-2.5 text-sm ${
+                isEmailConfirmed
+                  ? '!bg-slate-200 text-slate-600 focus:outline-none focus:ring-0'
+                  : 'bg-slate-50 text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30'
+              }`}
+              autoComplete="email"
+            />
+            {!isEmailConfirmed && (
+              <p className="mt-1 text-[11px] leading-snug text-slate-500">* Для заказа подтвердите email — письмо на указанный адрес.</p>
+            )}
+            {verifyEmailError && (
+              <p className="mt-2 text-sm text-red-700" role="alert">
+                {verifyEmailError}
+              </p>
+            )}
+            {verifyEmailMessage && (
+              <p className="mt-2 text-xs leading-snug text-slate-600" role="status">
+                {verifyEmailMessage}
+              </p>
+            )}
+          </div>
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">Город / Регион</label>
             <input type="text" value={deliveryForm.cityRegion} onChange={(e) => setDeliveryField('cityRegion', e.target.value)} className={`min-h-[2.75rem] w-full rounded-xl border bg-white px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30 ${!deliveryForm.cityRegion?.trim() ? 'border-brand ring-1 ring-brand/30' : 'border-slate-200'}`} placeholder="—" />
@@ -862,26 +1129,66 @@ export const Checkout: React.FC = () => {
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">Postcode <span className="font-normal text-slate-500">(индекс, 6 цифр)</span></label>
-            <input type="text" value={deliveryForm.postcode} onChange={(e) => setDeliveryField('postcode', e.target.value)} maxLength={6} className={`min-h-[2.75rem] w-full rounded-xl border bg-white px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30 ${!deliveryForm.postcode?.trim() ? 'border-brand ring-1 ring-brand/30' : 'border-slate-200'}`} placeholder="—" />
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              value={deliveryForm.postcode}
+              onChange={(e) => setDeliveryField('postcode', e.target.value)}
+              maxLength={6}
+              className={`min-h-[2.75rem] w-full rounded-xl border bg-white px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30 ${!deliveryForm.postcode?.trim() ? 'border-brand ring-1 ring-brand/30' : 'border-slate-200'}`}
+              placeholder="—"
+            />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">INN <span className="font-normal text-slate-500">(12 цифр)</span></label>
-            <input type="text" value={deliveryForm.inn} onChange={(e) => setDeliveryField('inn', e.target.value)} maxLength={12} className={`min-h-[2.75rem] w-full rounded-xl border bg-white px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30 ${!deliveryForm.inn?.trim() ? 'border-brand ring-1 ring-brand/30' : 'border-slate-200'}`} placeholder="—" />
+            <label className="mb-1 inline-flex flex-wrap items-center gap-1 text-sm font-medium text-slate-700">
+              INN <span className="font-normal text-slate-500">(12 цифр)</span> <InnHelpTooltip />
+            </label>
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              value={deliveryForm.inn}
+              onChange={(e) => setDeliveryField('inn', e.target.value)}
+              maxLength={12}
+              className={`min-h-[2.75rem] w-full rounded-xl border bg-white px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30 ${!deliveryForm.inn?.trim() ? 'border-brand ring-1 ring-brand/30' : 'border-slate-200'}`}
+              placeholder="—"
+            />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">Серия паспорта</label>
-              <input type="text" value={deliveryForm.passportSeries} onChange={(e) => setDeliveryField('passportSeries', e.target.value)} maxLength={4} className={`min-h-[2.75rem] w-full rounded-xl border bg-white px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30 ${!deliveryForm.passportSeries?.trim() ? 'border-brand ring-1 ring-brand/30' : 'border-slate-200'}`} placeholder="—" />
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                value={deliveryForm.passportSeries}
+                onChange={(e) => setDeliveryField('passportSeries', e.target.value)}
+                maxLength={4}
+                className={`min-h-[2.75rem] w-full rounded-xl border bg-white px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30 ${!deliveryForm.passportSeries?.trim() ? 'border-brand ring-1 ring-brand/30' : 'border-slate-200'}`}
+                placeholder="—"
+              />
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">Номер паспорта</label>
-              <input type="text" value={deliveryForm.passportNumber} onChange={(e) => setDeliveryField('passportNumber', e.target.value)} maxLength={6} className={`min-h-[2.75rem] w-full rounded-xl border bg-white px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30 ${!deliveryForm.passportNumber?.trim() ? 'border-brand ring-1 ring-brand/30' : 'border-slate-200'}`} placeholder="—" />
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                value={deliveryForm.passportNumber}
+                onChange={(e) => setDeliveryField('passportNumber', e.target.value)}
+                maxLength={6}
+                className={`min-h-[2.75rem] w-full rounded-xl border bg-white px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30 ${!deliveryForm.passportNumber?.trim() ? 'border-brand ring-1 ring-brand/30' : 'border-slate-200'}`}
+                placeholder="—"
+              />
             </div>
           </div>
+          <CustomsPassportNotice />
         </div>
-        <label className="mt-4 flex cursor-pointer items-center gap-2 text-sm text-slate-700">
-          <input type="checkbox" checked={saveDeliveryAsDefault} onChange={(e) => setSaveDeliveryAsDefault(e.target.checked)} className="h-3.5 w-3.5 rounded border-slate-300 text-brand focus:ring-brand" />
-          <span className="whitespace-nowrap">Сохранить как данные по умолчанию для доставки</span>
+        </div>
+        <label className="mt-4 flex cursor-pointer items-start gap-2.5 text-sm text-slate-700">
+          <input type="checkbox" checked={saveDeliveryAsDefault} onChange={(e) => setSaveDeliveryAsDefault(e.target.checked)} className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-brand focus:ring-brand" />
+          <span className="min-w-0 leading-snug">Сохранить как основной</span>
         </label>
       </section>
 

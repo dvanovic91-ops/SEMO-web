@@ -892,7 +892,7 @@ export const ProductDetail: React.FC = () => {
                       i
                     </span>
                     {reviewInfoOpen && (
-                      <div className="absolute right-0 top-full z-20 mt-1 inline-block rounded-lg border border-amber-100 bg-yellow-50 px-4 py-2 text-[11px] text-slate-700 shadow-lg">
+                      <div className="absolute right-0 top-full z-20 mt-1 inline-block rounded-lg border border-slate-200 bg-white px-4 py-2 text-[11px] text-slate-700 shadow-lg">
                         <p className="whitespace-nowrap">• Искренние, подробные отзывы получают бонусные баллы (до 500 pt). ⭐</p>
                         <p className="mt-1 whitespace-nowrap">• Неподходящие материалы могут быть удалены без предупреждения. ⚠️</p>
                         <p className="mt-1 whitespace-nowrap">• Авторские права на отзывы принадлежат SEMO. ©</p>

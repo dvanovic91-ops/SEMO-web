@@ -3,6 +3,11 @@ import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth, ADMIN_DUMMY_USER_ID } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { resendSignupConfirmationEmail } from '../lib/authSignupResend';
+import {
+  accountLinkTwoColGridClass,
+  accountPrimaryCtaClass,
+  accountStatusPillClass,
+} from '../lib/accountLinkUi';
 
 /** 세션 내 텔레그램 연동 여부 캐시 — 프로필 API 응답 전에도 버튼 깜빡임 완화 */
 const TG_CACHE_PREFIX = 'semo_profile_tg_';
@@ -23,6 +28,16 @@ function writeTelegramCache(userId: string, linked: boolean) {
     /* */
   }
 }
+
+/** 멤버십 쿠폰 — membership_coupons (ProfilePoints와 동일 필드) */
+type ProfileCoupon = {
+  id: string;
+  amount: number;
+  expires_at: string;
+  used_at: string | null;
+  tier?: string | null;
+  quarter_label?: string | null;
+};
 
 /**
  * 로그인된 사용자 개인화면 — 인사/등급/포인트 박스.
@@ -51,6 +66,9 @@ export const Profile: React.FC = () => {
   const [verifyEmailSending, setVerifyEmailSending] = useState(false);
   const [verifyEmailMessage, setVerifyEmailMessage] = useState<string | null>(null);
   const [verifyEmailError, setVerifyEmailError] = useState<string | null>(null);
+  const [coupons, setCoupons] = useState<ProfileCoupon[]>([]);
+  const [couponsLoading, setCouponsLoading] = useState(false);
+  const [couponModalOpen, setCouponModalOpen] = useState(false);
   const prevTelegramIdRef = useRef<string | null | undefined>(undefined);
   const currentUserIdRef = useRef<string | null>(null);
   currentUserIdRef.current = userId;
@@ -198,17 +216,48 @@ export const Profile: React.FC = () => {
       });
   }, [userId]);
 
+  const refreshCoupons = useCallback(() => {
+    if (!supabase || !userId) {
+      setCoupons([]);
+      setCouponsLoading(false);
+      return;
+    }
+    const requestedUserId = userId;
+    setCouponsLoading(true);
+    supabase
+      .from('membership_coupons')
+      .select('id, amount, expires_at, used_at, tier, quarter_label')
+      .eq('user_id', requestedUserId)
+      .order('expires_at', { ascending: true })
+      .then(({ data }) => {
+        if (currentUserIdRef.current !== requestedUserId) return;
+        setCoupons((data as ProfileCoupon[]) ?? []);
+      })
+      .catch(() => {
+        if (currentUserIdRef.current !== requestedUserId) return;
+        setCoupons([]);
+      })
+      .finally(() => {
+        if (currentUserIdRef.current === requestedUserId) setCouponsLoading(false);
+      });
+  }, [userId]);
+
+  useEffect(() => {
+    refreshCoupons();
+  }, [refreshCoupons]);
+
   // 다른 탭에서 Telegram 연동 후 돌아오면 프로필(연동 여부·포인트) 다시 불러오기
   useEffect(() => {
     const onVisibility = () => {
       if (document.visibilityState === 'visible') {
         refreshProfile();
+        refreshCoupons();
         void refreshEmailConfirmationFromServer();
       }
     };
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
-  }, [refreshProfile, refreshEmailConfirmationFromServer]);
+  }, [refreshProfile, refreshCoupons, refreshEmailConfirmationFromServer]);
 
   // profiles.email_verified_at 동기화(AuthContext) — JWT/auth만 보면 Confirm OFF 시 오표시
   useEffect(() => {
@@ -257,6 +306,42 @@ export const Profile: React.FC = () => {
     return 'loading';
   }, [userId, dbProfile]);
 
+  // 누적 결제액 기준 등급 표시·툴팁 텍스트 — 조기 return 위에 두어 훅 순서 고정 (Rules of Hooks)
+  const gradeLabel = useMemo(() => {
+    if (membershipTier === 'family') return 'Семейный участник';
+    if (membershipTier === 'premium') return 'Премиум участник';
+    return 'Обычный участник';
+  }, [membershipTier]);
+
+  /** 사용 가능한 쿠폰 수(만료·사용 제외) — 버튼 배지용 */
+  const activeCouponCount = useMemo(() => {
+    const now = Date.now();
+    return coupons.filter((c) => {
+      if (c.used_at) return false;
+      return new Date(c.expires_at).getTime() >= now;
+    }).length;
+  }, [coupons]);
+
+  // 모달 열릴 때 목록 새로고침
+  useEffect(() => {
+    if (couponModalOpen) refreshCoupons();
+  }, [couponModalOpen, refreshCoupons]);
+
+  // 모달: Esc로 닫기 + 스크롤 잠금
+  useEffect(() => {
+    if (!couponModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setCouponModalOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [couponModalOpen]);
+
   if (!initialized) return null;
   if (!isLoggedIn || !userEmail) return <Navigate to="/login" replace />;
 
@@ -273,15 +358,8 @@ export const Profile: React.FC = () => {
     window.location.href = '/login';
   };
 
-  // 누적 결제액 기준 등급 표시·툴팁 텍스트
-  const gradeLabel = useMemo(() => {
-    if (membershipTier === 'family') return 'Семейный участник';
-    if (membershipTier === 'premium') return 'Премиум участник';
-    return 'Обычный участник';
-  }, [membershipTier]);
-
   return (
-    <main className="mx-auto max-w-5xl px-3 py-5 sm:px-6 sm:py-10 md:py-14">
+    <main className="mx-auto w-full max-w-2xl px-3 py-5 sm:px-6 sm:py-10 md:py-14">
       <header className="mb-5 flex flex-wrap items-center justify-between gap-3 sm:mb-6 sm:gap-4">
         <h1 className="min-w-0 text-lg font-semibold tracking-tight text-slate-900 sm:text-2xl">
           Личный кабинет
@@ -305,30 +383,32 @@ export const Profile: React.FC = () => {
         </div>
       </header>
 
-      {/* 옅은 주황 박스: 인사 + 등급(툴팁) + 포인트(별) */}
-      <div className="rounded-xl border border-brand/20 bg-brand-soft/30 px-3 py-4 sm:px-6 sm:py-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <p className="break-words text-base font-medium text-slate-800 sm:text-lg">
-              Здравствуйте, {displayName}!
-            </p>
+      {/* 연한 하늘색 박스: 인사(위) → 아래 한 줄 [등급 왼쪽 | 포인트·쿠폰 오른쪽] */}
+      <div className="rounded-xl border border-sky-200/90 bg-sky-50/95 px-3 py-4 shadow-sm ring-1 ring-sky-100/80 sm:px-6 sm:py-6">
+        <div className="flex flex-col gap-3">
+          <p className="break-words text-center text-base font-medium text-slate-800 sm:text-left sm:text-lg">
+            Здравствуйте, {displayName}!
+          </p>
+          <div className="flex min-w-0 flex-row flex-wrap items-center justify-between gap-x-3 gap-y-2">
             <div
-              className="relative mt-1 inline-flex items-center gap-1 text-sm text-brand"
+              className="relative min-w-0"
               onMouseEnter={() => setGradeTooltipOpen(true)}
               onMouseLeave={() => setGradeTooltipOpen(false)}
             >
-              <span>{gradeLabel}</span>
-              <span
-                className="flex h-4 w-4 items-center justify-center rounded-full border border-brand/40 bg-brand-soft/40 text-[10px] text-brand"
-                aria-label="Информация о статусе участника"
-                aria-describedby={gradeTooltipOpen ? 'grade-tooltip' : undefined}
-              >
-                i
-              </span>
+              <div className="inline-flex items-center gap-1 text-sm text-sky-800">
+                <span>{gradeLabel}</span>
+                <span
+                  className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-sky-300/80 bg-sky-100/80 text-[10px] text-sky-700"
+                  aria-label="Информация о статусе участника"
+                  aria-describedby={gradeTooltipOpen ? 'grade-tooltip' : undefined}
+                >
+                  i
+                </span>
+              </div>
               {gradeTooltipOpen && (
                 <div
                   id="grade-tooltip"
-                  className="absolute left-0 top-full z-10 mt-1 max-w-[min(100vw-1.5rem,18rem)] rounded-lg border border-amber-100 bg-yellow-50 px-3 py-2 text-xs leading-snug text-slate-700 shadow-lg sm:max-w-none sm:whitespace-nowrap"
+                  className="absolute left-0 top-full z-10 mt-1 max-w-[min(100vw-1.5rem,18rem)] rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs leading-snug text-slate-700 shadow-lg sm:max-w-none sm:whitespace-nowrap"
                   role="tooltip"
                 >
                   <p className="break-words sm:whitespace-nowrap">• Обычный: 100 баллов каждый квартал (3 месяца действия).</p>
@@ -337,38 +417,70 @@ export const Profile: React.FC = () => {
                 </div>
               )}
             </div>
+            {/* 포인트·쿠폰: 등급과 같은 행 오른쪽 */}
+            <div className="flex shrink-0 flex-row flex-wrap items-center justify-end gap-2">
+              <Link
+                to="/profile/points"
+                className="inline-flex h-11 min-h-11 items-center justify-center gap-1.5 rounded-lg border border-sky-200 bg-white/90 px-4 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-sky-100/80"
+                aria-busy={!pointsLoaded}
+              >
+                {pointsLoaded ? (
+                  <>
+                    <span className="tabular-nums">{displayPoints}</span>
+                    <span className="text-amber-500" aria-hidden>
+                      ★
+                    </span>
+                  </>
+                ) : (
+                  <span
+                    className="inline-block h-5 min-w-[3rem] animate-pulse rounded bg-slate-200/90"
+                    aria-label="Загрузка баллов"
+                  />
+                )}
+              </Link>
+              <button
+                type="button"
+                onClick={() => setCouponModalOpen(true)}
+                className="inline-flex h-11 min-h-11 items-center justify-center gap-1.5 rounded-lg border border-sky-200 bg-white/90 px-4 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-sky-100/80"
+                aria-busy={couponsLoading}
+                aria-label="Купоны"
+                aria-haspopup="dialog"
+                aria-expanded={couponModalOpen}
+              >
+                {couponsLoading ? (
+                  <span
+                    className="inline-block h-5 min-w-[3rem] animate-pulse rounded bg-slate-200/90"
+                    aria-label="Загрузка купонов"
+                  />
+                ) : (
+                  <>
+                    <span className="font-semibold tabular-nums">{activeCouponCount}</span>
+                    <span className="text-sky-600" aria-hidden title="Купоны">
+                      <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M2 9a2 2 0 012-2h16a2 2 0 012 2v1a2 2 0 010 4v1a2 2 0 01-2 2H4a2 2 0 01-2-2v-1a2 2 0 010-4V9z"
+                        />
+                      </svg>
+                    </span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
-          <Link
-            to="/profile/points"
-            className="inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-brand/30 bg-white px-4 py-2.5 text-sm font-medium text-slate-800 transition hover:bg-brand-soft/20"
-            aria-busy={!pointsLoaded}
-          >
-            {pointsLoaded ? (
-              <>
-                <span className="tabular-nums">{displayPoints}</span>
-                <span className="text-amber-500" aria-hidden>
-                  ★
-                </span>
-              </>
-            ) : (
-              <span
-                className="inline-block h-5 min-w-[3rem] animate-pulse rounded bg-slate-200/90"
-                aria-label="Загрузка баллов"
-              />
-            )}
-          </Link>
         </div>
       </div>
 
-      {/* Telegram + E-mail: 2 колонки, тонкий разделитель (어드민 테스트 제외) */}
+      {/* Telegram + E-mail: две колонки (어д민 제외) */}
       {userId && userId !== ADMIN_DUMMY_USER_ID && (
-        <div className="mt-6 overflow-hidden rounded-2xl border border-sky-100/90 bg-sky-50/95 px-3 pt-3 pb-2 shadow-sm sm:px-5 sm:pt-5 sm:pb-3">
-          {/* 모바일도 2열(텔레그램 | 이메일), md 이상은 동일 + 여백만 넓게 */}
-          <div className="grid grid-cols-2 gap-x-2 sm:gap-x-4 md:gap-x-0">
-            {/* Левая колонка: Telegram — порядок: заголовок → кнопка → пояснение */}
+        <div className="mt-6 overflow-hidden rounded-2xl border border-brand/25 bg-brand-soft/95 px-3 pt-3 pb-2 shadow-sm ring-1 ring-brand/10 sm:px-5 sm:pt-5 sm:pb-3">
+          {/* 모바일도 2열(텔еграм | 이메일), md 이상은 동일 + 여백만 넓게 */}
+          <div className={`${accountLinkTwoColGridClass} md:gap-x-0`}>
+            {/* Левая колонка: Telegram — заголовок → кнопка → (미연동 시) пояснение */}
             <div className="flex min-h-0 min-w-0 flex-col border-r border-slate-200/60 pr-2 sm:pr-3 md:pr-5">
               <div className="flex items-center justify-center gap-2.5">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/80 text-[#26A5E4] shadow-sm ring-1 ring-sky-100/80">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/90 text-[#26A5E4] shadow-sm ring-1 ring-slate-200/80">
                   <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden>
                     <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
                   </svg>
@@ -383,19 +495,14 @@ export const Profile: React.FC = () => {
                   />
                 )}
                 {telegramButtonState === 'linked' && (
-                  <button
-                    type="button"
-                    disabled
-                    className="flex min-h-11 w-full cursor-default items-center justify-center rounded-xl border border-emerald-200/90 bg-emerald-50/95 px-2 py-2.5 text-center text-xs font-semibold text-emerald-800 shadow-sm"
-                    aria-label="Telegram привязан"
-                  >
-                    Telegram привязан ✅
+                  <button type="button" disabled className={accountStatusPillClass} aria-label="Telegram привязан">
+                    Telegram привязан ✓
                   </button>
                 )}
                 {telegramButtonState === 'unlinked' && (
                   <Link
                     to="/profile/edit?focus=phone"
-                    className="inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-[#26A5E4] px-2 py-2.5 text-center text-xs font-semibold text-white shadow-md shadow-sky-500/25 transition hover:bg-[#2298d4] hover:shadow-lg hover:shadow-sky-500/30"
+                    className={accountPrimaryCtaClass}
                   >
                     Привязать Telegram
                   </Link>
@@ -410,10 +517,10 @@ export const Profile: React.FC = () => {
               )}
             </div>
 
-            {/* Правая колонка: E-mail — заголовок → кнопка/статус → пояснение */}
+            {/* Правая колонка: E-mail — заголовок → кнопка → (미확인 시) пояснение */}
             <div className="flex min-h-0 min-w-0 flex-col pl-2 sm:pl-3 md:pl-5">
               <div className="flex items-center justify-center gap-2.5">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/80 text-slate-600 shadow-sm ring-1 ring-slate-200/80">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/90 text-brand shadow-sm ring-1 ring-brand/25">
                   <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" aria-hidden>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
                   </svg>
@@ -422,22 +529,17 @@ export const Profile: React.FC = () => {
               </div>
               <div className="mt-2.5">
                 {!initialized ? (
-                  <p className="text-center text-sm text-slate-500">Загрузка…</p>
+                  <div className="h-11 w-full animate-pulse rounded-xl bg-slate-200/70" aria-hidden />
                 ) : isEmailConfirmed ? (
-                  <button
-                    type="button"
-                    disabled
-                    className="flex min-h-10 w-full cursor-default items-center justify-center whitespace-nowrap rounded-xl border border-emerald-200/90 bg-emerald-50/95 px-1.5 py-2 text-center text-[10px] font-semibold leading-none text-emerald-800 shadow-sm sm:min-h-11 sm:px-2 sm:text-xs"
-                    aria-label="Email подтверждён"
-                  >
-                    Email подтверждён ✅
+                  <button type="button" disabled className={accountStatusPillClass} aria-label="Email подтверждён">
+                    Email подтверждён ✓
                   </button>
                 ) : (
                   <button
                     type="button"
                     disabled={verifyEmailSending}
                     onClick={() => void handleSendProfileVerifyEmail()}
-                    className="min-h-11 w-full rounded-xl bg-slate-800 px-2 py-2.5 text-center text-xs font-semibold text-white shadow-md shadow-slate-900/20 transition hover:bg-slate-900 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
+                    className={accountPrimaryCtaClass}
                   >
                     {verifyEmailSending ? 'Отправка…' : 'Подтвердить email'}
                   </button>
@@ -533,8 +635,95 @@ export const Profile: React.FC = () => {
         </Link>
       </nav>
 
+      {couponModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 p-3 sm:items-center sm:p-4"
+          role="presentation"
+          onClick={() => setCouponModalOpen(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="coupon-modal-title"
+            className="flex max-h-[min(88vh,32rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200/80"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-5">
+              <h2 id="coupon-modal-title" className="text-base font-semibold text-slate-900">
+                Мои купоны
+              </h2>
+              <button
+                type="button"
+                onClick={() => setCouponModalOpen(false)}
+                className="flex h-10 min-w-10 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+                aria-label="Закрыть"
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-5 sm:py-4">
+              {couponsLoading ? (
+                <div className="space-y-3" aria-busy>
+                  <div className="h-14 animate-pulse rounded-xl bg-slate-100" />
+                  <div className="h-14 animate-pulse rounded-xl bg-slate-100" />
+                </div>
+              ) : coupons.length === 0 ? (
+                <p className="text-sm text-slate-500">Пока нет купонов.</p>
+              ) : (
+                <ul className="space-y-3">
+                  {coupons.map((c) => {
+                    const now = new Date();
+                    const expires = new Date(c.expires_at);
+                    const isUsed = !!c.used_at;
+                    const isExpired = !isUsed && expires.getTime() < now.getTime();
+                    const statusText = isUsed
+                      ? 'Использован'
+                      : isExpired
+                        ? 'Истёк'
+                        : `Действует до ${expires.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}`;
+                    return (
+                      <li
+                        key={c.id}
+                        className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-3 text-sm sm:px-4"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-medium text-slate-800">
+                            Купон {c.amount} ₽ {c.tier ? `(${c.tier})` : ''}
+                          </p>
+                          <p className="text-xs text-slate-500">{c.quarter_label ?? ''}</p>
+                        </div>
+                        <span
+                          className={
+                            isUsed || isExpired
+                              ? 'shrink-0 text-xs text-slate-400'
+                              : 'shrink-0 text-xs font-medium text-emerald-600'
+                          }
+                        >
+                          {statusText}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+            <div className="shrink-0 border-t border-slate-100 px-4 py-3 sm:px-5">
+              <Link
+                to="/profile/points"
+                onClick={() => setCouponModalOpen(false)}
+                className="block w-full rounded-xl border border-slate-200 bg-white py-2.5 text-center text-sm font-medium text-slate-700 transition hover:border-brand/40 hover:bg-brand-soft/20"
+              >
+                Баллы и купоны — подробнее
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
       {telegramLinkedToast && (
-        <div className="fixed bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-sky-600 px-5 py-2.5 text-sm font-medium text-white shadow-lg md:bottom-8" role="status" aria-live="polite">
+        <div className="fixed bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-brand px-5 py-2.5 text-sm font-medium text-white shadow-lg md:bottom-8" role="status" aria-live="polite">
           Telegram привязан. Аккаунт успешно связан.
         </div>
       )}
