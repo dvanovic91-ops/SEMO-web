@@ -165,6 +165,9 @@ export const ProductDetail: React.FC = () => {
     }
   };
   const loadingTimeoutRef = useRef<number | null>(null);
+  /** 모바일: 본문 «В корзину»이 화면에서 사라지면 상단 고정 바 표시 */
+  const addToCartBtnRef = useRef<HTMLButtonElement | null>(null);
+  const [stickyAddBar, setStickyAddBar] = useState(false);
 
   useEffect(() => {
     const currentId = String(id ?? '').trim();
@@ -365,6 +368,19 @@ export const ProductDetail: React.FC = () => {
     };
   }, [id, userId]);
 
+  useEffect(() => {
+    const el = addToCartBtnRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const obs = new IntersectionObserver(
+      ([entry]) => {
+        setStickyAddBar(!entry.isIntersecting);
+      },
+      { root: null, rootMargin: '-8px 0px 0px 0px', threshold: 0 },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [product?.id]);
+
   const handleSubmitReview = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!userId || !id || !supabase || !isUuid(id)) {
@@ -517,7 +533,39 @@ export const ProductDetail: React.FC = () => {
   const hasDiscount = (product?.prp_price != null) && (product?.rrp_price != null);
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
+    <main
+      className={`relative mx-auto min-w-0 max-w-3xl px-4 py-8 transition-[padding-top] sm:px-6 sm:py-12 ${
+        stickyAddBar ? 'pt-[4.25rem] md:pt-8' : ''
+      }`}
+    >
+      {/* 모바일: 스크롤 시 상단 고정 — 이전가격·최종가격·В корзину */}
+      {stickyAddBar && (
+        <div
+          className="fixed left-0 right-0 top-0 z-40 flex items-center gap-2 border-b border-slate-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur-md md:hidden"
+          style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}
+        >
+          <div className="min-w-0 flex-1 text-center">
+            {product?.rrp_price != null && (
+              <span
+                className={`block text-xs ${hasDiscount ? 'text-slate-500 line-through' : 'text-slate-500'}`}
+              >
+                {formatPrice(Number(product.rrp_price))}
+              </span>
+            )}
+            <span className="text-sm font-semibold tabular-nums text-slate-900">
+              {price != null ? formatPrice(Number(price)) : '—'}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleAddToCart}
+            className="shrink-0 rounded-full bg-brand px-4 py-2.5 text-sm font-semibold text-white min-h-11"
+          >
+            В корзину
+          </button>
+        </div>
+      )}
+
       <p className="mb-6">
         <Link to="/shop" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> В каталог</Link>
       </p>
@@ -547,12 +595,14 @@ export const ProductDetail: React.FC = () => {
             </div>
           </div>
 
-          {/* 가격 + 장바구니 */}
+          {/* 가격 + 장바구니 — 모바일도 가격 전부 가운데 정렬 */}
           <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0 flex-1 sm:w-full">
-              <div className="flex w-full flex-col gap-0.5 sm:items-center">
+            <div className="min-w-0 flex-1 text-center sm:w-full sm:text-left md:text-center">
+              <div className="flex w-full flex-col items-center gap-0.5 text-center sm:items-start md:items-center">
                 {product?.rrp_price != null && (
-                  <span className={hasDiscount ? 'text-sm text-slate-500 line-through' : 'text-sm text-slate-500'}>
+                  <span
+                    className={`block w-full text-sm ${hasDiscount ? 'text-slate-500 line-through' : 'text-slate-500'}`}
+                  >
                     {formatPrice(Number(product.rrp_price))}
                   </span>
                 )}
@@ -562,9 +612,10 @@ export const ProductDetail: React.FC = () => {
               </div>
             </div>
             <button
+              ref={addToCartBtnRef}
               type="button"
               onClick={handleAddToCart}
-              className="shrink-0 rounded-full bg-brand py-2.5 px-6 text-sm font-semibold text-white transition hover:bg-brand/90"
+              className="min-h-11 w-full shrink-0 rounded-full bg-brand py-2.5 px-6 text-base font-semibold text-white transition hover:bg-brand/90 sm:w-auto sm:text-sm"
             >
               В корзину
             </button>

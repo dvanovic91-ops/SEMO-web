@@ -51,55 +51,70 @@ export const Cart: React.FC = () => {
   }
 
   return (
-    <main className="mx-auto max-w-2xl px-4 py-10 sm:px-6 sm:py-14">
+    <main className="mx-auto min-w-0 max-w-2xl overflow-x-hidden px-4 py-10 pb-28 sm:px-6 sm:py-14 sm:pb-14">
       <h1 className="text-2xl font-semibold text-slate-900">Корзина</h1>
       <ul className="mt-8 space-y-6">
         {items.map((item) => (
           <li
             key={item.id}
-            className="grid grid-cols-[3.5rem_minmax(0,1fr)_auto_auto_auto] items-center gap-3 rounded-xl border border-slate-100 bg-white p-4 sm:gap-4"
+            className="rounded-xl border border-slate-100 bg-white p-4 sm:grid sm:grid-cols-[3.5rem_minmax(0,1fr)_auto_auto_auto] sm:items-center sm:gap-4"
           >
-            <div className="flex h-14 w-14 overflow-hidden rounded-full border border-slate-200 bg-slate-50">
-              {item.imageUrl ? (
-                <img src={item.imageUrl} alt={item.name} className="h-full w-full object-cover" />
-              ) : (
-                <span className="flex h-full w-full items-center justify-center text-xs text-slate-400">Слот</span>
-              )}
-            </div>
-            <p className="min-w-0 truncate font-medium text-slate-900">{item.name}</p>
-            <div className="flex items-center gap-1.5 text-sm tabular-nums">
-              {item.originalPrice != null && item.originalPrice > 0 && (
-                <span className="text-slate-500 line-through">{formatPrice(item.originalPrice * item.quantity)}</span>
-              )}
-              <span className="font-semibold text-slate-900">{formatPrice(item.price * item.quantity)}</span>
-            </div>
-            <div className="flex items-center gap-1">
+            {/* 모바일: 세로 스택(5열 그리드 제거로 잘림 방지) / 데스크톱: 기존 그리드 */}
+            <div className="flex items-start gap-3 sm:contents">
+              <div className="flex h-14 w-14 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-50">
+                {item.imageUrl ? (
+                  <img src={item.imageUrl} alt={item.name} className="h-full w-full object-cover" />
+                ) : (
+                  <span className="flex h-full w-full items-center justify-center text-xs text-slate-400">Слот</span>
+                )}
+              </div>
+              <p className="min-w-0 flex-1 truncate font-medium text-slate-900 sm:min-w-0">{item.name}</p>
               <button
                 type="button"
-                onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-600 hover:border-brand hover:text-brand"
+                onClick={() => removeItem(item.id)}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-red-50 hover:text-red-500 sm:hidden"
+                aria-label="Удалить"
               >
-                −
-              </button>
-              <span className="min-w-[2rem] text-center font-medium tabular-nums">{item.quantity}</span>
-              <button
-                type="button"
-                onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-600 hover:border-brand hover:text-brand"
-              >
-                +
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
               </button>
             </div>
-            <button
-              type="button"
-              onClick={() => removeItem(item.id)}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-red-50 hover:text-red-500"
-              aria-label="Удалить"
-            >
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-            </button>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 sm:mt-0 sm:contents">
+              <div className="flex min-w-0 flex-1 items-center gap-1.5 text-sm tabular-nums sm:flex-none sm:flex-initial">
+                {item.originalPrice != null && item.originalPrice > 0 && (
+                  <span className="text-slate-500 line-through">{formatPrice(item.originalPrice * item.quantity)}</span>
+                )}
+                <span className="font-semibold text-slate-900">{formatPrice(item.price * item.quantity)}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                  className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-600 hover:border-brand hover:text-brand"
+                >
+                  −
+                </button>
+                <span className="min-w-[2rem] text-center font-medium tabular-nums">{item.quantity}</span>
+                <button
+                  type="button"
+                  onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                  className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-600 hover:border-brand hover:text-brand"
+                >
+                  +
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => removeItem(item.id)}
+                className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-red-50 hover:text-red-500 sm:flex"
+                aria-label="Удалить"
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            </div>
           </li>
         ))}
       </ul>
@@ -125,7 +140,7 @@ export const Cart: React.FC = () => {
         </div>
       </div>
 
-      <div className="mt-8 grid grid-cols-2 justify-center gap-4 sm:max-w-md sm:mx-auto">
+      <div className="mt-8 grid grid-cols-1 gap-3 sm:mx-auto sm:max-w-md sm:grid-cols-2 sm:justify-center sm:gap-4">
         <Link
           to="/shop"
           className="rounded-full border border-slate-200 px-6 py-3 text-center text-sm font-medium text-slate-700 hover:border-brand hover:text-brand"

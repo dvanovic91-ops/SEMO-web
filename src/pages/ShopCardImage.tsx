@@ -59,8 +59,8 @@ export const ShopCardImage: React.FC<Props> = ({ images, name, layout = 'desktop
 
   const frameClass =
     layout === 'mobile'
-      ? 'mt-2 flex aspect-[4/3] w-full min-w-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200/80 bg-white/80 sm:aspect-square'
-      : 'mt-2 flex aspect-square w-full min-w-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200/80 bg-white/80';
+      ? 'relative mt-2 flex aspect-[4/3] w-full min-w-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200/80 bg-white/80 sm:aspect-square'
+      : 'relative mt-2 flex aspect-square w-full min-w-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200/80 bg-white/80';
 
   const emptyMinH = layout === 'mobile' ? 'min-h-[200px]' : 'min-h-[180px]';
 
@@ -81,6 +81,19 @@ export const ShopCardImage: React.FC<Props> = ({ images, name, layout = 'desktop
       onTouchEnd={onTouchEnd}
     >
       <img src={images[index]} alt={name} className="h-full w-full object-cover object-center" />
+      {/* 모바일: 좌우 스와이프 가능 — 하단 점 표시 */}
+      {hasMultiple && layout === 'mobile' && (
+        <div className="pointer-events-none absolute bottom-2 left-0 right-0 flex justify-center gap-1.5" aria-hidden>
+          {images.map((_, i) => (
+            <span
+              key={i}
+              className={`h-1.5 w-1.5 rounded-full shadow-sm transition ${
+                i === index ? 'bg-white ring-2 ring-slate-500/80' : 'bg-white/70 ring-1 ring-slate-400/50'
+              }`}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 };

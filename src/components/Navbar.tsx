@@ -286,7 +286,7 @@ export const Navbar: React.FC = () => {
             </Link>
 
             {notificationOpen && (
-              <div className="group absolute right-0 top-11 z-30 w-80 max-w-[80vw] rounded-xl border border-slate-200 bg-white shadow-xl">
+              <div className="group absolute right-0 top-11 z-30 hidden w-80 max-w-[80vw] rounded-xl border border-slate-200 bg-white shadow-xl md:block">
                 <div className="relative flex items-center justify-between border-b border-slate-100 px-4 py-2">
                   <p className="text-xs font-semibold text-slate-800">Уведомления</p>
                   <button
@@ -332,6 +332,57 @@ export const Navbar: React.FC = () => {
 
       </header>
 
+      {/* 모바일: 알림 패널 — 하단 탭 위 고정 (데스크톱은 헤더 드롭다운) */}
+      {notificationOpen && (
+        <>
+          <div
+            className="fixed inset-0 z-40 bg-black/30 md:hidden"
+            aria-hidden
+            onClick={() => setNotificationOpen(false)}
+          />
+          <div
+            className="fixed left-2 right-2 z-50 flex max-h-[min(55vh,28rem)] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl md:hidden"
+            style={{ bottom: 'calc(3.5rem + env(safe-area-inset-bottom, 0px))' }}
+          >
+            <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 py-2">
+              <p className="text-xs font-semibold text-slate-800">Уведомления</p>
+              <button
+                type="button"
+                onClick={() => setNotificationOpen(false)}
+                aria-label="Закрыть"
+                className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-100"
+              >
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto px-3 py-2">
+              {notifications.length === 0 && (
+                <p className="px-1 py-2 text-xs text-slate-400">Пока нет уведомлений.</p>
+              )}
+              {notifications.length > 0 && (
+                <ul className="space-y-2">
+                  {notifications.map((n) => (
+                    <li key={n.id} className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                      <div className="mb-0.5 flex items-center justify-between gap-2">
+                        <span className="font-semibold">
+                          {n.type === 'info' && 'Объявление'}
+                          {n.type === 'order' && 'Заказ'}
+                        </span>
+                        <span className="text-[10px] text-slate-400">{n.date}</span>
+                      </div>
+                      <p className="text-[11px] font-semibold text-slate-900">{n.title}</p>
+                      <p className="mt-0.5 text-[11px] text-slate-700">{n.body}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
       {/* 모바일 전용: 하단 고정 바 — 높이만 낮춤, 아이콘 크기 유지 */}
       <nav
         className="fixed bottom-0 left-0 right-0 z-30 flex items-center justify-around border-t border-slate-200 bg-white/95 backdrop-blur-md md:hidden"
@@ -369,19 +420,23 @@ export const Navbar: React.FC = () => {
             </span>
           )}
         </Link>
-        <a
-          href={TELEGRAM_BOT_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="Support via Telegram"
+        <button
+          type="button"
+          onClick={() => {
+            setCartPopoverOpen(false);
+            setMobileMenuOpen(false);
+            setNotificationOpen((v) => !v);
+          }}
+          aria-label="Уведомления"
           className={`flex h-10 items-center justify-center px-3 transition ${
-            telegramLinked ? 'text-[#0088cc]' : 'text-slate-600 hover:text-[#0088cc]'
+            notificationOpen ? 'text-brand' : 'text-slate-600 hover:text-brand'
           }`}
         >
-          <svg viewBox="0 0 24 24" className="h-6 w-6 shrink-0" fill="currentColor">
-            <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
+          <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <path d="M12 3a4 4 0 0 0-4 4v2.09c0 .46-.16.91-.46 1.26L6.3 12.76A2 2 0 0 0 6 14v1h12v-1a2 2 0 0 0-.3-1.24l-1.24-1.41A2 2 0 0 1 16 9.09V7a4 4 0 0 0-4-4z" />
+            <path d="M10 18a2 2 0 0 0 4 0" />
           </svg>
-        </a>
+        </button>
         <Link
           to={isLoggedIn ? '/profile' : '/login'}
           aria-label={isLoggedIn ? 'Profile' : 'Личный кабинет'}

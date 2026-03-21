@@ -148,9 +148,6 @@ export const Login: React.FC = () => {
               );
             }}
           />
-          <span className="prose-ru mt-1 block text-xs text-red-500">
-            Используйте реальный e-mail. Без подтверждения заказ невозможен, а перенос бонусов на другой аккаунт запрещен.
-          </span>
           {emailError && (
             <p className="mt-1 text-xs text-red-500">{emailError}</p>
           )}
