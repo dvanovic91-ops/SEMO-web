@@ -1,6 +1,7 @@
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useProductNavReplacement } from '../context/ProductNavReplacementContext';
 import { supabase } from '../lib/supabase';
 import { useCart } from '../context/CartContext';
 import { useNotifications, type NotificationRow } from '../hooks/useNotifications';
@@ -20,7 +21,7 @@ const NAV_LINKS: { to: string; label: string }[] = [
   { to: '/journey', label: 'Journey to SEMO' },
   { to: '/shop', label: 'Beauty Box' },
   { to: '/promo', label: 'Promo' },
-  { to: '/support', label: 'Support' },
+  { to: '/support', label: 'FAQ' },
 ];
 
 function formatPrice(price: number): string {
@@ -41,6 +42,7 @@ function formatNotificationDate(iso: string): string {
 }
 
 export const Navbar: React.FC = () => {
+  const { productStickyReplacesNav } = useProductNavReplacement();
   const location = useLocation();
   const navigate = useNavigate();
   const { items, total, totalCount, updateQuantity } = useCart();
@@ -128,7 +130,6 @@ export const Navbar: React.FC = () => {
 
   /** 모바일 하단바: 현재 화면에 따른 아이콘 활성화 (강조용) */
   const path = location.pathname;
-  const isHome = path === '/';
   const isShop = path.startsWith('/shop');
   const isCartActive = path === '/cart' || cartPopoverOpen;
   const isNotificationActive = notificationOpen;
@@ -286,10 +287,15 @@ export const Navbar: React.FC = () => {
   return (
     <>
       {/* 웹: 로고(좌) · 가운데 텍스트 메뉴 · 우측 아이콘(장바구니·알림·Telegram·프로필). 모바일: 로고만 가운데 */}
-      <header className="sticky top-0 z-20 border-b border-slate-100 bg-white/80 backdrop-blur-md">
+      {/* 모바일: 상품 상세 스크롤 미니바가 켜지면 이 헤더 숨김 — 미니바가 동일 위치 대체 */}
+      <header
+        className={`fixed left-0 right-0 top-0 z-40 w-full border-b border-slate-100 bg-white/80 backdrop-blur-md md:static md:z-20 ${
+          productStickyReplacesNav ? 'max-md:hidden' : ''
+        }`}
+      >
         <div
-          className="relative mx-auto flex h-14 w-full min-w-0 max-w-7xl items-center px-4 sm:h-16"
-          style={{ paddingTop: 'max(0.25rem, env(safe-area-inset-top))' }}
+          className="relative mx-auto flex h-11 w-full min-w-0 max-w-7xl items-center px-4 sm:h-[3.2rem]"
+          style={{ paddingTop: 'max(0.2rem, env(safe-area-inset-top))' }}
         >
           <div className="flex w-full flex-1 items-center justify-center md:w-auto md:justify-start">
             <Link to="/" className="flex shrink-0 items-center" aria-label="SEMO box">
@@ -340,7 +346,7 @@ export const Navbar: React.FC = () => {
                 )}
               </button>
               {cartPopoverOpen && (
-                <div className="fixed left-1/2 top-[calc(env(safe-area-inset-top,0px)+3.75rem)] z-50 flex min-h-[13rem] max-h-[min(72vh,calc(100vh-5rem))] w-[min(26rem,calc(100vw-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl sm:top-[calc(env(safe-area-inset-top,0px)+4.25rem)] md:left-auto md:right-4 md:translate-x-0">
+                <div className="fixed left-1/2 top-[var(--semo-mobile-header-h)] z-50 flex min-h-[13rem] max-h-[min(72vh,calc(100vh-5rem))] w-[min(26rem,calc(100vw-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl md:left-auto md:right-4 md:top-[var(--semo-desktop-header-h)] md:translate-x-0">
                   {cartPanelInner}
                 </div>
               )}
@@ -377,7 +383,7 @@ export const Navbar: React.FC = () => {
                 )}
               </button>
               {notificationOpen && (
-                <div className="fixed left-1/2 top-[calc(env(safe-area-inset-top,0px)+3.75rem)] z-50 flex max-h-[min(72vh,calc(100vh-5rem))] w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl sm:top-[calc(env(safe-area-inset-top,0px)+4.25rem)] md:left-auto md:right-4 md:translate-x-0">
+                <div className="fixed left-1/2 top-[var(--semo-mobile-header-h)] z-50 flex max-h-[min(72vh,calc(100vh-5rem))] w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl md:left-auto md:right-4 md:top-[var(--semo-desktop-header-h)] md:translate-x-0">
                   <div className="relative shrink-0 border-b border-slate-100 px-4 py-3 pr-12">
                     <p className="text-sm font-semibold text-slate-800">Уведомления</p>
                     {isLoggedIn && unreadCount > 0 && (
@@ -633,17 +639,6 @@ export const Navbar: React.FC = () => {
           </svg>
         </button>
         <Link
-          to="/"
-          aria-label="Home"
-          className={`flex h-10 items-center justify-center rounded-full px-3 transition ${
-            isHome ? 'bg-brand-soft/50 text-brand' : 'text-slate-600'
-          }`}
-        >
-          <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth={isHome ? 2.2 : 1.8} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-          </svg>
-        </Link>
-        <Link
           to="/shop"
           aria-label="Beauty Box"
           className={`flex h-10 items-center justify-center rounded-full px-3 transition ${
@@ -705,6 +700,19 @@ export const Navbar: React.FC = () => {
             </span>
           )}
         </button>
+        <a
+          href={TELEGRAM_BOT_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Telegram"
+          className={`flex h-10 items-center justify-center rounded-full px-3 transition ${
+            telegramLinkedNav === true ? 'bg-[#26A5E4]/15 text-[#26A5E4]' : 'text-slate-600'
+          }`}
+        >
+          <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor" aria-hidden>
+            <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
+          </svg>
+        </a>
         <Link
           to={isLoggedIn ? '/profile' : '/login'}
           aria-label={isLoggedIn ? 'Profile' : 'Личный кабинет'}
@@ -733,7 +741,7 @@ export const Navbar: React.FC = () => {
             aria-hidden
             onClick={() => setMobileMenuOpen(false)}
           />
-          <aside className="fixed left-0 top-0 bottom-0 z-50 w-72 max-w-[85vw] flex flex-col bg-white shadow-xl md:hidden">
+          <aside className="fixed left-0 top-0 bottom-0 z-50 flex w-[14.4rem] max-w-[68vw] flex-col bg-white shadow-xl md:hidden">
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-4">
               <span className="font-semibold tracking-wide text-slate-800">Menu</span>
               <button
@@ -760,42 +768,6 @@ export const Navbar: React.FC = () => {
                   {item.label}
                 </NavLink>
               ))}
-              <a
-                href={TELEGRAM_BOT_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => setMobileMenuOpen(false)}
-                className="mt-2 flex items-center gap-2 rounded-xl px-4 py-3.5 text-base font-medium text-slate-800"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  className={`h-5 w-5 shrink-0 ${telegramLinkedNav === true ? 'text-[#26A5E4]' : 'text-slate-900'}`}
-                  fill="currentColor"
-                >
-                  <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
-                </svg>
-                Support via Telegram
-              </a>
-              {/* 하단 고정: 개인/로그인 아이콘 — 로그인 시 프로필, 미로그인 시 Login / Register */}
-              <div className="mt-auto border-t border-slate-100 pt-4">
-                <Link
-                  to={isLoggedIn ? '/profile' : '/login'}
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="flex flex-col items-center gap-2 rounded-xl px-4 py-3.5 text-slate-700"
-                >
-                  <span
-                    className={`flex h-10 w-10 items-center justify-center rounded-full ${
-                      isLoggedIn ? 'border-2 border-[#0088cc] text-[#0088cc]' : 'border border-slate-200 bg-slate-50'
-                    }`}
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.6">
-                      <circle cx="12" cy="9" r="3.5" />
-                      <path d="M6 19.5c1.4-2.3 3.3-3.5 6-3.5s4.6 1.2 6 3.5" />
-                    </svg>
-                  </span>
-                  <span className="text-sm font-medium">{isLoggedIn ? 'Profile' : 'Login / Register'}</span>
-                </Link>
-              </div>
             </nav>
           </aside>
         </>

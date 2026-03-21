@@ -9,6 +9,7 @@ import {
   accountPrimaryCtaClass,
   accountStatusPillClass,
 } from '../lib/accountLinkUi';
+import { AuthInitializingScreen } from '../components/SemoPageSpinner';
 
 /** 세션 내 텔레그램 연동 여부 캐시 — 프로필 API 응답 전에도 버튼 깜빡임 완화 */
 const TG_CACHE_PREFIX = 'semo_profile_tg_';
@@ -30,16 +31,6 @@ function writeTelegramCache(userId: string, linked: boolean) {
   }
 }
 
-/** 멤버십 쿠폰 — membership_coupons (ProfilePoints와 동일 필드) */
-type ProfileCoupon = {
-  id: string;
-  amount: number;
-  expires_at: string;
-  used_at: string | null;
-  tier?: string | null;
-  quarter_label?: string | null;
-};
-
 /**
  * 로그인된 사용자 개인화면 — 인사/등급/포인트 박스.
  * 이름·등급(표시)·포인트의 유일한 근거는 Supabase `profiles`(및 주문 기반 membershipTier) — 브라우저에 이름/포인트를 캐시하지 않음.
@@ -57,7 +48,6 @@ export const Profile: React.FC = () => {
     isEmailConfirmed,
     refreshEmailConfirmationFromServer,
   } = useAuth();
-  const [gradeTooltipOpen, setGradeTooltipOpen] = useState(false);
   const [dbProfile, setDbProfile] = useState<{ name: string | null; grade: string; points: number; telegram_id: string | null } | null>(null);
   /** 연동 성공 시 토스트 (다른 탭에서 연동 후 돌아왔을 때) */
   const [telegramLinkedToast, setTelegramLinkedToast] = useState(false);
@@ -67,9 +57,9 @@ export const Profile: React.FC = () => {
   const [verifyEmailSending, setVerifyEmailSending] = useState(false);
   const [verifyEmailMessage, setVerifyEmailMessage] = useState<string | null>(null);
   const [verifyEmailError, setVerifyEmailError] = useState<string | null>(null);
-  const [coupons, setCoupons] = useState<ProfileCoupon[]>([]);
-  const [couponsLoading, setCouponsLoading] = useState(false);
-  const [couponModalOpen, setCouponModalOpen] = useState(false);
+  /** 헤더 배지: 사용 가능 쿠폰 수만 (목록은 /profile/coupons) */
+  const [activeCouponCount, setActiveCouponCount] = useState<number | null>(null);
+  const [couponCountLoading, setCouponCountLoading] = useState(false);
   const prevTelegramIdRef = useRef<string | null | undefined>(undefined);
   const currentUserIdRef = useRef<string | null>(null);
   currentUserIdRef.current = userId;
@@ -217,48 +207,50 @@ export const Profile: React.FC = () => {
       });
   }, [userId]);
 
-  const refreshCoupons = useCallback(() => {
+  const refreshActiveCouponCount = useCallback(() => {
     if (!supabase || !userId) {
-      setCoupons([]);
-      setCouponsLoading(false);
+      setActiveCouponCount(null);
+      setCouponCountLoading(false);
       return;
     }
     const requestedUserId = userId;
-    setCouponsLoading(true);
+    setCouponCountLoading(true);
     supabase
       .from('membership_coupons')
-      .select('id, amount, expires_at, used_at, tier, quarter_label')
+      .select('expires_at, used_at')
       .eq('user_id', requestedUserId)
-      .order('expires_at', { ascending: true })
       .then(({ data }) => {
         if (currentUserIdRef.current !== requestedUserId) return;
-        setCoupons((data as ProfileCoupon[]) ?? []);
+        const now = Date.now();
+        const rows = (data ?? []) as { expires_at: string; used_at: string | null }[];
+        const n = rows.filter((c) => !c.used_at && new Date(c.expires_at).getTime() >= now).length;
+        setActiveCouponCount(n);
       })
       .catch(() => {
         if (currentUserIdRef.current !== requestedUserId) return;
-        setCoupons([]);
+        setActiveCouponCount(null);
       })
       .finally(() => {
-        if (currentUserIdRef.current === requestedUserId) setCouponsLoading(false);
+        if (currentUserIdRef.current === requestedUserId) setCouponCountLoading(false);
       });
   }, [userId]);
 
   useEffect(() => {
-    refreshCoupons();
-  }, [refreshCoupons]);
+    refreshActiveCouponCount();
+  }, [refreshActiveCouponCount]);
 
   // 다른 탭에서 Telegram 연동 후 돌아오면 프로필(연동 여부·포인트) 다시 불러오기
   useEffect(() => {
     const onVisibility = () => {
       if (document.visibilityState === 'visible') {
         refreshProfile();
-        refreshCoupons();
+        refreshActiveCouponCount();
         void refreshEmailConfirmationFromServer();
       }
     };
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
-  }, [refreshProfile, refreshCoupons, refreshEmailConfirmationFromServer]);
+  }, [refreshProfile, refreshActiveCouponCount, refreshEmailConfirmationFromServer]);
 
   // profiles.email_verified_at 동기화(AuthContext) — JWT/auth만 보면 Confirm OFF 시 오표시
   useEffect(() => {
@@ -289,10 +281,17 @@ export const Profile: React.FC = () => {
     }
   }, [userId, userEmail]);
 
-  /** 표시용 이름: DB(profiles.name)만 — 로드 전에는 이메일 @ 앞부분만 플레이스홀더 */
+  /**
+   * 표시용 이름: DB 조회 완료 후에만 결정.
+   * - profiles.name 이 있으면 그대로
+   * - 없으면 이메일 @ 앞부분(가입 시 AuthContext가 DB에 넣은 값과 동일할 수 있음)
+   * 로딩 중(dbProfile === null)에는 이메일 조각을 쓰지 않음 — 다른 계정처럼 보이는 착시 방지
+   */
   const displayName =
-    (dbProfile?.name && String(dbProfile.name).trim()) ||
-    (userEmail ? userEmail.split('@')[0] : 'SEMO клиент');
+    dbProfile === null
+      ? null
+      : (dbProfile.name && String(dbProfile.name).trim()) ||
+        (userEmail ? userEmail.split('@')[0] : 'SEMO клиент');
   /** 포인트: DB 조회 완료 후에만 숫자 표시(로딩 중 스켈레톤) */
   const pointsLoaded = dbProfile !== null;
   const displayPoints = dbProfile?.points ?? 0;
@@ -307,43 +306,11 @@ export const Profile: React.FC = () => {
     return 'loading';
   }, [userId, dbProfile]);
 
-  // 누적 결제액 기준 등급 표시·툴팁 텍스트 — 조기 return 위에 두어 훅 순서 고정 (Rules of Hooks)
-  const gradeLabel = useMemo(() => {
-    if (membershipTier === 'family') return 'Семейный участник';
-    if (membershipTier === 'premium') return 'Премиум участник';
-    return 'Обычный участник';
-  }, [membershipTier]);
+  const tierTriangleGradientId = membershipTier === 'family' ? 'tier-gold-metal' : membershipTier === 'premium' ? 'tier-silver-metal' : 'tier-bronze-metal';
+  const tierTooltipText = membershipTier === 'family' ? 'Gold уровень' : membershipTier === 'premium' ? 'Silver уровень' : 'Bronze уровень';
+  const tierLabelShort = membershipTier === 'family' ? 'Gold' : membershipTier === 'premium' ? 'Silver' : 'Bronze';
 
-  /** 사용 가능한 쿠폰 수(만료·사용 제외) — 버튼 배지용 */
-  const activeCouponCount = useMemo(() => {
-    const now = Date.now();
-    return coupons.filter((c) => {
-      if (c.used_at) return false;
-      return new Date(c.expires_at).getTime() >= now;
-    }).length;
-  }, [coupons]);
-
-  // 모달 열릴 때 목록 새로고침
-  useEffect(() => {
-    if (couponModalOpen) refreshCoupons();
-  }, [couponModalOpen, refreshCoupons]);
-
-  // 모달: Esc로 닫기 + 스크롤 잠금
-  useEffect(() => {
-    if (!couponModalOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setCouponModalOpen(false);
-    };
-    document.addEventListener('keydown', onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [couponModalOpen]);
-
-  if (!initialized) return null;
+  if (!initialized) return <AuthInitializingScreen />;
   if (!isLoggedIn || !userEmail) return <Navigate to="/login" replace />;
 
   const handleLogout = async () => {
@@ -360,7 +327,7 @@ export const Profile: React.FC = () => {
   };
 
   return (
-    <main className="mx-auto w-full max-w-2xl px-3 py-5 sm:px-6 sm:py-10 md:py-14">
+    <main className="mx-auto w-full max-w-3xl px-3 py-5 sm:px-6 sm:py-10 md:py-14">
       <header className="mb-5 flex flex-wrap items-center justify-between gap-3 sm:mb-6 sm:gap-4">
         <h1 className="min-w-0 text-lg font-semibold tracking-tight text-slate-900 sm:text-2xl">
           Личный кабинет
@@ -369,6 +336,7 @@ export const Profile: React.FC = () => {
           {isAdmin && (
             <Link
               to="/admin"
+              replace
               className="inline-flex min-h-11 items-center justify-center rounded-full bg-brand px-4 py-2 text-sm font-medium text-white transition hover:bg-brand/90"
             >
               관리메뉴
@@ -384,91 +352,228 @@ export const Profile: React.FC = () => {
         </div>
       </header>
 
-      {/* 연한 하늘색 박스: 인사(위) → 아래 한 줄 [등급 왼쪽 | 포인트·쿠폰 오른쪽] */}
+      {/* 연한 하늘색 박스: 웹(인사+우측 3아이콘), 모바일(인사 아래 3아이콘 중앙) */}
       <div className="rounded-xl border border-sky-200/90 bg-sky-50/95 px-3 py-4 shadow-sm ring-1 ring-sky-100/80 sm:px-6 sm:py-6">
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="break-words text-center text-base font-medium text-slate-800 sm:text-left sm:text-lg">
-            Здравствуйте, {displayName}!
+            {displayName == null ? 'Здравствуйте!' : `Здравствуйте, ${displayName}!`}
           </p>
-          <div className="flex min-w-0 flex-row flex-wrap items-center justify-between gap-x-3 gap-y-2">
-            <div
-              className="relative min-w-0"
-              onMouseEnter={() => setGradeTooltipOpen(true)}
-              onMouseLeave={() => setGradeTooltipOpen(false)}
+          {/* 웹: 인사와 같은 행 우측 */}
+          <div className="hidden shrink-0 flex-row items-center justify-end gap-2 sm:flex">
+            <Link
+              to="/profile/tier"
+              className="inline-flex h-11 min-h-11 w-20 min-w-20 flex-col items-center justify-center gap-0 rounded-lg border border-sky-200 bg-white/90 px-0 py-1 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-sky-100/80"
+              aria-label="Уровень участника"
+              title={tierTooltipText}
             >
-              <div className="inline-flex items-center gap-1 text-sm text-sky-800">
-                <span>{gradeLabel}</span>
-                <span
-                  className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-sky-300/80 bg-sky-100/80 text-[10px] text-sky-700"
-                  aria-label="Информация о статусе участника"
-                  aria-describedby={gradeTooltipOpen ? 'grade-tooltip' : undefined}
-                >
-                  i
-                </span>
+              <div className="flex h-[18px] w-full shrink-0 items-center justify-center">
+                <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" aria-hidden>
+                  <defs>
+                    <linearGradient id="tier-bronze-metal" x1="2" y1="3" x2="22" y2="20" gradientUnits="userSpaceOnUse">
+                      <stop offset="0" stopColor="#F2C189" />
+                      <stop offset="0.45" stopColor="#C07A3A" />
+                      <stop offset="1" stopColor="#7A3E10" />
+                    </linearGradient>
+                    <linearGradient id="tier-silver-metal" x1="2" y1="3" x2="22" y2="20" gradientUnits="userSpaceOnUse">
+                      <stop offset="0" stopColor="#F1F5F9" />
+                      <stop offset="0.45" stopColor="#A8B4C3" />
+                      <stop offset="1" stopColor="#667487" />
+                    </linearGradient>
+                    <linearGradient id="tier-gold-metal" x1="2" y1="3" x2="22" y2="20" gradientUnits="userSpaceOnUse">
+                      <stop offset="0" stopColor="#FFF4BF" />
+                      <stop offset="0.45" stopColor="#F1C94B" />
+                      <stop offset="1" stopColor="#B88509" />
+                    </linearGradient>
+                  </defs>
+                  <path d="M12 3L22 20H2L12 3Z" fill={`url(#${tierTriangleGradientId})`} />
+                </svg>
               </div>
-              {gradeTooltipOpen && (
-                <div
-                  id="grade-tooltip"
-                  className="absolute left-0 top-full z-10 mt-1 max-w-[min(100vw-1.5rem,18rem)] rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs leading-snug text-slate-700 shadow-lg sm:max-w-none sm:whitespace-nowrap"
-                  role="tooltip"
-                >
-                  <p className="break-words sm:whitespace-nowrap">• Обычный: 100 баллов каждый квартал (3 месяца действия).</p>
-                  <p className="mt-1 break-words sm:whitespace-nowrap">• Премиум: от 35 000 ₽ подтверждённых заказов, 200 баллов/квартал.</p>
-                  <p className="mt-1 break-words sm:whitespace-nowrap">• Семейный: от 100 000 ₽ подтверждённых заказов, 300 баллов/квартал.</p>
-                </div>
+              <div className="mt-1 flex h-[14px] w-full items-end justify-center">
+                <span className="text-center text-[10px] font-semibold leading-none text-slate-600">{tierLabelShort}</span>
+              </div>
+            </Link>
+            <Link
+              to="/profile/points"
+              className="inline-flex h-11 min-h-11 w-20 min-w-20 flex-col items-center justify-center gap-0 rounded-lg border border-sky-200 bg-white/90 px-0 py-1 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-sky-100/80"
+              aria-busy={!pointsLoaded}
+            >
+              {pointsLoaded ? (
+                <>
+                  <div className="flex h-[18px] w-full shrink-0 items-center justify-center" aria-hidden>
+                    <span className="text-[16px] font-normal leading-none text-amber-500">★</span>
+                  </div>
+                  <div className="mt-1 flex h-[14px] w-full items-end justify-center">
+                    <span className="text-center text-[10px] font-semibold leading-none tabular-nums text-slate-700">{displayPoints}</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex h-[18px] w-full shrink-0 items-center justify-center">
+                    <span
+                      className="inline-block h-3.5 min-w-[2.5rem] animate-pulse rounded bg-slate-200/90"
+                      aria-hidden
+                    />
+                  </div>
+                  <div className="mt-1 flex h-[14px] w-full items-end justify-center">
+                    <span
+                      className="inline-block h-2 min-w-[1.25rem] animate-pulse rounded bg-slate-200/80"
+                      aria-hidden
+                    />
+                  </div>
+                </>
               )}
-            </div>
-            {/* 포인트·쿠폰: 등급과 같은 행 오른쪽 */}
-            <div className="flex shrink-0 flex-row flex-wrap items-center justify-end gap-2">
-              <Link
-                to="/profile/points"
-                className="inline-flex h-11 min-h-11 items-center justify-center gap-1.5 rounded-lg border border-sky-200 bg-white/90 px-4 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-sky-100/80"
-                aria-busy={!pointsLoaded}
-              >
-                {pointsLoaded ? (
-                  <>
-                    <span className="tabular-nums">{displayPoints}</span>
-                    <span className="text-amber-500" aria-hidden>
-                      ★
-                    </span>
-                  </>
-                ) : (
-                  <span
-                    className="inline-block h-5 min-w-[3rem] animate-pulse rounded bg-slate-200/90"
-                    aria-label="Загрузка баллов"
+            </Link>
+            <Link
+              to="/profile/coupons"
+              className="inline-flex h-11 min-h-11 w-20 min-w-20 flex-col items-center justify-center gap-0 rounded-lg border border-sky-200 bg-white/90 px-0 py-1 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-sky-100/80"
+              aria-busy={couponCountLoading}
+              aria-label="Купоны"
+            >
+              {couponCountLoading ? (
+                <>
+                  <div className="flex h-[18px] w-full shrink-0 items-center justify-center">
+                    <span
+                      className="inline-block h-3.5 min-w-[2.5rem] animate-pulse rounded bg-slate-200/90"
+                      aria-hidden
+                    />
+                  </div>
+                  <div className="mt-1 flex h-[14px] w-full items-end justify-center">
+                    <span
+                      className="inline-block h-2 min-w-[1.25rem] animate-pulse rounded bg-slate-200/80"
+                      aria-hidden
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex h-[18px] w-full shrink-0 items-center justify-center" aria-hidden title="Купоны">
+                    <svg className="h-[18px] w-auto max-w-[28px]" viewBox="0 0 30 20" fill="none">
+                      <rect x="1.2" y="2" width="27.6" height="16" rx="3" fill="#E8F6FF" stroke="#7CCAF2" strokeWidth="1.2" />
+                      <path d="M10.5 2.7v14.6" stroke="#7CCAF2" strokeWidth="1.2" strokeDasharray="2 2" />
+                      <path d="M19.6 6.6a1.7 1.7 0 1 1 0 3.4 1.7 1.7 0 0 1 0-3.4Zm-4.7 5.3 5.4-7.4" stroke="#2E6F99" strokeWidth="1.2" strokeLinecap="round" />
+                      <circle cx="14.3" cy="12.4" r="1.35" stroke="#2E6F99" strokeWidth="1.2" />
+                      <circle cx="21.2" cy="14.2" r="1.35" stroke="#2E6F99" strokeWidth="1.2" />
+                    </svg>
+                  </div>
+                  <div className="mt-1 flex h-[14px] w-full items-end justify-center">
+                    <span className="text-center text-[10px] font-semibold leading-none tabular-nums text-slate-700">{activeCouponCount ?? 0}</span>
+                  </div>
+                </>
+              )}
+            </Link>
+          </div>
+          {/* 모바일: 인사 아래 가운데 정렬 */}
+          <div className="flex shrink-0 flex-row items-center justify-center gap-2 sm:hidden">
+            <Link
+              to="/profile/tier"
+              className="inline-flex h-11 min-h-11 w-20 min-w-20 flex-col items-center justify-center gap-0 rounded-lg border border-sky-200 bg-white/90 px-0 py-1 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-sky-100/80"
+              aria-label="Уровень участника"
+              title={tierTooltipText}
+            >
+              <div className="flex h-[18px] w-full shrink-0 items-center justify-center">
+                <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" aria-hidden>
+                  <defs>
+                    <linearGradient id="tier-bronze-metal-mobile" x1="2" y1="3" x2="22" y2="20" gradientUnits="userSpaceOnUse">
+                      <stop offset="0" stopColor="#F2C189" />
+                      <stop offset="0.45" stopColor="#C07A3A" />
+                      <stop offset="1" stopColor="#7A3E10" />
+                    </linearGradient>
+                    <linearGradient id="tier-silver-metal-mobile" x1="2" y1="3" x2="22" y2="20" gradientUnits="userSpaceOnUse">
+                      <stop offset="0" stopColor="#F1F5F9" />
+                      <stop offset="0.45" stopColor="#A8B4C3" />
+                      <stop offset="1" stopColor="#667487" />
+                    </linearGradient>
+                    <linearGradient id="tier-gold-metal-mobile" x1="2" y1="3" x2="22" y2="20" gradientUnits="userSpaceOnUse">
+                      <stop offset="0" stopColor="#FFF4BF" />
+                      <stop offset="0.45" stopColor="#F1C94B" />
+                      <stop offset="1" stopColor="#B88509" />
+                    </linearGradient>
+                  </defs>
+                  <path
+                    d="M12 3L22 20H2L12 3Z"
+                    fill={
+                      membershipTier === 'family'
+                        ? 'url(#tier-gold-metal-mobile)'
+                        : membershipTier === 'premium'
+                        ? 'url(#tier-silver-metal-mobile)'
+                        : 'url(#tier-bronze-metal-mobile)'
+                    }
                   />
-                )}
-              </Link>
-              <button
-                type="button"
-                onClick={() => setCouponModalOpen(true)}
-                className="inline-flex h-11 min-h-11 items-center justify-center gap-1.5 rounded-lg border border-sky-200 bg-white/90 px-4 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-sky-100/80"
-                aria-busy={couponsLoading}
-                aria-label="Купоны"
-                aria-haspopup="dialog"
-                aria-expanded={couponModalOpen}
-              >
-                {couponsLoading ? (
-                  <span
-                    className="inline-block h-5 min-w-[3rem] animate-pulse rounded bg-slate-200/90"
-                    aria-label="Загрузка купонов"
-                  />
-                ) : (
-                  <>
-                    <span className="font-semibold tabular-nums">{activeCouponCount}</span>
-                    <span className="text-sky-600" aria-hidden title="Купоны">
-                      <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M2 9a2 2 0 012-2h16a2 2 0 012 2v1a2 2 0 010 4v1a2 2 0 01-2 2H4a2 2 0 01-2-2v-1a2 2 0 010-4V9z"
-                        />
-                      </svg>
-                    </span>
-                  </>
-                )}
-              </button>
-            </div>
+                </svg>
+              </div>
+              <div className="mt-1 flex h-[14px] w-full items-end justify-center">
+                <span className="text-center text-[10px] font-semibold leading-none text-slate-600">{tierLabelShort}</span>
+              </div>
+            </Link>
+            <Link
+              to="/profile/points"
+              className="inline-flex h-11 min-h-11 w-20 min-w-20 flex-col items-center justify-center gap-0 rounded-lg border border-sky-200 bg-white/90 px-0 py-1 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-sky-100/80"
+              aria-busy={!pointsLoaded}
+            >
+              {pointsLoaded ? (
+                <>
+                  <div className="flex h-[18px] w-full shrink-0 items-center justify-center" aria-hidden>
+                    <span className="text-[16px] font-normal leading-none text-amber-500">★</span>
+                  </div>
+                  <div className="mt-1 flex h-[14px] w-full items-end justify-center">
+                    <span className="text-center text-[10px] font-semibold leading-none tabular-nums text-slate-700">{displayPoints}</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex h-[18px] w-full shrink-0 items-center justify-center">
+                    <span
+                      className="inline-block h-3.5 min-w-[2.5rem] animate-pulse rounded bg-slate-200/90"
+                      aria-hidden
+                    />
+                  </div>
+                  <div className="mt-1 flex h-[14px] w-full items-end justify-center">
+                    <span
+                      className="inline-block h-2 min-w-[1.25rem] animate-pulse rounded bg-slate-200/80"
+                      aria-hidden
+                    />
+                  </div>
+                </>
+              )}
+            </Link>
+            <Link
+              to="/profile/coupons"
+              className="inline-flex h-11 min-h-11 w-20 min-w-20 flex-col items-center justify-center gap-0 rounded-lg border border-sky-200 bg-white/90 px-0 py-1 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-sky-100/80"
+              aria-busy={couponCountLoading}
+              aria-label="Купоны"
+            >
+              {couponCountLoading ? (
+                <>
+                  <div className="flex h-[18px] w-full shrink-0 items-center justify-center">
+                    <span
+                      className="inline-block h-3.5 min-w-[2.5rem] animate-pulse rounded bg-slate-200/90"
+                      aria-hidden
+                    />
+                  </div>
+                  <div className="mt-1 flex h-[14px] w-full items-end justify-center">
+                    <span
+                      className="inline-block h-2 min-w-[1.25rem] animate-pulse rounded bg-slate-200/80"
+                      aria-hidden
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex h-[18px] w-full shrink-0 items-center justify-center" aria-hidden title="Купоны">
+                    <svg className="h-[18px] w-auto max-w-[28px]" viewBox="0 0 30 20" fill="none">
+                      <rect x="1.2" y="2" width="27.6" height="16" rx="3" fill="#E8F6FF" stroke="#7CCAF2" strokeWidth="1.2" />
+                      <path d="M10.5 2.7v14.6" stroke="#7CCAF2" strokeWidth="1.2" strokeDasharray="2 2" />
+                      <path d="M19.6 6.6a1.7 1.7 0 1 1 0 3.4 1.7 1.7 0 0 1 0-3.4Zm-4.7 5.3 5.4-7.4" stroke="#2E6F99" strokeWidth="1.2" strokeLinecap="round" />
+                      <circle cx="14.3" cy="12.4" r="1.35" stroke="#2E6F99" strokeWidth="1.2" />
+                      <circle cx="21.2" cy="14.2" r="1.35" stroke="#2E6F99" strokeWidth="1.2" />
+                    </svg>
+                  </div>
+                  <div className="mt-1 flex h-[14px] w-full items-end justify-center">
+                    <span className="text-center text-[10px] font-semibold leading-none tabular-nums text-slate-700">{activeCouponCount ?? 0}</span>
+                  </div>
+                </>
+              )}
+            </Link>
           </div>
         </div>
       </div>
@@ -566,7 +671,7 @@ export const Profile: React.FC = () => {
 
       {/* 그래픽/아이콘 메뉴: 컴팩트 카드, xl에서 4열로 넓은 화면에서 가로 여유 */}
       <nav
-        className="mt-8 grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4 xl:gap-4"
+        className="mt-5 grid grid-cols-2 gap-2 sm:mt-8 sm:gap-3 xl:grid-cols-4 xl:gap-3"
         aria-label="Profile menu"
       >
         <Link
@@ -579,8 +684,8 @@ export const Profile: React.FC = () => {
             </svg>
           </span>
           <div className="min-w-0 px-0.5">
-            <p className="text-center text-sm font-semibold text-slate-800 sm:text-base md:whitespace-nowrap">Профиль</p>
-            <p className="prose-ru mt-0.5 text-center text-[10px] text-slate-500 sm:text-xs">Личные данные</p>
+            <p className="text-center text-sm font-semibold text-slate-800 sm:text-base whitespace-nowrap">Профиль</p>
+            <p className="prose-ru mt-0.5 text-center text-[10px] text-slate-500 sm:text-xs whitespace-nowrap">Личные данные</p>
           </div>
         </Link>
 
@@ -594,8 +699,8 @@ export const Profile: React.FC = () => {
             </svg>
           </span>
           <div className="min-w-0 px-0.5">
-            <p className="text-center text-sm font-semibold text-slate-800 sm:text-base md:whitespace-nowrap">Тесты</p>
-            <p className="prose-ru mt-0.5 text-center text-[10px] text-slate-500 sm:text-xs">
+            <p className="text-center text-sm font-semibold text-slate-800 sm:text-base whitespace-nowrap">Тесты</p>
+            <p className="prose-ru mt-0.5 text-center text-[10px] text-slate-500 sm:text-xs whitespace-nowrap">
               {lastSkinType ? `Последний: ${lastSkinType}` : 'Последний: —'}
             </p>
           </div>
@@ -611,8 +716,8 @@ export const Profile: React.FC = () => {
             </svg>
           </span>
           <div className="min-w-0 px-0.5">
-            <p className="text-center text-sm font-semibold text-slate-800 sm:text-base md:whitespace-nowrap">Отзывы</p>
-            <p className="prose-ru mt-0.5 text-center text-[10px] text-slate-500 sm:text-xs">Мои отзывы о товарах</p>
+            <p className="text-center text-sm font-semibold text-slate-800 sm:text-base whitespace-nowrap">Отзывы</p>
+            <p className="prose-ru mt-0.5 text-center text-[10px] text-slate-500 sm:text-xs whitespace-nowrap">Мои отзывы о товарах</p>
           </div>
         </Link>
 
@@ -626,98 +731,12 @@ export const Profile: React.FC = () => {
             </svg>
           </span>
           <div className="min-w-0 px-0.5">
-            <p className="text-center text-sm font-semibold text-slate-800 sm:text-base md:whitespace-nowrap">Заказы</p>
-            <p className="prose-ru mt-0.5 text-center text-[10px] text-slate-500 sm:text-xs">История и статус</p>
+            <p className="text-center text-sm font-semibold text-slate-800 sm:text-base whitespace-nowrap">Заказы</p>
+            <p className="prose-ru mt-0.5 text-center text-[10px] text-slate-500 sm:text-xs whitespace-nowrap">История и статус</p>
           </div>
         </Link>
-      </nav>
 
-      {couponModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 p-3 sm:items-center sm:p-4"
-          role="presentation"
-          onClick={() => setCouponModalOpen(false)}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="coupon-modal-title"
-            className="flex max-h-[min(88vh,32rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200/80"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-5">
-              <h2 id="coupon-modal-title" className="text-base font-semibold text-slate-900">
-                Мои купоны
-              </h2>
-              <button
-                type="button"
-                onClick={() => setCouponModalOpen(false)}
-                className="flex h-10 min-w-10 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
-                aria-label="Закрыть"
-              >
-                <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-5 sm:py-4">
-              {couponsLoading ? (
-                <div className="space-y-3" aria-busy>
-                  <div className="h-14 animate-pulse rounded-xl bg-slate-100" />
-                  <div className="h-14 animate-pulse rounded-xl bg-slate-100" />
-                </div>
-              ) : coupons.length === 0 ? (
-                <p className="text-sm text-slate-500">Пока нет купонов.</p>
-              ) : (
-                <ul className="space-y-3">
-                  {coupons.map((c) => {
-                    const now = new Date();
-                    const expires = new Date(c.expires_at);
-                    const isUsed = !!c.used_at;
-                    const isExpired = !isUsed && expires.getTime() < now.getTime();
-                    const statusText = isUsed
-                      ? 'Использован'
-                      : isExpired
-                        ? 'Истёк'
-                        : `Действует до ${expires.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}`;
-                    return (
-                      <li
-                        key={c.id}
-                        className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-3 text-sm sm:px-4"
-                      >
-                        <div className="min-w-0">
-                          <p className="font-medium text-slate-800">
-                            Купон {c.amount} ₽ {c.tier ? `(${c.tier})` : ''}
-                          </p>
-                          <p className="text-xs text-slate-500">{c.quarter_label ?? ''}</p>
-                        </div>
-                        <span
-                          className={
-                            isUsed || isExpired
-                              ? 'shrink-0 text-xs text-slate-400'
-                              : 'shrink-0 text-xs font-medium text-emerald-600'
-                          }
-                        >
-                          {statusText}
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
-            <div className="shrink-0 border-t border-slate-100 px-4 py-3 sm:px-5">
-              <Link
-                to="/profile/points"
-                onClick={() => setCouponModalOpen(false)}
-                className="block w-full rounded-xl border border-slate-200 bg-white py-2.5 text-center text-sm font-medium text-slate-700 transition hover:border-brand/40 hover:bg-brand-soft/20"
-              >
-                Баллы и купоны — подробнее
-              </Link>
-            </div>
-          </div>
-        </div>
-      )}
+      </nav>
 
       {telegramLinkedToast && (
         <div className="fixed bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-brand px-5 py-2.5 text-sm font-medium text-white shadow-lg md:bottom-8" role="status" aria-live="polite">

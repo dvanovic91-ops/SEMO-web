@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useProductNavReplacement } from '../context/ProductNavReplacementContext';
 import { useCart } from '../context/CartContext';
 import { supabase } from '../lib/supabase';
 import { BackArrow } from '../components/BackArrow';
+import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../components/SemoPageSpinner';
 
 type Product = {
   id: string;
@@ -177,6 +179,13 @@ export const ProductDetail: React.FC = () => {
   /** 모바일: 본문 «В корзину»이 화면에서 사라지면 상단 고정 바 표시 */
   const addToCartBtnRef = useRef<HTMLButtonElement | null>(null);
   const [stickyAddBar, setStickyAddBar] = useState(false);
+  const { setProductStickyReplacesNav } = useProductNavReplacement();
+
+  /** 모바일: 스크롤 미니바 표시 시 Navbar 헤더 대체 */
+  useEffect(() => {
+    setProductStickyReplacesNav(stickyAddBar);
+    return () => setProductStickyReplacesNav(false);
+  }, [stickyAddBar, setProductStickyReplacesNav]);
 
   useEffect(() => {
     const currentId = String(id ?? '').trim();
@@ -595,9 +604,9 @@ export const ProductDetail: React.FC = () => {
   }
   if (isLoading) {
     return (
-      <main className="mx-auto max-w-3xl px-4 py-12">
-        <p className="text-slate-500">Загрузка…</p>
-        <p className="mt-4">
+      <main className={`${SEMO_FULL_PAGE_LOADING_MAIN_CLASS} max-w-3xl`}>
+        <SemoPageSpinner />
+        <p className="mt-8 text-center">
           <Link to="/shop" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> В каталог</Link>
         </p>
       </main>
@@ -618,8 +627,12 @@ export const ProductDetail: React.FC = () => {
       {/* 모바일: 스크롤 시 상단 고정 — 이전가격·최종가격·В корзину */}
       {stickyAddBar && (
         <div
-          className="fixed left-0 right-0 top-0 z-40 flex items-center gap-1.5 border-b border-slate-200 bg-white/95 px-2.5 py-1.5 shadow-sm backdrop-blur-md md:hidden"
-          style={{ paddingTop: 'max(0.35rem, env(safe-area-inset-top))' }}
+          className="fixed left-0 right-0 z-40 flex items-center gap-1.5 border-b border-slate-200 bg-white/95 px-2.5 py-1.5 shadow-sm backdrop-blur-md md:hidden"
+          style={{
+            /* Navbar 숨김과 동시에 top:0 — 세모 헤더와 동일 슬롯 대체 */
+            top: 0,
+            paddingTop: 'max(0.2rem, env(safe-area-inset-top, 0px))',
+          }}
         >
           {/* 모바일 고정바: 대표 썸네일 + 가격 + 버튼 (~20% 축소) */}
           <div className="flex h-9 w-9 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-50">
@@ -882,21 +895,48 @@ export const ProductDetail: React.FC = () => {
                   <span>Фотоотзыв и бонусные баллы 🎁</span>
                   <div
                     className="relative inline-flex items-center"
-                    onMouseEnter={() => setReviewInfoOpen(true)}
-                    onMouseLeave={() => setReviewInfoOpen(false)}
+                    onMouseEnter={() => {
+                      if (typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches) {
+                        setReviewInfoOpen(true);
+                      }
+                    }}
+                    onMouseLeave={() => {
+                      if (typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches) {
+                        setReviewInfoOpen(false);
+                      }
+                    }}
                   >
-                    <span
+                    <button
+                      type="button"
                       className="flex h-5 w-5 items-center justify-center rounded-full border border-amber-300 bg-amber-50 text-[11px] text-amber-700"
                       aria-label="Информация о бонусных баллах"
+                      aria-expanded={reviewInfoOpen}
+                      onClick={() => {
+                        if (typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches) {
+                          setReviewInfoOpen((v) => !v);
+                        }
+                      }}
                     >
                       i
-                    </span>
+                    </button>
                     {reviewInfoOpen && (
-                      <div className="absolute right-0 top-full z-20 mt-1 inline-block rounded-lg border border-slate-200 bg-white px-4 py-2 text-[11px] text-slate-700 shadow-lg">
-                        <p className="whitespace-nowrap">• Искренние, подробные отзывы получают бонусные баллы (до 500 pt). ⭐</p>
-                        <p className="mt-1 whitespace-nowrap">• Неподходящие материалы могут быть удалены без предупреждения. ⚠️</p>
-                        <p className="mt-1 whitespace-nowrap">• Авторские права на отзывы принадлежат SEMO. ©</p>
-                      </div>
+                      <>
+                        <div
+                          className="fixed inset-0 z-[55] bg-black/20 md:hidden"
+                          aria-hidden
+                          onClick={() => setReviewInfoOpen(false)}
+                        />
+                        <div className="fixed left-1/2 top-[calc(50vh-5.5rem)] z-[60] w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] leading-snug text-slate-700 shadow-lg md:hidden">
+                          <p>• Искренние, подробные отзывы получают бонусные баллы (до 500 pt). ⭐</p>
+                          <p className="mt-1">• Неподходящие материалы могут быть удалены без предупреждения. ⚠️</p>
+                          <p className="mt-1">• Авторские права на отзывы принадлежат SEMO. ©</p>
+                        </div>
+                        <div className="absolute right-0 top-full z-20 mt-1 hidden max-w-[min(100vw-2rem,22rem)] rounded-lg border border-slate-200 bg-white px-4 py-2 text-[11px] leading-snug text-slate-700 shadow-lg md:block">
+                          <p>• Искренние, подробные отзывы получают бонусные баллы (до 500 pt). ⭐</p>
+                          <p className="mt-1">• Неподходящие материалы могут быть удалены без предупреждения. ⚠️</p>
+                          <p className="mt-1">• Авторские права на отзывы принадлежат SEMO. ©</p>
+                        </div>
+                      </>
                     )}
                   </div>
                 </div>

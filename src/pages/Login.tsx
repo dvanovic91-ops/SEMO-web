@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { supabase, setRememberMe } from '../lib/supabase';
 import { isValidEmailFormat } from '../lib/emailValidation';
+import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../components/SemoPageSpinner';
 
 const inputClass =
   'w-full min-h-[44px] rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-base text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand sm:min-h-0';
@@ -26,8 +27,8 @@ export const Login: React.FC = () => {
 
   if (!initialized) {
     return (
-      <main className="flex min-h-[60vh] items-center justify-center">
-        <p className="text-sm text-slate-500">Загрузка…</p>
+      <main className={SEMO_FULL_PAGE_LOADING_MAIN_CLASS}>
+        <SemoPageSpinner />
       </main>
     );
   }

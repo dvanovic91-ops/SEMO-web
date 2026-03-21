@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { SemoPageSpinner, SEMO_SECTION_LOADING_CLASS } from '../components/SemoPageSpinner';
 
 type PromoItem = {
   id: string;
@@ -82,14 +83,18 @@ export const Promo: React.FC = () => {
   };
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-7xl flex-col px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))] sm:px-6 sm:py-12 sm:pb-12 sm:pt-8">
-      <h1 className="mb-2 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
-        Текущие акции
-      </h1>
-      <p className="mb-6 text-slate-600">Специальные предложения и события SEMO box</p>
+    <main className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-5 sm:px-6 sm:py-10 md:py-14">
+      <header className="mb-12 text-center">
+        <h1 className="text-center text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl md:text-5xl">
+          Текущие акции
+        </h1>
+        <p className="mt-4 text-lg text-slate-600">Специальные предложения и события SEMO box</p>
+      </header>
 
       {loading ? (
-        <p className="py-12 text-center text-slate-500">Загрузка…</p>
+        <div className={SEMO_SECTION_LOADING_CLASS}>
+          <SemoPageSpinner />
+        </div>
       ) : promos.length === 0 ? (
         <p className="py-12 text-center text-slate-500">Нет активных акций.</p>
       ) : (

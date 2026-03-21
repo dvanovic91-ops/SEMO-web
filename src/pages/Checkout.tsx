@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { BackArrow } from '../components/BackArrow';
+import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../components/SemoPageSpinner';
 import { AddressSuggest } from '../components/AddressSuggest';
 import { generateOrderNumber } from '../lib/orderNumber';
 import { executePayment } from '../lib/paymentGateway';
@@ -21,11 +22,17 @@ import { validateShippingComplete } from '../lib/shippingValidation';
 import { clampDigits } from '../lib/digitsOnly';
 import { CustomsPassportNotice } from '../components/CustomsPassportNotice';
 import { InnHelpTooltip } from '../components/InnHelpTooltip';
+import { accountPrimaryCtaClass } from '../lib/accountLinkUi';
 import {
-  accountLinkTwoColGridClass,
-  accountPrimaryCtaClass,
-  accountStatusPillClass,
-} from '../lib/accountLinkUi';
+  deliveryContactInputEditable,
+  deliveryContactInputEmailPending,
+  deliveryContactInputLocked,
+  deliveryFormFieldColClass,
+  deliveryFormFieldLabelClass,
+  deliveryFormFioCellClass,
+  deliveryFormHintClass,
+  deliveryFormInputClass,
+} from '../lib/profileDeliveryFormUi';
 
 function formatPrice(price: number): string {
   return `${price.toLocaleString('ru-RU')} руб.`;
@@ -136,6 +143,7 @@ export const Checkout: React.FC = () => {
   const [phoneUnlinkRequested, setPhoneUnlinkRequested] = useState(false);
   const [pollingForTelegram, setPollingForTelegram] = useState(false);
   const pollingForTelegramRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const phoneInputRef = useRef<HTMLInputElement>(null);
   const deliveryFormInitialized = useRef(false);
   /** CS 방어: 결제 단계에서 가격 본 적 한 번만 로그 */
   const paymentStepViewedLoggedRef = useRef(false);
@@ -400,6 +408,9 @@ export const Checkout: React.FC = () => {
 
   const dbTelegramLinked = !!profile?.telegram_id;
   const phoneLockedByTelegram = dbTelegramLinked && !phoneUnlinkRequested;
+  const phoneFieldClass = phoneLockedByTelegram ? deliveryContactInputLocked : deliveryContactInputEditable;
+  /** Checkout: всегда в режиме редактирования — «Изменить номер» при активной привязке Telegram */
+  const showChangePhoneControl = dbTelegramLinked && !phoneUnlinkRequested;
 
   const handlePhoneInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -439,6 +450,7 @@ export const Checkout: React.FC = () => {
   const handleUnlinkToChangePhone = useCallback(() => {
     setPhoneError('');
     setPhoneUnlinkRequested(true);
+    setTimeout(() => phoneInputRef.current?.focus(), 100);
   }, []);
 
   /** Telegram 봇에서 연동 완료될 때까지 폴링 (ProfileEdit와 동일) */
@@ -483,8 +495,8 @@ export const Checkout: React.FC = () => {
   // ——— 아래부터는 early return만 허용. 새 훅(useState/useEffect/useCallback 등) 추가 시 반드시 위쪽에 선언 ———
   if (!initialized || loading) {
     return (
-      <main className="mx-auto max-w-2xl px-4 py-16">
-        <p className="text-center text-slate-500">Загрузка…</p>
+      <main className={`${SEMO_FULL_PAGE_LOADING_MAIN_CLASS} max-w-2xl`}>
+        <SemoPageSpinner />
       </main>
     );
   }
@@ -911,96 +923,182 @@ export const Checkout: React.FC = () => {
         </div>
       </section>
 
-      {/* 2. 배송 — 개인정보(프로필)의 доставка 전체 */}
+      {/* 2. 배송 — ProfileEdit «Доставка»와 동일 순서·마크업·스타일 */}
       <section className="mt-6 rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
-        <h2 className="mb-4 text-sm font-semibold text-slate-800">Доставка</h2>
+        <h2 className="mb-4 text-lg font-semibold text-slate-900">
+          Доставка <span className={deliveryFormHintClass}>(при заказе — обязательно)</span>
+        </h2>
         <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
           Укажите данные фактического получателя. Заказы из-за рубежа проходят личную таможенную очистку. Неверные данные могут повлечь задержки, возврат посылки или отказ в выдаче — просим указывать данные внимательно.
         </p>
-        <div className="space-y-4">
-          <AddressSuggest
-            label={
-              <span className="inline-flex items-center gap-2">
-                Адрес (поиск по базе)
-                <span className="group relative ml-0.5 inline-flex cursor-help" aria-label="Подсказка">
-                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 text-xs font-medium transition hover:border-brand hover:text-brand">
-                    ?
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4 rounded-xl border border-brand/20 bg-brand-soft/10 px-4 py-4">
+            <div className={deliveryFormFieldColClass}>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-3 sm:items-start">
+                <div className={deliveryFormFioCellClass}>
+                  <label htmlFor="ck-fio-last" className={`${deliveryFormFieldLabelClass} flex flex-wrap items-center gap-x-1`}>
+                    Фамилия
+                  </label>
+                  <input
+                    id="ck-fio-last"
+                    type="text"
+                    placeholder="Ivanov"
+                    className={`${deliveryFormInputClass} uppercase`}
+                    value={deliveryForm.fioLast}
+                    onChange={(e) => setDeliveryField('fioLast', e.target.value.replace(/[^A-Za-z\s-']/g, '').toUpperCase())}
+                  />
+                </div>
+                <div className={deliveryFormFioCellClass}>
+                  <label htmlFor="ck-fio-first" className={`${deliveryFormFieldLabelClass} flex flex-wrap items-center gap-x-1`}>
+                    Имя
+                  </label>
+                  <input
+                    id="ck-fio-first"
+                    type="text"
+                    placeholder="Ivan"
+                    className={`${deliveryFormInputClass} uppercase`}
+                    value={deliveryForm.fioFirst}
+                    onChange={(e) => setDeliveryField('fioFirst', e.target.value.replace(/[^A-Za-z\s-']/g, '').toUpperCase())}
+                  />
+                </div>
+                <div className={deliveryFormFioCellClass}>
+                  <label htmlFor="ck-fio-middle" className={`${deliveryFormFieldLabelClass} flex flex-wrap items-center gap-x-1`}>
+                    Отчество
+                  </label>
+                  <input
+                    id="ck-fio-middle"
+                    type="text"
+                    placeholder="Ivanovich"
+                    className={`${deliveryFormInputClass} uppercase disabled:bg-slate-50 disabled:text-slate-400`}
+                    value={deliveryForm.fioMiddle}
+                    disabled={noPatronymic}
+                    onChange={(e) => setDeliveryField('fioMiddle', e.target.value.replace(/[^A-Za-z\s-']/g, '').toUpperCase())}
+                  />
+                </div>
+              </div>
+              <div className="flex flex-col-reverse items-start gap-1 sm:grid sm:grid-cols-3 sm:items-start sm:justify-items-start sm:gap-x-3 sm:gap-y-0">
+                <p className="min-w-0 max-w-full text-[11px] leading-snug text-slate-500 sm:col-span-2 sm:row-start-1">
+                  * ФИО как в паспорте (латинскими буквами).
+                </p>
+                <label className="inline-flex w-fit shrink-0 cursor-pointer items-center gap-1.5 text-[11px] text-slate-500 sm:col-start-3 sm:row-start-1 sm:place-self-start">
+                  <input
+                    type="checkbox"
+                    checked={noPatronymic}
+                    onChange={(e) => {
+                      const v = e.target.checked;
+                      setNoPatronymic(v);
+                      if (v) setDeliveryField('fioMiddle', '');
+                    }}
+                    className="h-3 w-3 rounded border-slate-300 text-brand focus:ring-brand"
+                  />
+                  <span className="whitespace-nowrap">Нет отчества</span>
+                </label>
+              </div>
+            </div>
+
+            <div className={deliveryFormFieldColClass}>
+              <label htmlFor="ck-delivery-email" className={deliveryFormFieldLabelClass}>
+                E-mail
+              </label>
+              <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-stretch">
+                <input
+                  id="ck-delivery-email"
+                  type="email"
+                  autoComplete="email"
+                  readOnly
+                  className={`min-w-0 flex-1 ${isEmailConfirmed ? deliveryContactInputLocked : deliveryContactInputEmailPending}`}
+                  value={userEmail ?? ''}
+                  aria-readonly
+                />
+                {!isEmailConfirmed && (
+                  <button
+                    type="button"
+                    disabled={verifyEmailSending || !userEmail?.trim()}
+                    onClick={() => void handleSendCheckoutVerifyEmail()}
+                    className={`${accountPrimaryCtaClass} w-full shrink-0 sm:w-auto sm:px-5`}
+                  >
+                    {verifyEmailSending ? 'Отправка…' : 'Подтвердить email'}
+                  </button>
+                )}
+              </div>
+              {!isEmailConfirmed && (
+                <div
+                  className="flex w-full min-w-0 items-start gap-1 overflow-x-auto leading-tight [-webkit-overflow-scrolling:touch] [scrollbar-width:thin] text-gray-500 max-sm:text-[clamp(7px,2.65vw,9.5px)] sm:overflow-x-visible sm:text-[10px]"
+                  role="note"
+                >
+                  <span aria-hidden className="shrink-0 select-none">
+                    *
                   </span>
-                  <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 inline-block w-max -translate-x-1/2 whitespace-nowrap rounded border border-slate-100 bg-white px-2.5 py-1.5 text-left text-xs font-medium leading-none text-brand shadow-md opacity-0 transition group-hover:opacity-100">
-                    При вводе адреса нижние поля заполнятся автоматически.
+                  <span className="min-w-0 whitespace-nowrap leading-[inherit]">
+                    Подтвердите email для оформления заказа.
                   </span>
+                </div>
+              )}
+              {verifyEmailError && (
+                <p className="mt-2 text-xs text-red-600" role="alert">
+                  {verifyEmailError}
+                </p>
+              )}
+              {verifyEmailMessage && (
+                <p className="mt-2 text-xs text-slate-600" role="status">
+                  {verifyEmailMessage}
+                </p>
+              )}
+            </div>
+
+            <div className={deliveryFormFieldColClass}>
+              <label htmlFor="ck-phone" className={deliveryFormFieldLabelClass}>
+                Номер телефона
+              </label>
+              <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-stretch">
+                <input
+                  ref={phoneInputRef}
+                  id="ck-phone"
+                  type="tel"
+                  autoComplete="tel"
+                  placeholder="+7 999 999 9999"
+                  title="+200 баллов за подтверждение в Telegram"
+                  className={`${phoneFieldClass} min-w-0 flex-1`}
+                  value={deliveryForm.phone}
+                  onChange={handlePhoneInputChange}
+                  readOnly={phoneLockedByTelegram}
+                  maxLength={16}
+                />
+                {!dbTelegramLinked && (
+                  <button
+                    type="button"
+                    disabled={(deliveryForm.phone ?? '').replace(/\D/g, '').length < 10 || pollingForTelegram}
+                    onClick={() => void handleTelegramVerify()}
+                    className={`${accountPrimaryCtaClass} w-full shrink-0 sm:w-auto sm:px-5`}
+                  >
+                    {pollingForTelegram ? 'Ожидание…' : 'Подтвердить'}
+                  </button>
+                )}
+              </div>
+              <div
+                className="flex w-full min-w-0 items-start gap-1 overflow-x-auto leading-tight [-webkit-overflow-scrolling:touch] [scrollbar-width:thin] text-gray-500 max-sm:text-[clamp(7px,2.65vw,9.5px)] sm:overflow-x-visible sm:text-[10px]"
+                role="note"
+              >
+                <span aria-hidden className="shrink-0 select-none">
+                  *
                 </span>
-              </span>
-            }
-            placeholder="Начните вводить адрес, затем выберите вариант из списка"
-            value={addressQuery}
-            onChange={setAddressQuery}
-            onPartsChange={(parts) => {
-              setDeliveryForm((prev) => ({
-                ...prev,
-                cityRegion: parts.cityRegion ?? prev.cityRegion,
-                streetHouse: parts.streetHouse ?? prev.streetHouse,
-                apartmentOffice: parts.apartmentOffice ?? prev.apartmentOffice,
-                postcode: parts.postcode ?? prev.postcode,
-              }));
-            }}
-          />
-          <div className="space-y-4 rounded-xl border border-brand/20 bg-brand-soft/10 px-4 py-4">
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Фамилия</label>
-              <input type="text" value={deliveryForm.fioLast} onChange={(e) => setDeliveryField('fioLast', e.target.value.replace(/[^A-Za-z\s-']/g, '').toUpperCase())} className={`min-h-[2.75rem] w-full rounded-xl border bg-white px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30 uppercase ${!deliveryForm.fioLast?.trim() ? 'border-brand ring-1 ring-brand/30' : 'border-slate-200'}`} placeholder="—" />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Имя</label>
-              <input type="text" value={deliveryForm.fioFirst} onChange={(e) => setDeliveryField('fioFirst', e.target.value.replace(/[^A-Za-z\s-']/g, '').toUpperCase())} className={`min-h-[2.75rem] w-full rounded-xl border bg-white px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30 uppercase ${!deliveryForm.fioFirst?.trim() ? 'border-brand ring-1 ring-brand/30' : 'border-slate-200'}`} placeholder="—" />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Отчество</label>
-              <input type="text" value={deliveryForm.fioMiddle} onChange={(e) => setDeliveryField('fioMiddle', e.target.value.replace(/[^A-Za-z\s-']/g, '').toUpperCase())} disabled={noPatronymic} className={`min-h-[2.75rem] w-full rounded-xl border bg-white px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30 uppercase disabled:bg-slate-50 disabled:text-slate-400 ${noPatronymic ? 'border-slate-200' : !deliveryForm.fioMiddle?.trim() ? 'border-brand ring-1 ring-brand/30' : 'border-slate-200'}`} placeholder="—" />
-            </div>
-          </div>
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 sm:grid sm:grid-cols-3 sm:items-center sm:gap-x-3 sm:gap-y-0">
-            <p className="min-w-0 max-w-full text-[11px] leading-snug text-slate-500 sm:col-span-2">
-              * ФИО как в паспорте (латинскими буквами).
-            </p>
-            <label className="inline-flex w-fit shrink-0 cursor-pointer items-center gap-1.5 text-[11px] text-slate-500 sm:justify-self-end">
-              <input type="checkbox" checked={noPatronymic} onChange={(e) => { const v = e.target.checked; setNoPatronymic(v); if (v) setDeliveryField('fioMiddle', ''); }} className="h-3 w-3 rounded border-slate-300 text-brand focus:ring-brand" />
-              <span className="whitespace-nowrap">Нет отчества</span>
-            </label>
-          </div>
-          <div>
-            <label htmlFor="ck-phone" className="mb-1 block text-sm font-medium text-slate-700">
-              Номер телефона
-            </label>
-            <input
-              id="ck-phone"
-              type="tel"
-              autoComplete="tel"
-              value={deliveryForm.phone}
-              onChange={handlePhoneInputChange}
-              readOnly={phoneLockedByTelegram}
-              placeholder="+7 999 999 9999"
-              title="+200 баллов за подтверждение в Telegram"
-              className={`min-h-[2.75rem] w-full rounded-xl border px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30 placeholder:text-xs placeholder:text-slate-400 ${
-                phoneLockedByTelegram
-                  ? 'cursor-default border-slate-200 !bg-slate-200 text-slate-600 focus:ring-0'
-                  : !deliveryForm.phone?.trim()
-                    ? 'border-brand bg-white ring-1 ring-brand/30'
-                    : 'border-slate-200 bg-white'
-              }`}
-            />
-            {dbTelegramLinked ? (
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                {!phoneUnlinkRequested ? (
+                <span className="min-w-0 whitespace-nowrap leading-[inherit]">
+                  Подтверждается через Telegram, за подтверждение +200 баллов.
+                </span>
+              </div>
+              {showChangePhoneControl && (
+                <div className="mt-3">
                   <button
                     type="button"
                     onClick={handleUnlinkToChangePhone}
-                    className="text-xs font-medium text-brand underline hover:text-brand/80"
+                    className="w-full rounded-xl border border-slate-200 bg-white py-2.5 text-center text-xs font-semibold text-brand shadow-sm transition hover:border-brand/40 hover:bg-brand-soft/20"
                   >
                     Изменить номер
                   </button>
-                ) : (
+                </div>
+              )}
+              {phoneUnlinkRequested && (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     onClick={() => {
@@ -1011,183 +1109,160 @@ export const Checkout: React.FC = () => {
                   >
                     Отмена
                   </button>
-                )}
-              </div>
-            ) : null}
-            <p className="mt-1 text-[11px] leading-snug text-slate-500">
-              * Телефон подтверждается через Telegram, за подтверждение +200 баллов.
-            </p>
-            {phoneUnlinkRequested ? (
-              <p className="mt-1 text-[11px] leading-snug text-slate-600">
-                Привязка Telegram снимется после подтверждения заказа с сохранением адреса. «Отмена» — без изменений.
-              </p>
-            ) : null}
-            {phoneError ? <p className="mt-1 text-xs text-red-600">{phoneError}</p> : null}
-          </div>
-
-          <div
-            className={`overflow-hidden rounded-2xl border px-3 pt-3 pb-2 shadow-sm sm:px-4 sm:pt-4 sm:pb-3 ${
-              isEmailConfirmed
-                ? 'border-brand/35 bg-gradient-to-br from-brand-soft/95 via-brand-soft/70 to-brand-soft ring-1 ring-brand/15'
-                : 'border-brand/25 bg-brand-soft/95 ring-1 ring-brand/10'
-            }`}
-          >
-            <div className={accountLinkTwoColGridClass}>
-              <div className="flex min-h-0 min-w-0 flex-col border-r border-slate-200/60 pr-2 sm:pr-3">
-                <div className="flex items-center justify-center gap-2">
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/90 text-[#26A5E4] shadow-sm ring-1 ring-slate-200/80">
-                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor" aria-hidden>
-                      <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
-                    </svg>
-                  </span>
-                  <p className="text-xs font-semibold text-slate-900 sm:text-sm">Telegram</p>
                 </div>
-                <div className="mt-2">
-                  {dbTelegramLinked ? (
-                    <button type="button" disabled className={accountStatusPillClass} aria-label="Telegram привязан">
-                      Telegram привязан ✓
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={!deliveryForm.phone?.trim()}
-                      onClick={() => void handleTelegramVerify()}
-                      className={accountPrimaryCtaClass}
-                    >
-                      Подтвердить
-                    </button>
-                  )}
-                </div>
-              </div>
-              <div className="flex min-h-0 min-w-0 flex-col pl-2 sm:pl-3">
-                <div className="flex items-center justify-center gap-2">
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/90 text-brand shadow-sm ring-1 ring-brand/25">
-                    <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" aria-hidden>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
-                    </svg>
-                  </span>
-                  <p className="text-xs font-semibold text-slate-900 sm:text-sm">E-mail</p>
-                </div>
-                <div className="mt-2">
-                  {isEmailConfirmed ? (
-                    <button type="button" disabled className={accountStatusPillClass} aria-label="Email подтверждён">
-                      Email подтверждён ✓
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={verifyEmailSending}
-                      onClick={() => void handleSendCheckoutVerifyEmail()}
-                      className={accountPrimaryCtaClass}
-                    >
-                      {verifyEmailSending ? 'Отправка…' : 'Подтвердить email'}
-                    </button>
-                  )}
-                </div>
-              </div>
+              )}
+              {phoneUnlinkRequested && (
+                <p className="mt-2 text-[11px] leading-snug text-slate-600">
+                  Привязка Telegram снимется после подтверждения заказа с сохранением адреса. «Отмена» — без изменений.
+                </p>
+              )}
+              {phoneError ? <p className="mt-1 text-xs text-red-500">{phoneError}</p> : null}
             </div>
-          </div>
 
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">E-mail</label>
-            <input
-              type="email"
-              readOnly
-              value={userEmail ?? ''}
-              className={`min-h-[2.75rem] w-full cursor-default rounded-xl border border-slate-200 px-4 py-2.5 text-sm ${
-                isEmailConfirmed
-                  ? '!bg-slate-200 text-slate-600 focus:outline-none focus:ring-0'
-                  : 'bg-slate-50 text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30'
-              }`}
-              autoComplete="email"
+            <AddressSuggest
+              label={
+                <span className="inline-flex items-center gap-2">
+                  Адрес (поиск по базе)
+                  <span className="group relative ml-0.5 inline-flex cursor-help" aria-label="Подсказка">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 text-xs font-medium transition hover:border-brand hover:text-brand">
+                      ?
+                    </span>
+                    <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 inline-block w-max -translate-x-1/2 whitespace-nowrap rounded border border-slate-100 bg-white px-2.5 py-1.5 text-left text-xs font-medium leading-none text-brand shadow-md opacity-0 transition group-hover:opacity-100">
+                      При вводе адреса нижние поля заполнятся автоматически.
+                    </span>
+                  </span>
+                </span>
+              }
+              placeholder="Начните вводить адрес, затем выберите вариант из списка"
+              value={addressQuery}
+              onChange={setAddressQuery}
+              onPartsChange={(parts) => {
+                setDeliveryForm((prev) => ({
+                  ...prev,
+                  cityRegion: parts.cityRegion ?? prev.cityRegion,
+                  streetHouse: parts.streetHouse ?? prev.streetHouse,
+                  apartmentOffice: parts.apartmentOffice ?? prev.apartmentOffice,
+                  postcode: parts.postcode ?? prev.postcode,
+                }));
+              }}
             />
-            {!isEmailConfirmed && (
-              <p className="mt-1 text-[11px] leading-snug text-slate-500">* Для заказа подтвердите email — письмо на указанный адрес.</p>
-            )}
-            {verifyEmailError && (
-              <p className="mt-2 text-sm text-red-700" role="alert">
-                {verifyEmailError}
-              </p>
-            )}
-            {verifyEmailMessage && (
-              <p className="mt-2 text-xs leading-snug text-slate-600" role="status">
-                {verifyEmailMessage}
-              </p>
-            )}
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">Город / Регион</label>
-            <input type="text" value={deliveryForm.cityRegion} onChange={(e) => setDeliveryField('cityRegion', e.target.value)} className={`min-h-[2.75rem] w-full rounded-xl border bg-white px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30 ${!deliveryForm.cityRegion?.trim() ? 'border-brand ring-1 ring-brand/30' : 'border-slate-200'}`} placeholder="—" />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">Улица, Дом, Корпус</label>
-            <input type="text" value={deliveryForm.streetHouse} onChange={(e) => setDeliveryField('streetHouse', e.target.value)} className={`min-h-[2.75rem] w-full rounded-xl border bg-white px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30 ${!deliveryForm.streetHouse?.trim() ? 'border-brand ring-1 ring-brand/30' : 'border-slate-200'}`} placeholder="—" />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">Кв. / Офис</label>
-            <input type="text" value={deliveryForm.apartmentOffice} onChange={(e) => setDeliveryField('apartmentOffice', e.target.value)} className={`min-h-[2.75rem] w-full rounded-xl border bg-white px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30 ${!deliveryForm.apartmentOffice?.trim() ? 'border-brand ring-1 ring-brand/30' : 'border-slate-200'}`} placeholder="—" />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">Postcode <span className="font-normal text-slate-500">(индекс, 6 цифр)</span></label>
-            <input
-              type="text"
-              inputMode="numeric"
-              autoComplete="off"
-              value={deliveryForm.postcode}
-              onChange={(e) => setDeliveryField('postcode', e.target.value)}
-              maxLength={6}
-              className={`min-h-[2.75rem] w-full rounded-xl border bg-white px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30 ${!deliveryForm.postcode?.trim() ? 'border-brand ring-1 ring-brand/30' : 'border-slate-200'}`}
-              placeholder="—"
-            />
-          </div>
-          <div>
-            <label className="mb-1 inline-flex flex-wrap items-center gap-1 text-sm font-medium text-slate-700">
-              INN <span className="font-normal text-slate-500">(12 цифр)</span> <InnHelpTooltip />
-            </label>
-            <input
-              type="text"
-              inputMode="numeric"
-              autoComplete="off"
-              value={deliveryForm.inn}
-              onChange={(e) => setDeliveryField('inn', e.target.value)}
-              maxLength={12}
-              className={`min-h-[2.75rem] w-full rounded-xl border bg-white px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30 ${!deliveryForm.inn?.trim() ? 'border-brand ring-1 ring-brand/30' : 'border-slate-200'}`}
-              placeholder="—"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Серия паспорта</label>
+
+            <div className={deliveryFormFieldColClass}>
+              <label htmlFor="ck-city" className={deliveryFormFieldLabelClass}>
+                Город / Регион
+              </label>
               <input
+                id="ck-city"
                 type="text"
-                inputMode="numeric"
-                autoComplete="off"
-                value={deliveryForm.passportSeries}
-                onChange={(e) => setDeliveryField('passportSeries', e.target.value)}
-                maxLength={4}
-                className={`min-h-[2.75rem] w-full rounded-xl border bg-white px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30 ${!deliveryForm.passportSeries?.trim() ? 'border-brand ring-1 ring-brand/30' : 'border-slate-200'}`}
-                placeholder="—"
+                placeholder="Москва, Санкт-Петербург"
+                className={deliveryFormInputClass}
+                value={deliveryForm.cityRegion}
+                onChange={(e) => setDeliveryField('cityRegion', e.target.value)}
               />
             </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Номер паспорта</label>
+            <div className={deliveryFormFieldColClass}>
+              <label htmlFor="ck-street" className={deliveryFormFieldLabelClass}>
+                Улица, Дом, Корпус/Строение
+              </label>
               <input
+                id="ck-street"
+                type="text"
+                placeholder="ул. Арбат, д. 15, корп. 2"
+                className={deliveryFormInputClass}
+                value={deliveryForm.streetHouse}
+                onChange={(e) => setDeliveryField('streetHouse', e.target.value)}
+              />
+            </div>
+            <div className={deliveryFormFieldColClass}>
+              <label htmlFor="ck-apt" className={deliveryFormFieldLabelClass}>
+                Кв. / Офис
+              </label>
+              <input
+                id="ck-apt"
+                type="text"
+                placeholder="кв. 104"
+                className={deliveryFormInputClass}
+                value={deliveryForm.apartmentOffice}
+                onChange={(e) => setDeliveryField('apartmentOffice', e.target.value)}
+              />
+            </div>
+            <div className={deliveryFormFieldColClass}>
+              <label htmlFor="ck-postcode" className={deliveryFormFieldLabelClass}>
+                Postcode <span className={deliveryFormHintClass}>(индекс, 6 цифр)</span>
+              </label>
+              <input
+                id="ck-postcode"
                 type="text"
                 inputMode="numeric"
                 autoComplete="off"
-                value={deliveryForm.passportNumber}
-                onChange={(e) => setDeliveryField('passportNumber', e.target.value)}
+                placeholder="123456"
                 maxLength={6}
-                className={`min-h-[2.75rem] w-full rounded-xl border bg-white px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30 ${!deliveryForm.passportNumber?.trim() ? 'border-brand ring-1 ring-brand/30' : 'border-slate-200'}`}
-                placeholder="—"
+                className={deliveryFormInputClass}
+                value={deliveryForm.postcode}
+                onChange={(e) => setDeliveryField('postcode', e.target.value)}
               />
             </div>
+            <div className={deliveryFormFieldColClass}>
+              <label htmlFor="ck-inn" className={`${deliveryFormFieldLabelClass} inline-flex items-center gap-1`}>
+                INN <span className={deliveryFormHintClass}>(ИНН, 12 цифр)</span>
+                <InnHelpTooltip />
+              </label>
+              <input
+                id="ck-inn"
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                placeholder="12 цифр"
+                maxLength={12}
+                className={deliveryFormInputClass}
+                value={deliveryForm.inn}
+                onChange={(e) => setDeliveryField('inn', e.target.value)}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className={deliveryFormFieldColClass}>
+                <label htmlFor="ck-ps" className={deliveryFormFieldLabelClass}>
+                  Серия паспорта
+                </label>
+                <input
+                  id="ck-ps"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  placeholder="1234"
+                  maxLength={4}
+                  className={deliveryFormInputClass}
+                  value={deliveryForm.passportSeries}
+                  onChange={(e) => setDeliveryField('passportSeries', e.target.value)}
+                />
+              </div>
+              <div className={deliveryFormFieldColClass}>
+                <label htmlFor="ck-pn" className={deliveryFormFieldLabelClass}>
+                  Номер паспорта
+                </label>
+                <input
+                  id="ck-pn"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  placeholder="567890"
+                  maxLength={6}
+                  className={deliveryFormInputClass}
+                  value={deliveryForm.passportNumber}
+                  onChange={(e) => setDeliveryField('passportNumber', e.target.value)}
+                />
+              </div>
+            </div>
+            <CustomsPassportNotice />
           </div>
-          <CustomsPassportNotice />
-        </div>
         </div>
         <label className="mt-4 flex cursor-pointer items-start gap-2.5 text-sm text-slate-700">
-          <input type="checkbox" checked={saveDeliveryAsDefault} onChange={(e) => setSaveDeliveryAsDefault(e.target.checked)} className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-brand focus:ring-brand" />
+          <input
+            type="checkbox"
+            checked={saveDeliveryAsDefault}
+            onChange={(e) => setSaveDeliveryAsDefault(e.target.checked)}
+            className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-brand focus:ring-brand"
+          />
           <span className="min-w-0 leading-snug">Сохранить как основной</span>
         </label>
       </section>

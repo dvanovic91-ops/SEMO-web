@@ -47,9 +47,9 @@ const STEPS: {
 
 export const Journey: React.FC = () => {
   return (
-    <main className="mx-auto min-h-screen max-w-6xl px-4 py-8 sm:px-6 sm:py-12">
+    <main className="mx-auto min-h-screen max-w-6xl px-4 py-5 sm:px-6 sm:py-10 md:py-14">
       <header className="mb-12 text-center">
-        <h1 className="text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl md:text-5xl">
+        <h1 className="text-center text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl md:text-5xl">
           Как это работает
         </h1>
         <p className="mt-4 text-lg text-slate-600">

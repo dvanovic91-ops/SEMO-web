@@ -1,141 +1,139 @@
-import React, { useState } from 'react';
-import { Navigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import React, { useMemo, useState } from 'react';
 
-/** 지원 메일 수신 주소 — .env의 VITE_SUPPORT_EMAIL로 변경 가능 */
-const SUPPORT_RECIPIENT_EMAIL =
-  import.meta.env.VITE_SUPPORT_EMAIL ?? 'admin@semo-box.ru';
+type FaqItem = { q: string; a: string };
+type FaqCategory = { key: string; title: string; summary: string; items: FaqItem[] };
 
-const REQUEST_TYPES = [
-  { value: '', label: 'Выберите тип запроса' },
-  { value: 'product', label: 'Запрос по товару' },
-  { value: 'price', label: 'Запрос по цене' },
-  { value: 'shipping', label: 'Запрос по доставке' },
-  { value: 'other', label: 'Другой запрос' },
-] as const;
-
-const inputClass =
-  'w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand';
-const labelClass = 'mb-1 block text-xs font-medium text-slate-700';
+const FAQ_CATEGORIES: FaqCategory[] = [
+  {
+    key: 'shipping',
+    title: 'Доставка',
+    summary: 'Сроки, трек-номер, повторная доставка.',
+    items: [
+      { q: 'Сколько занимает доставка в Россию?', a: 'Обычно 7–20 дней после подтверждения оплаты. В периоды высокой нагрузки срок может увеличиться.' },
+      { q: 'Когда я получу трек-номер?', a: 'Трек отправляется после передачи посылки в международную логистику. Обычно в течение 1–3 рабочих дней.' },
+      { q: 'Что делать, если доставка задерживается?', a: 'Проверьте статус по трек-номеру. Если статус не меняется более 7 дней, напишите нам в Telegram поддержки.' },
+      { q: 'Можно ли изменить адрес после оплаты?', a: 'Да, пока заказ не передан в международную доставку. После отправки изменить адрес нельзя.' },
+    ],
+  },
+  {
+    key: 'customs',
+    title: 'Таможня и пошлины',
+    summary: 'Лимиты, документы, возможные сборы.',
+    items: [
+      { q: 'Нужно ли платить таможенную пошлину?', a: 'Зависит от текущих лимитов и стоимости заказа. При превышении лимита пошлину оплачивает получатель.' },
+      { q: 'Кто связывается по таможенным вопросам?', a: 'Обычно курьерская/логистическая служба напрямую запрашивает данные и подтверждение.' },
+      { q: 'Какие данные могут запросить?', a: 'ФИО, адрес, ИНН, паспортные данные — только если это требуется для таможенного оформления.' },
+    ],
+  },
+  {
+    key: 'returns',
+    title: 'Возврат и обмен',
+    summary: 'Повреждение, ошибка комплектации, сроки заявки.',
+    items: [
+      { q: 'Можно ли вернуть заказ надлежащего качества?', a: 'Косметическая продукция возврату после вскрытия не подлежит. Невскрытые позиции рассматриваются индивидуально.' },
+      { q: 'Что делать, если товар повреждён?', a: 'Сделайте фото/видео в день получения и отправьте в поддержку. Мы предложим замену или компенсацию.' },
+      { q: 'Что если пришёл не тот товар?', a: 'Сообщите в поддержку с фото этикетки и содержимого. Ошибку комплектации исправим приоритетно.' },
+      { q: 'Сколько есть времени на обращение?', a: 'Рекомендуем обратиться в течение 48 часов после получения заказа.' },
+    ],
+  },
+  {
+    key: 'payment',
+    title: 'Оплата и скидки',
+    summary: 'Оплата, купоны, списание баллов.',
+    items: [
+      { q: 'Когда списываются баллы и купоны?', a: 'Баллы и купоны применяются на этапе оформления заказа, до финального подтверждения оплаты.' },
+      { q: 'Можно ли одновременно использовать баллы и купон?', a: 'Да, если это разрешено текущими правилами корзины и лимитами по заказу.' },
+      { q: 'Почему купон не применяется?', a: 'Проверьте срок действия, статус использования и минимальные условия заказа.' },
+    ],
+  },
+  {
+    key: 'account',
+    title: 'Аккаунт и безопасность',
+    summary: 'Telegram, email, профиль и уведомления.',
+    items: [
+      { q: 'Зачем подтверждать email?', a: 'Подтверждённый email нужен для статусов заказа, чеков и сервисных уведомлений.' },
+      { q: 'Что даёт привязка Telegram?', a: 'Быстрые уведомления о заказе и акциях, а также более удобная связь с поддержкой.' },
+      { q: 'Как изменить личные данные доставки?', a: 'Откройте Профиль → Личные данные и обновите информацию перед новым заказом.' },
+    ],
+  },
+];
 
 export const Support: React.FC = () => {
-  const { userEmail, initialized } = useAuth();
-  const [subject, setSubject] = useState('');
-  const [requestType, setRequestType] = useState('');
-  const [message, setMessage] = useState('');
-  const [sent, setSent] = useState(false);
-
-  if (!initialized) return null;
-  if (!userEmail) return <Navigate to="/login" replace />;
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    // TODO: 실제 발송 API 연동
-    setSent(true);
-  };
+  const [openKey, setOpenKey] = useState<string>('');
+  const [query, setQuery] = useState('');
+  const categoryCountLabel = useMemo(() => `${FAQ_CATEGORIES.length} разделов`, []);
+  const filteredCategories = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return FAQ_CATEGORIES;
+    return FAQ_CATEGORIES
+      .map((cat) => {
+        const catHit = `${cat.title} ${cat.summary}`.toLowerCase().includes(q);
+        const items = cat.items.filter((it) => `${it.q} ${it.a}`.toLowerCase().includes(q));
+        if (catHit) return cat;
+        return { ...cat, items };
+      })
+      .filter((cat) => cat.items.length > 0);
+  }, [query]);
 
   return (
-    <main className="mx-auto max-w-xl px-4 py-4 sm:px-6 sm:py-6">
-      <header className="mb-4">
-        <p className="text-xs font-medium tracking-wide text-brand">Поддержка</p>
-        <h1 className="mt-0.5 text-lg font-semibold tracking-tight text-slate-900 sm:text-xl">
-          Написать в поддержку
-        </h1>
-        <p className="mt-1 text-xs text-slate-600">
-          Заполните форму — мы ответим на указанный при регистрации email.
+    <main className="mx-auto max-w-6xl px-4 py-5 sm:px-6 sm:py-10 md:py-14">
+      <header className="mb-6 text-center">
+        <h1 className="text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl md:text-5xl">FAQ</h1>
+        <p className="mt-3 text-sm text-slate-600 sm:text-base">
+          Частые вопросы по международной доставке, таможне, возвратам и аккаунту.
         </p>
-        <p className="mt-0.5 text-[11px] text-slate-500">
-          Для быстрой консультации — Telegram.
-        </p>
+        <p className="mt-1 text-xs text-slate-500">{categoryCountLabel}</p>
       </header>
 
-      {sent ? (
-        <div className="rounded-xl border border-brand/20 bg-brand-soft/20 px-4 py-4 text-center text-slate-700">
-          <p className="text-sm font-medium">Сообщение отправлено.</p>
-          <p className="mt-1 text-xs">Мы ответим на {userEmail} в ближайшее время.</p>
-        </div>
-      ) : (
-        <form className="space-y-3" onSubmit={handleSubmit}>
-          <div>
-            <label htmlFor="support-from" className={labelClass}>
-              Отправитель
-            </label>
-            <input
-              id="support-from"
-              type="email"
-              readOnly
-              value={userEmail ?? ''}
-              className={`${inputClass} cursor-default bg-slate-50 text-slate-600`}
-            />
-          </div>
+      <div className="mb-5">
+        <label htmlFor="faq-search" className="sr-only">
+          Поиск по FAQ
+        </label>
+        <input
+          id="faq-search"
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Поиск: доставка, пошлина, возврат, купон..."
+          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+        />
+      </div>
 
-          <div>
-            <label htmlFor="support-to" className={labelClass}>
-              Получатель
-            </label>
-            <input
-              id="support-to"
-              type="text"
-              readOnly
-              value={SUPPORT_RECIPIENT_EMAIL}
-              className={`${inputClass} cursor-default bg-slate-100 text-slate-500`}
-            />
+      <section className="space-y-4">
+        {filteredCategories.length === 0 && (
+          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
+            По запросу ничего не найдено. Попробуйте другое ключевое слово.
           </div>
-
-          <div>
-            <label htmlFor="support-subject" className={labelClass}>
-              Тема
-            </label>
-            <input
-              id="support-subject"
-              type="text"
-              placeholder="Кратко опишите тему"
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              className={inputClass}
-            />
-          </div>
-
-          <div>
-            <label htmlFor="support-type" className={labelClass}>
-              Тип запроса
-            </label>
-            <select
-              id="support-type"
-              value={requestType}
-              onChange={(e) => setRequestType(e.target.value)}
-              className={inputClass}
-            >
-              {REQUEST_TYPES.map((opt) => (
-                <option key={opt.value || 'empty'} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label htmlFor="support-message" className={labelClass}>
-              Сообщение
-            </label>
-            <textarea
-              id="support-message"
-              rows={3}
-              placeholder="Опишите ваш вопрос или проблему"
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              className={`${inputClass} min-h-[80px] resize-y sm:min-h-[96px]`}
-            />
-          </div>
-
-          <button
-            type="submit"
-            className="w-full rounded-full bg-brand py-2.5 text-sm font-semibold text-white transition hover:bg-brand/90"
-          >
-            Отправить
-          </button>
-        </form>
-      )}
+        )}
+        {filteredCategories.map((cat) => (
+          <article key={cat.key} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+            <div className="border-b border-slate-100 bg-slate-50/60 px-4 py-3 sm:px-5">
+              <h2 className="text-sm font-semibold text-slate-900 sm:text-base">{cat.title}</h2>
+              <p className="mt-1 text-xs text-slate-500">{cat.summary}</p>
+            </div>
+            <ul className="divide-y divide-slate-100">
+              {cat.items.map((item, idx) => {
+                const key = `${cat.key}:${idx}`;
+                const isOpen = openKey === key;
+                return (
+                  <li key={key} className="px-4 py-1 sm:px-5">
+                    <button
+                      type="button"
+                      onClick={() => setOpenKey((prev) => (prev === key ? '' : key))}
+                      className="flex w-full items-center justify-between gap-3 py-3 text-left"
+                      aria-expanded={isOpen}
+                    >
+                      <span className="text-sm font-medium text-slate-800">{item.q}</span>
+                      <span className="shrink-0 text-slate-400">{isOpen ? '−' : '+'}</span>
+                    </button>
+                    {isOpen && <p className="pb-4 text-sm leading-relaxed text-slate-600">{item.a}</p>}
+                  </li>
+                );
+              })}
+            </ul>
+          </article>
+        ))}
+      </section>
     </main>
   );
 };

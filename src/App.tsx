@@ -2,6 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import { Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
+import { ProductNavReplacementProvider } from './context/ProductNavReplacementContext';
 import { Footer } from './components/Footer';
 import { Navbar } from './components/Navbar';
 import { supabase } from './lib/supabase';
@@ -61,6 +62,8 @@ import { Profile } from './pages/Profile';
 import { ProfileEdit } from './pages/profile/ProfileEdit';
 import { ProfileOrders } from './pages/profile/ProfileOrders';
 import { ProfilePoints } from './pages/profile/ProfilePoints';
+import { ProfileCoupons } from './pages/profile/ProfileCoupons';
+import { ProfileTier } from './pages/profile/ProfileTier';
 import { ProfileReviews } from './pages/profile/ProfileReviews';
 import { ProfileTestResults } from './pages/profile/ProfileTestResults';
 import { ProfileTestResultDetail } from './pages/profile/ProfileTestResultDetail';
@@ -82,11 +85,12 @@ const App: React.FC = () => {
     <div className="flex min-h-screen min-w-0 flex-col overflow-x-hidden bg-white">
       <AuthProvider>
         <CartProvider>
+          <ProductNavReplacementProvider>
           <Navbar />
           <TrackVisit />
           <ScrollToTop />
           {/* 모바일에서 하단 고정 바 때문에 본문이 가려지지 않도록 패딩 */}
-          <div className="min-w-0 flex-1 overflow-x-hidden pb-16 md:pb-0">
+          <div className="min-w-0 flex-1 overflow-x-hidden pb-16 pt-[var(--semo-mobile-header-h)] md:pt-0 md:pb-0">
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/about" element={<About />} />
@@ -104,6 +108,8 @@ const App: React.FC = () => {
               <Route path="/profile" element={<Profile />} />
               <Route path="/profile/edit" element={<ProfileEdit />} />
               <Route path="/profile/points" element={<ProfilePoints />} />
+              <Route path="/profile/coupons" element={<ProfileCoupons />} />
+              <Route path="/profile/tier" element={<ProfileTier />} />
               <Route path="/profile/test-results" element={<ProfileTestResults />} />
               <Route path="/profile/test-results/:id" element={<ProfileTestResultDetail />} />
               <Route path="/profile/reviews" element={<ProfileReviews />} />
@@ -116,6 +122,7 @@ const App: React.FC = () => {
             </Routes>
           </div>
           <Footer />
+          </ProductNavReplacementProvider>
         </CartProvider>
       </AuthProvider>
     </div>

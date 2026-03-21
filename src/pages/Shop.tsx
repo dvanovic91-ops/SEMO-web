@@ -248,10 +248,9 @@ export const Shop: React.FC = () => {
   };
 
   return (
-    <main className="mx-auto min-w-0 max-w-6xl px-3 py-8 sm:px-6 sm:py-14 md:py-14">
-      <header className="mb-6 md:mb-8">
-        <p className="text-sm font-medium tracking-wide text-brand">Beauty Box</p>
-        <h1 className="prose-ru mt-2 text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl md:text-3xl">
+    <main className="mx-auto min-w-0 max-w-6xl px-3 py-5 sm:px-6 sm:py-10 md:py-14">
+      <header className="mb-12">
+        <h1 className="text-center text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl md:text-5xl">
           Курация весна/лето 2026
         </h1>
       </header>

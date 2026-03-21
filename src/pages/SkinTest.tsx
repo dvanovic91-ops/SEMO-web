@@ -13,6 +13,7 @@ import { getRecommendationPath } from '../config/skinTypeRecommendations';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { BackArrow } from '../components/BackArrow';
+import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../components/SemoPageSpinner';
 import { getOrCreateVisitSessionId } from '../lib/clientSession';
 
 const MAX_TEST_COUNT = 2;
@@ -160,11 +161,28 @@ export const SkinTest: React.FC = () => {
     !userId &&
     localStorage.getItem(`semo_anon_test_done:${getOrCreateVisitSessionId()}`) === '1';
 
+  /** 로그인 + Supabase: 테스트 횟수 조회 전까지 인트로 분기(한도 화면) 판단 불가 → 로딩 */
+  const skinLimitLoading = !!userId && !!supabase && testCount === null;
+
   if (stage === 'intro') {
+    if (skinLimitLoading) {
+      return (
+        <main className={SEMO_FULL_PAGE_LOADING_MAIN_CLASS}>
+          <SemoPageSpinner />
+        </main>
+      );
+    }
     if (anonAlreadyUsed) {
       return (
-        <main className="flex min-h-[100dvh] flex-col items-center justify-center bg-white px-4 py-6 sm:min-h-screen sm:py-16 md:py-24">
-          <div className="mx-auto w-full max-w-4xl px-1 text-center">
+        <main className="mx-auto flex min-h-[100dvh] flex-col bg-white px-4 py-5 sm:min-h-screen sm:px-6 sm:py-10 md:py-14">
+          <div className="mx-auto w-full max-w-4xl">
+            <header className="mb-12 text-center">
+              <h1 className="text-center text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl md:text-5xl">
+                Тест типа кожи
+              </h1>
+              <p className="mt-4 text-lg text-slate-600">Без аккаунта тест можно пройти один раз</p>
+            </header>
+            <div className="px-1 text-center">
             <p className="text-center text-sm leading-snug text-slate-600 sm:text-base md:text-lg">
               Тест можно пройти один раз без регистрации. Зарегистрируйтесь — результат сохранится и вы сможете пройти тест ещё раз.
             </p>
@@ -179,14 +197,22 @@ export const SkinTest: React.FC = () => {
                 Зарегистрироваться! Всего 10 секунд!
               </Link>
             </div>
+            </div>
           </div>
         </main>
       );
     }
     if (userId && limitReached && !isAdmin) {
       return (
-        <main className="flex min-h-[100dvh] flex-col items-center justify-center bg-white px-4 py-6 sm:min-h-screen sm:py-16 md:py-24">
-          <div className="mx-auto w-full max-w-4xl px-1 text-center">
+        <main className="mx-auto flex min-h-[100dvh] flex-col bg-white px-4 py-5 sm:min-h-screen sm:px-6 sm:py-10 md:py-14">
+          <div className="mx-auto w-full max-w-4xl">
+            <header className="mb-12 text-center">
+              <h1 className="text-center text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl md:text-5xl">
+                Тест типа кожи
+              </h1>
+              <p className="mt-4 text-lg text-slate-600">Лимит прохождений для вашего аккаунта</p>
+            </header>
+            <div className="px-1 text-center">
             <p className="text-center text-sm leading-snug text-slate-600 sm:text-base md:text-lg">
               Тест можно пройти не более 2 раз. Ваши результаты — в разделе «Профиль».
             </p>
@@ -198,17 +224,27 @@ export const SkinTest: React.FC = () => {
                 В профиль
               </Link>
             </div>
+            </div>
           </div>
         </main>
       );
     }
     return (
-      <main className="flex min-h-[100dvh] flex-col items-center justify-center bg-white px-4 py-6 sm:min-h-screen sm:py-16 md:py-24">
-        <div className="mx-auto w-full max-w-4xl px-1 text-center">
-          <p className="text-center text-sm leading-snug text-slate-600 break-words sm:text-base sm:leading-relaxed md:text-lg">
+      <main className="mx-auto flex min-h-[100dvh] flex-col bg-white px-4 py-5 sm:min-h-screen sm:px-6 sm:py-10 md:py-14">
+        <div className="mx-auto w-full max-w-4xl">
+          <header className="mb-12 text-center">
+            <h1 className="text-center text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl md:text-5xl">
+              Тест типа кожи
+            </h1>
+            <p className="mt-4 text-lg text-slate-600">
+              Персональный план ухода — подберите средства под ваш тип кожи
+            </p>
+          </header>
+          <div className="px-1 text-center">
+          <p className="text-center text-sm italic leading-snug text-slate-600 break-words sm:text-base sm:leading-relaxed md:text-lg">
             «Даже дорогой уход бесполезен, если он не подходит вашей коже.
           </p>
-          <p className="mt-2 text-center text-sm leading-snug text-slate-600 break-words sm:mt-3 sm:text-base sm:leading-relaxed md:text-lg">
+          <p className="mt-2 text-center text-sm italic leading-snug text-slate-600 break-words sm:mt-3 sm:text-base sm:leading-relaxed md:text-lg">
             Пройдите тест, чтобы не тратить лишнего и получить экспертный план ухода!»
           </p>
           <p className="mt-3 text-center text-xs text-slate-400 break-words sm:mt-6 sm:text-sm">
@@ -225,6 +261,7 @@ export const SkinTest: React.FC = () => {
             >
               Согласен(а) и начать
             </button>
+          </div>
           </div>
         </div>
       </main>

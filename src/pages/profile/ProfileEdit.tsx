@@ -18,33 +18,29 @@ import { clearPendingShippingBackup, flushPendingShippingBackup, savePendingShip
 import { shippingHasAnyField, validateShippingOrEmpty } from '../../lib/shippingValidation';
 import { clampDigits } from '../../lib/digitsOnly';
 import { CustomsPassportNotice } from '../../components/CustomsPassportNotice';
+import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../../components/SemoPageSpinner';
 import {
-  accountCardSubtextClass,
   accountLinkTwoColGridClass,
   accountPrimaryCtaClass,
   accountStatusPillClass,
 } from '../../lib/accountLinkUi';
+import {
+  deliveryContactInputEditable as contactInputEditable,
+  deliveryContactInputEmailPending as contactInputEmailPending,
+  deliveryContactInputLocked as contactInputLocked,
+  deliveryFormFieldColClass as fieldColClass,
+  deliveryFormFieldLabelClass as fieldLabelClass,
+  deliveryFormFioCellClass as fioCellClass,
+  deliveryFormHintClass as hintClass,
+  deliveryFormInputClass as inputClass,
+} from '../../lib/profileDeliveryFormUi';
 
 /**
  * 프로필 수정 — 기본 인적/배송 정보 보기·수정.
  * 새로고침 시 auth 초기화를 기다린 뒤 렌더링하며, 로딩/데이터 보호/세션 재검사/에러 방어 적용.
  */
-/** Register.tsx와 동일: 입력 높이·포커스 링 */
-const inputClass =
-  'w-full min-h-[44px] rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 placeholder:text-xs placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand sm:min-h-0';
+/** Имя / пароль — mb-1 라벨 (delivery fieldLabelClass와 구분) */
 const labelClass = 'mb-1 block text-sm font-medium text-slate-700';
-const hintClass = 'text-[11px] text-slate-500 font-normal';
-/** Доставка — Register와 동일: 라벨↔입력 간격 gap-1 */
-const fieldColClass = 'flex min-w-0 flex-col gap-1';
-const fioCellClass = 'flex min-h-0 min-w-0 flex-col gap-1';
-const fieldLabelClass = 'block text-sm font-medium text-slate-700';
-
-/** Доставка: Register와 동일 레이아웃; E-mail / Telegram-подтверждение — только в «Основные данные» */
-const contactInputBase =
-  'w-full min-w-0 rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-800 placeholder:text-xs placeholder:text-slate-400 focus:outline-none';
-const contactInputLocked = `${contactInputBase} cursor-default !bg-slate-200 text-slate-600 focus:ring-0`;
-const contactInputEditable = `${contactInputBase} bg-white focus:border-brand focus:ring-1 focus:ring-brand`;
-const contactInputEmailPending = `${contactInputBase} cursor-default bg-slate-50 text-slate-800 focus:border-brand focus:ring-1 focus:ring-brand`;
 
 function formatPhone(value: string): string {
   let digits = (value ?? '').replace(/\D/g, '').slice(0, 11);
@@ -68,8 +64,8 @@ function normalizeLatin(value: string): string {
 /** 로딩 스피너 — auth/세션 대기 시 항상 이걸로 먼저 반환 */
 function LoadingSpinner() {
   return (
-    <main className="flex min-h-[50vh] flex-col items-center justify-center px-4">
-      <p className="text-center text-sm text-slate-500">Загрузка…</p>
+    <main className={SEMO_FULL_PAGE_LOADING_MAIN_CLASS}>
+      <SemoPageSpinner />
     </main>
   );
 }
@@ -541,21 +537,23 @@ export const ProfileEdit: React.FC = () => {
                         </span>
                         <p className="text-sm font-semibold tracking-tight text-slate-900">Telegram</p>
                       </div>
-                      {/* Подтверждение — в блоке «Доставка» у телефона; здесь только статус (не кликабельно) */}
+                      {/* Только статус привязки — действия (кнопки) в блоке «Доставка» */}
                       <div className="mt-2.5">
-                        <button
-                          type="button"
-                          disabled
-                          className={accountStatusPillClass}
-                          aria-label={telegramLinked ? 'Telegram привязан' : 'Telegram не привязан'}
-                        >
-                          {telegramLinked ? 'Telegram привязан ✓' : 'Telegram не привязан'}
-                        </button>
+                        {!initialized ? (
+                          <div className="h-11 w-full animate-pulse rounded-xl bg-slate-200/70" aria-hidden />
+                        ) : (
+                          <div
+                            className={accountStatusPillClass}
+                            role="status"
+                            aria-label={telegramLinked ? 'Telegram привязан' : 'Telegram не привязан'}
+                          >
+                            {telegramLinked ? 'Telegram привязан ✓' : 'Telegram не привязан'}
+                          </div>
+                        )}
                       </div>
                     </div>
 
                     <div className="flex min-h-0 min-w-0 flex-col pl-2 sm:pl-3 md:pl-5">
-                      {/* Telegram 열과 동일: 아이콘+제목 한 줄, 버튼 한 줄, (선택) 짧은 안내만 */}
                       <div className="flex items-center justify-center gap-2.5">
                         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/90 text-brand shadow-sm ring-1 ring-brand/25">
                           <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" aria-hidden>
@@ -567,46 +565,18 @@ export const ProfileEdit: React.FC = () => {
                       <div className="mt-2.5">
                         {!initialized ? (
                           <div className="h-11 w-full animate-pulse rounded-xl bg-slate-200/70" aria-hidden />
-                        ) : isEmailConfirmed ? (
-                          <button
-                            type="button"
-                            disabled
-                            className={accountStatusPillClass}
-                            aria-label="Email подтверждён"
-                          >
-                            Email подтверждён ✓
-                          </button>
                         ) : (
-                          <button
-                            type="button"
-                            disabled={verifyEmailSending}
-                            onClick={() => void handleSendProfileVerifyEmail()}
-                            className={accountPrimaryCtaClass}
+                          <div
+                            className={accountStatusPillClass}
+                            role="status"
+                            aria-label={isEmailConfirmed ? 'Email подтверждён' : 'Email не подтверждён'}
                           >
-                            {verifyEmailSending ? 'Отправка…' : 'Подтвердить email'}
-                          </button>
+                            {isEmailConfirmed ? 'Email подтверждён ✓' : 'Email не подтверждён'}
+                          </div>
                         )}
                       </div>
-                      {initialized && !isEmailConfirmed && (
-                        <p className={accountCardSubtextClass}>
-                          Подтвердите email для оформления заказа.
-                        </p>
-                      )}
                     </div>
                   </div>
-                  {verifyEmailError && (
-                    <p className="prose-ru mt-3 border-t border-slate-200/50 pt-3 text-xs text-red-700" role="alert">
-                      {verifyEmailError}
-                    </p>
-                  )}
-                  {verifyEmailMessage && (
-                    <p
-                      className={`prose-ru text-xs text-slate-600 ${verifyEmailError ? 'mt-1.5' : 'mt-3 border-t border-slate-200/50 pt-3'}`}
-                      role="status"
-                    >
-                      {verifyEmailMessage}
-                    </p>
-                  )}
                 </div>
               )}
 
@@ -738,6 +708,57 @@ export const ProfileEdit: React.FC = () => {
                       <span className="whitespace-nowrap">Нет отчества</span>
                     </label>
                   </div>
+                </div>
+
+                {/* E-mail — над телефоном; подтверждён: серое поле; нет — как телефон + кнопка «Подтвердить email» */}
+                <div className={fieldColClass}>
+                  <label htmlFor="pe-delivery-email" className={fieldLabelClass}>
+                    E-mail
+                  </label>
+                  <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-stretch">
+                    <input
+                      id="pe-delivery-email"
+                      type="email"
+                      autoComplete="email"
+                      readOnly
+                      className={`min-w-0 flex-1 ${isEmailConfirmed ? contactInputLocked : contactInputEmailPending}`}
+                      value={form?.email ?? safeUserEmail ?? ''}
+                      aria-readonly
+                    />
+                    {!isEmailConfirmed && (
+                      <button
+                        type="button"
+                        disabled={verifyEmailSending || !safeUserEmail?.trim()}
+                        onClick={() => void handleSendProfileVerifyEmail()}
+                        className={`${accountPrimaryCtaClass} w-full shrink-0 sm:w-auto sm:px-5`}
+                      >
+                        {verifyEmailSending ? 'Отправка…' : 'Подтвердить email'}
+                      </button>
+                    )}
+                  </div>
+                  {!isEmailConfirmed && (
+                    <div
+                      className="flex w-full min-w-0 items-start gap-1 overflow-x-auto leading-tight [-webkit-overflow-scrolling:touch] [scrollbar-width:thin] text-gray-500 max-sm:text-[clamp(7px,2.65vw,9.5px)] sm:overflow-x-visible sm:text-[10px]"
+                      role="note"
+                    >
+                      <span aria-hidden className="shrink-0 select-none">
+                        *
+                      </span>
+                      <span className="min-w-0 whitespace-nowrap leading-[inherit]">
+                        Подтвердите email для оформления заказа.
+                      </span>
+                    </div>
+                  )}
+                  {verifyEmailError && (
+                    <p className="mt-2 text-xs text-red-600" role="alert">
+                      {verifyEmailError}
+                    </p>
+                  )}
+                  {verifyEmailMessage && (
+                    <p className="mt-2 text-xs text-slate-600" role="status">
+                      {verifyEmailMessage}
+                    </p>
+                  )}
                 </div>
 
                 {/* Телефон — поле flex-1 + узкая кнопка «Подтвердить» (текст без «в Telegram») */}

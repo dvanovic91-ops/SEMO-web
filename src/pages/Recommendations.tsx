@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { BackArrow } from '../components/BackArrow';
+import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../components/SemoPageSpinner';
 import { getSlotIndexForSkinType } from '../lib/skinTypeSlotMapping';
 import { supabase } from '../lib/supabase';
 
@@ -100,9 +101,9 @@ export const Recommendations: React.FC = () => {
   }
   if (typeLabel && loading) {
     return (
-      <div className="flex min-h-[40vh] items-center justify-center">
-        <p className="text-sm text-slate-500">Загрузка…</p>
-      </div>
+      <main className={SEMO_FULL_PAGE_LOADING_MAIN_CLASS}>
+        <SemoPageSpinner />
+      </main>
     );
   }
 

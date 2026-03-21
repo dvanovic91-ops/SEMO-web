@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { BackArrow } from '../../components/BackArrow';
+import { AuthInitializingScreen, SemoPageSpinner, SEMO_SECTION_LOADING_CLASS } from '../../components/SemoPageSpinner';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
 
@@ -68,7 +69,7 @@ export const ProfileReviews: React.FC = () => {
       .finally(() => setLoading(false));
   }, [userId]);
 
-  if (!initialized) return null;
+  if (!initialized) return <AuthInitializingScreen />;
   if (!isLoggedIn) return <Navigate to="/login" replace />;
 
   return (
@@ -86,7 +87,9 @@ export const ProfileReviews: React.FC = () => {
       </header>
 
       {loading ? (
-        <p className="text-center text-slate-500">Загрузка…</p>
+        <div className={SEMO_SECTION_LOADING_CLASS}>
+          <SemoPageSpinner />
+        </div>
       ) : list.length === 0 ? (
         <p className="rounded-xl border border-slate-100 bg-slate-50/50 px-4 py-8 text-center text-slate-500">
           Пока нет отзывов. Оформите заказ и оставьте отзыв — вам начислят баллы.

@@ -17,6 +17,7 @@ import { deleteMappingForTypes, fetchMapping, saveMapping } from '../../lib/skin
 import { supabase } from '../../lib/supabase';
 import { ALL_SKIN_TYPES } from '../../config/skinTypeRecommendations';
 import { PromoImageCropModal } from '../../components/PromoImageCropModal';
+import { AuthInitializingScreen } from '../../components/SemoPageSpinner';
 
 /** 관리자 폼: 모바일 100% 폭, 터치 친화적 min-height · text-base로 iOS 입력 시 자동 확대 완화 */
 const inputClass =
@@ -198,6 +199,43 @@ function formatNumber(n: number): string {
   return n.toLocaleString('en-US', { maximumFractionDigits: 0 });
 }
 
+/** 관리자 리뷰 필터: 브라우저 로컬 날짜 YYYY-MM-DD */
+function formatLocalYmd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function startOfLocalDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+}
+
+function endOfLocalDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+}
+
+/** 로컬 달력 하루 → ISO 구간 (created_at 필터용) */
+function localYmdDayBoundsIso(ymd: string): { startIso: string; endIso: string } {
+  const [y, m, d] = ymd.split('-').map((x) => parseInt(x, 10));
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) {
+    const now = new Date();
+    return { startIso: startOfLocalDay(now).toISOString(), endIso: endOfLocalDay(now).toISOString() };
+  }
+  const start = new Date(y, m - 1, d, 0, 0, 0, 0);
+  const end = new Date(y, m - 1, d, 23, 59, 59, 999);
+  return { startIso: start.toISOString(), endIso: end.toISOString() };
+}
+
+function localYmdRangeBoundsIso(startYmd: string, endYmd: string): { startIso: string; endIso: string } {
+  const a = localYmdDayBoundsIso(startYmd);
+  const b = localYmdDayBoundsIso(endYmd);
+  const ta = new Date(a.startIso).getTime();
+  const tb = new Date(b.startIso).getTime();
+  if (ta <= tb) return { startIso: a.startIso, endIso: b.endIso };
+  return { startIso: b.startIso, endIso: a.endIso };
+}
+
 /** 쇼핑(Beauty Box) 카드 박스 색상: brand=주황, sky=연하늘(패밀리) */
 type Product = {
   id: string;
@@ -312,11 +350,12 @@ const emptySlot = (index: number): Slot => ({
 /** 개발자 계정 이메일 — RLS 안내 문구에 사용 */
 const DEVELOPER_EMAILS = ['dvanovic91@gmail.com', 'dvavnovic91@gmail.com'];
 
-const ADMIN_TABS: { key: 'dashboard' | 'products' | 'skinMatch' | 'promo' | 'broadcast' | 'orders' | 'activityLogs' | 'cartAbandonment' | 'reviewManagement' | 'members'; label: string }[] = [
+const ADMIN_TABS: { key: 'dashboard' | 'products' | 'skinMatch' | 'promo' | 'promoCodes' | 'broadcast' | 'orders' | 'activityLogs' | 'cartAbandonment' | 'reviewManagement' | 'members'; label: string }[] = [
   { key: 'dashboard', label: '대시보드' },
   { key: 'products', label: '상품관리' },
   { key: 'skinMatch', label: '테스트 매칭' },
   { key: 'promo', label: '프로모' },
+  { key: 'promoCodes', label: '프로모코드' },
   { key: 'broadcast', label: '공지 발송' },
   { key: 'orders', label: '주문' },
   { key: 'activityLogs', label: '활동 로그' },
@@ -331,6 +370,7 @@ const ADMIN_TAB_ICON: Record<(typeof ADMIN_TABS)[number]['key'], string> = {
   products: '📦',
   skinMatch: '🧪',
   promo: '🎁',
+  promoCodes: '🎟️',
   broadcast: '📢',
   orders: '📋',
   activityLogs: '📝',
@@ -342,7 +382,9 @@ const ADMIN_TAB_ICON: Record<(typeof ADMIN_TABS)[number]['key'], string> = {
 export const Admin: React.FC = () => {
   const { isLoggedIn, initialized, isAdmin, canGrantPermission, canGrantAdminRole, userEmail } = useAuth();
   const canBroadcast = isAdmin;
-  const [tab, setTab] = useState<'dashboard' | 'products' | 'skinMatch' | 'promo' | 'broadcast' | 'orders' | 'activityLogs' | 'cartAbandonment' | 'reviewManagement' | 'members'>('dashboard');
+  const [tab, setTab] = useState<
+    'dashboard' | 'products' | 'skinMatch' | 'promo' | 'promoCodes' | 'broadcast' | 'orders' | 'activityLogs' | 'cartAbandonment' | 'reviewManagement' | 'members'
+  >('dashboard');
   /** 모바일: 햄버거로 열리는 탭 메뉴 */
   const [adminMobileMenuOpen, setAdminMobileMenuOpen] = useState(false);
   /** 헤더가 스크롤로 화면 밖으로 나가면 상단 고정바 표시 */
@@ -541,6 +583,17 @@ export const Admin: React.FC = () => {
   const [editingReplyText, setEditingReplyText] = useState('');
   const [reviewActionLoading, setReviewActionLoading] = useState<string | null>(null);
   const [reviewFilterUserId, setReviewFilterUserId] = useState<string | null>(null);
+  /** 리뷰 관리: 최신순 전체 | 특정 일 | 기간 */
+  const [reviewDateMode, setReviewDateMode] = useState<'latest' | 'day' | 'range'>('latest');
+  const [reviewFilterDayYmd, setReviewFilterDayYmd] = useState(() => formatLocalYmd(new Date()));
+  const [reviewFilterRangeStartYmd, setReviewFilterRangeStartYmd] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 6);
+    return formatLocalYmd(d);
+  });
+  const [reviewFilterRangeEndYmd, setReviewFilterRangeEndYmd] = useState(() => formatLocalYmd(new Date()));
+  /** 오늘·어제·최근 7일 건수 (로컬 기준) — 며칠 미확인 시 한눈에 */
+  const [reviewPeriodCounts, setReviewPeriodCounts] = useState<{ today: number; yesterday: number; week: number } | null>(null);
 
   /** 가입회원 관리 탭: 회원 목록 + 등급/쿠폰 지급 */
   type MemberRow = {
@@ -549,7 +602,11 @@ export const Admin: React.FC = () => {
     name: string | null;
     grade: string;
     points: number;
+    /** 사용 가능(미사용·미만료) / 전체 보유 쿠폰 수 */
+    coupons_active: number;
+    coupons_total: number;
     telegram_id: string | null;
+    email_verified_at: string | null;
     created_at: string;
     last_visit_at?: string | null;
     has_skin_test?: boolean;
@@ -570,6 +627,33 @@ export const Admin: React.FC = () => {
   /** 회원 역할 변경 후 목록 다시 불러오기용 */
   const [membersRefreshTrigger, setMembersRefreshTrigger] = useState(0);
   const [updatingRoleUserId, setUpdatingRoleUserId] = useState<string | null>(null);
+  /** 분기/특별 쿠폰 지급 후 안내(중복 스킵·특별 14일 등) */
+  const [membersInfoNotice, setMembersInfoNotice] = useState<string | null>(null);
+
+  /**
+   * 회원관리 → 주문/리뷰 이동 시 브라우저 뒤로가기로 다시 회원관리 탭으로 복귀
+   * (같은 /admin 내부 히스토리 엔트리를 1개 추가)
+   */
+  const pushMembersReturnHistory = useCallback(() => {
+    try {
+      window.history.pushState({ adminTab: 'members' }, '', window.location.href);
+    } catch {
+      // no-op
+    }
+  }, []);
+
+  useEffect(() => {
+    const onPopState = (e: PopStateEvent) => {
+      const s = e.state as { adminTab?: string } | null;
+      if (s?.adminTab === 'members') {
+        setTab('members');
+        setOrdersFilterUserId(null);
+        setReviewFilterUserId(null);
+      }
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
 
   /** 저장 성공 토스트 3초 후 자동 숨김 */
   useEffect(() => {
@@ -577,6 +661,12 @@ export const Admin: React.FC = () => {
     const t = setTimeout(() => setSaveSuccessAt(null), 3000);
     return () => clearTimeout(t);
   }, [saveSuccessAt]);
+
+  useEffect(() => {
+    if (membersInfoNotice == null) return;
+    const t = setTimeout(() => setMembersInfoNotice(null), 8000);
+    return () => clearTimeout(t);
+  }, [membersInfoNotice]);
 
   useEffect(() => {
     return () => {
@@ -598,7 +688,7 @@ export const Admin: React.FC = () => {
         // 1) 기본 프로필 목록 (역할: is_manager, is_admin 포함)
         const { data: profilesData, error: profilesError } = await supabase
           .from('profiles')
-          .select('id, email, name, grade, points, telegram_id, created_at, is_manager, is_admin')
+          .select('id, email, name, grade, points, telegram_id, email_verified_at, created_at, is_manager, is_admin')
           .order('created_at', { ascending: true });
 
         if (profilesError) {
@@ -614,7 +704,7 @@ export const Admin: React.FC = () => {
         }
 
         const profilesSafe =
-          (profilesData as { id: string; email: string | null; name: string | null; grade: string | null; points: number | null; telegram_id: string | null; created_at: string; is_manager?: boolean | null; is_admin?: boolean | null }[]) ??
+          (profilesData as { id: string; email: string | null; name: string | null; grade: string | null; points: number | null; telegram_id: string | null; email_verified_at: string | null; created_at: string; is_manager?: boolean | null; is_admin?: boolean | null }[]) ??
           [];
         const userIds = profilesSafe.map((p) => p.id);
 
@@ -696,6 +786,24 @@ export const Admin: React.FC = () => {
           console.warn('[Admin] site_visits 조회 실패 (무시 가능):', e);
         }
 
+        const couponAgg = new Map<string, { active: number; total: number }>();
+        userIds.forEach((id) => couponAgg.set(id, { active: 0, total: 0 }));
+        try {
+          const { data: couponRows } = await supabase
+            .from('membership_coupons')
+            .select('user_id, expires_at, used_at')
+            .in('user_id', userIds);
+          const nowTs = Date.now();
+          (couponRows ?? []).forEach((row: { user_id: string; expires_at: string; used_at: string | null }) => {
+            const cur = couponAgg.get(row.user_id) ?? { active: 0, total: 0 };
+            cur.total += 1;
+            if (!row.used_at && new Date(row.expires_at).getTime() >= nowTs) cur.active += 1;
+            couponAgg.set(row.user_id, cur);
+          });
+        } catch (e) {
+          console.warn('[Admin] membership_coupons 집계 실패 (무시 가능):', e);
+        }
+
         const mapped: MemberRow[] = profilesSafe.map((p) => {
           const agg = orderAgg.get(p.id);
           const sumRub = ((agg?.sumCentsDelivered ?? 0) / 100) as number;
@@ -703,13 +811,17 @@ export const Admin: React.FC = () => {
           if (sumRub >= 100000) tier = 'family';
           else if (sumRub >= 35000) tier = 'premium';
 
+          const cc = couponAgg.get(p.id) ?? { active: 0, total: 0 };
           return {
             id: p.id,
             email: p.email,
             name: p.name,
             grade: p.grade ?? '',
             points: p.points ?? 0,
+            coupons_active: cc.active,
+            coupons_total: cc.total,
             telegram_id: p.telegram_id,
+            email_verified_at: p.email_verified_at ?? null,
             created_at: p.created_at,
             last_visit_at: lastVisitMap.get(p.id) ?? null,
             has_skin_test: !!skinLatestMap.get(p.id)?.has,
@@ -1203,26 +1315,26 @@ export const Admin: React.FC = () => {
                 q3
                   .then(({ data: data3, error: err3 }) => {
                     if (err3) {
-                      setOrdersList(FAKE_ORDERS_DEMO);
+                      setOrdersList(ordersFilterUserId ? [] : FAKE_ORDERS_DEMO);
                     } else {
                       const list = (data3 as OrderRow[]) ?? [];
-                      setOrdersList(list.length > 0 ? list : FAKE_ORDERS_DEMO);
+                      setOrdersList(list.length > 0 ? list : ordersFilterUserId ? [] : FAKE_ORDERS_DEMO);
                     }
                   })
                   .finally(() => setOrdersLoading(false));
                 return;
               }
               const list2 = (data2 as OrderRow[]) ?? [];
-              setOrdersList(list2.length > 0 ? list2 : FAKE_ORDERS_DEMO);
+              setOrdersList(list2.length > 0 ? list2 : ordersFilterUserId ? [] : FAKE_ORDERS_DEMO);
             })
             .finally(() => setOrdersLoading(false));
           return;
         }
         const list = (data as OrderRow[]) ?? [];
-        setOrdersList(list.length > 0 ? list : FAKE_ORDERS_DEMO);
+        setOrdersList(list.length > 0 ? list : ordersFilterUserId ? [] : FAKE_ORDERS_DEMO);
       })
       .finally(() => setOrdersLoading(false));
-  }, [tab]);
+  }, [tab, ordersFilterUserId]);
 
   // 활동 로그 탭: activity_logs 최신순 (필터 있으면 해당 user_id만)
   useEffect(() => {
@@ -1284,7 +1396,43 @@ export const Admin: React.FC = () => {
       .finally(() => setCartAbandonmentLoading(false));
   }, [tab]);
 
-  // 리뷰 관리 탭: 전체 리뷰 목록 (상품명·작성자·내용·사진·대댓글·포인트 지급 여부) + 특정 회원 필터
+  // 리뷰 관리 탭: 오늘/어제/7일 건수 요약 (탭 진입 시)
+  useEffect(() => {
+    if (tab !== 'reviewManagement' || !supabase) return;
+    let cancelled = false;
+    const now = new Date();
+    const todayS = startOfLocalDay(now);
+    const todayE = endOfLocalDay(now);
+    const yest = new Date(now);
+    yest.setDate(yest.getDate() - 1);
+    const yestS = startOfLocalDay(yest);
+    const yestE = endOfLocalDay(yest);
+    const weekStart = new Date(now);
+    weekStart.setDate(weekStart.getDate() - 6);
+    const weekS = startOfLocalDay(weekStart);
+    const weekE = endOfLocalDay(now);
+
+    const countBetween = (fromIso: string, toIso: string) =>
+      supabase
+        .from('product_reviews')
+        .select('id', { count: 'exact', head: true })
+        .gte('created_at', fromIso)
+        .lte('created_at', toIso)
+        .then(({ count }) => count ?? 0);
+
+    void Promise.all([
+      countBetween(todayS.toISOString(), todayE.toISOString()),
+      countBetween(yestS.toISOString(), yestE.toISOString()),
+      countBetween(weekS.toISOString(), weekE.toISOString()),
+    ]).then(([today, yesterday, week]) => {
+      if (!cancelled) setReviewPeriodCounts({ today, yesterday, week });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, supabase]);
+
+  // 리뷰 관리 탭: 전체 리뷰 목록 (상품명·작성자·내용·사진·대댓글·포인트 지급 여부) + 특정 회원·날짜 필터
   useEffect(() => {
     if (tab !== 'reviewManagement' || !supabase) return;
     setReviewManagementLoading(true);
@@ -1294,6 +1442,13 @@ export const Admin: React.FC = () => {
       .order('created_at', { ascending: false });
     if (reviewFilterUserId) {
       q = q.eq('user_id', reviewFilterUserId);
+    }
+    if (reviewDateMode === 'day') {
+      const { startIso, endIso } = localYmdDayBoundsIso(reviewFilterDayYmd);
+      q = q.gte('created_at', startIso).lte('created_at', endIso);
+    } else if (reviewDateMode === 'range') {
+      const { startIso, endIso } = localYmdRangeBoundsIso(reviewFilterRangeStartYmd, reviewFilterRangeEndYmd);
+      q = q.gte('created_at', startIso).lte('created_at', endIso);
     }
     q.then(async ({ data: reviews, error }) => {
       if (error) {
@@ -1353,7 +1508,7 @@ export const Admin: React.FC = () => {
         }))
       );
     }).finally(() => setReviewManagementLoading(false));
-  }, [tab, supabase, reviewFilterUserId]);
+  }, [tab, supabase, reviewFilterUserId, reviewDateMode, reviewFilterDayYmd, reviewFilterRangeStartYmd, reviewFilterRangeEndYmd]);
 
   // 선택된 상품의 구성품 로드 (image_urls 있으면 사용, 없으면 [image_url]로 보정)
   useEffect(() => {
@@ -1493,23 +1648,28 @@ export const Admin: React.FC = () => {
         return;
       }
       const now = new Date();
-      const expiresAt = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000).toISOString();
-      const quarterLabel = `special-${now.getFullYear()}-${(now.getMonth() + 1)
-        .toString()
-        .padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')}`;
-      const rows = selectedMemberIds.map((userId) => ({
-        user_id: userId,
+      /** 분기 쿠폰과 구분: 동일 배치는 같은 quarter_label (user당 복수 특별은 배치마다 새 label) */
+      const batchLabel = `special-batch-${Date.now()}`;
+      const expiresAt = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
+      const rows = selectedMemberIds.map((uid) => ({
+        user_id: uid,
         amount: specialCouponAmount,
-        tier: 'basic' as const,
-        quarter_label: quarterLabel,
+        tier: 'special' as const,
+        quarter_label: batchLabel,
         expires_at: expiresAt,
       }));
       const { error } = await supabase.from('membership_coupons').insert(rows);
       if (error) {
         console.error('[Admin] 특별 쿠폰 insert 실패:', error);
-        setMembersError('특별 쿠폰 지급에 실패했습니다. Supabase membership_coupons RLS/제약 조건을 확인하세요.');
+        setMembersError(
+          '특별 쿠폰 지급에 실패했습니다. Supabase에서 tier에 special 허용 여부를 확인하세요 (docs/SUPABASE_MEMBERSHIP_COUPONS_TIER_SPECIAL.sql).',
+        );
         return;
       }
+      setMembersInfoNotice(
+        '특별 쿠폰을 지급했습니다. tier=special, 유효기간 14일. 분기 쿠폰과 별도이며 중복 규칙에 걸리지 않습니다.',
+      );
+      setMembersRefreshTrigger((t) => t + 1);
       setSaveSuccessAt(Date.now());
     } catch (e) {
       console.error('[Admin] 쿠폰 지급 중 오류:', e);
@@ -1531,6 +1691,10 @@ export const Admin: React.FC = () => {
         setMembersError('분기 쿠폰 지급에 실패했습니다. Supabase SQL 함수·RLS 설정을 확인하세요.');
         return;
       }
+      setMembersInfoNotice(
+        '분기 쿠폰 지급을 실행했습니다. 이미 해당 분기(동일 quarter_label) 쿠폰이 있는 회원은 DB에서 자동으로 건너뜁니다.',
+      );
+      setMembersRefreshTrigger((t) => t + 1);
       setSaveSuccessAt(Date.now());
     } catch (e) {
       console.error('[Admin] 분기 쿠폰 지급 중 오류:', e);
@@ -1540,7 +1704,7 @@ export const Admin: React.FC = () => {
     }
   };
 
-  if (!initialized) return null;
+  if (!initialized) return <AuthInitializingScreen />;
   if (!isLoggedIn) return <Navigate to="/login" replace />;
   if (!isAdmin) return <Navigate to="/" replace />;
 
@@ -3656,6 +3820,26 @@ export const Admin: React.FC = () => {
         }}
       />
 
+      {tab === 'promoCodes' && (
+        <section className="mt-4">
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <h2 className="mb-2 text-sm font-semibold text-slate-900">프로모코드 (구매·외부 판매용)</h2>
+            <p className="mb-3 text-xs leading-relaxed text-slate-500">
+              이커머스에서 코드만 판매 → 사용자가 웹에 입력 시 지정 금액 쿠폰 지급. DB 스키마·RPC는{' '}
+              <code className="rounded bg-slate-100 px-1 text-[11px]">docs/SUPABASE_PROMO_CODES.sql</code> 참고.
+            </p>
+            <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/80 p-4 text-sm text-slate-700">
+              <p className="font-medium text-slate-800">예정 구조</p>
+              <ul className="mt-2 list-inside list-disc space-y-1 text-xs text-slate-600">
+                <li>promo_codes: code(고유), amount_rub, expires_at, max_redemptions, redeemed_count</li>
+                <li>redeem_promo_code(p_code) → membership_coupons 행 생성 + 사용 횟수 갱신</li>
+                <li>관리자: 코드 일괄 생성·비활성화 (이 탭에서 목록·폼 연동 예정)</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+      )}
+
       {tab === 'broadcast' && (
         <section className="mt-4 w-full min-w-0 px-1 sm:px-0">
           <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-6 lg:flex-row lg:items-stretch lg:justify-center lg:gap-8">
@@ -4450,7 +4634,7 @@ export const Admin: React.FC = () => {
             <div>
               <h2 className="text-sm font-semibold text-slate-900">가입회원 관리</h2>
               <p className="mt-1 text-[11px] text-slate-500">
-                관리자 명단과 일반 회원을 구분해 표시합니다. 등급·포인트·스킨 테스트·텔레그램 연동을 확인할 수 있습니다.
+                관리자 명단과 일반 회원을 구분해 표시합니다. 등급·포인트·스킨 테스트·텔레그램·이메일 확인 여부를 볼 수 있습니다.
               </p>
             </div>
             {canGrantPermission && (
@@ -4493,6 +4677,11 @@ export const Admin: React.FC = () => {
           {membersError && (
             <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
               {membersError}
+            </div>
+          )}
+          {membersInfoNotice && (
+            <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900" role="status">
+              {membersInfoNotice}
             </div>
           )}
 
@@ -4619,9 +4808,10 @@ export const Admin: React.FC = () => {
                   <h3 className="shrink-0 border-b border-slate-100 px-4 py-3 text-xs font-semibold text-slate-900">쿠폰지급 규정</h3>
                   <div className="flex-1 overflow-auto px-4 py-2">
                     <ul className="space-y-1 text-[11px] text-slate-600">
-                      <li>분기별 구독 회원 대상으로 쿠폰 일괄 지급 (분기 후 소멸)</li>
-                      <li className="pl-3">일반 100p, 프리미엄 200p, 가족등급 300p</li>
-                      <li>향후 바우처 개발하여 코드로 활성화</li>
+                      <li>분기 쿠폰: 회원당 동일 분기(예: 2026Q1) 1장만 — 이미 있으면 재지급 시 자동 스킵</li>
+                      <li className="pl-3">브론즈 100₽, 실버 200₽, 골드 300₽ · 만료 약 90일</li>
+                      <li>특별 쿠폰: 분기와 무관, tier=special, 만료 14일, 선택 회원 일괄</li>
+                      <li>향후 바우처 코드 활성화 검토</li>
                     </ul>
                   </div>
                 </div>
@@ -4655,27 +4845,28 @@ export const Admin: React.FC = () => {
                   )}
                   <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-slate-700">회원</th>
                   <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-slate-700">회원등급</th>
+                  <th className="whitespace-nowrap px-3 py-2 text-center font-medium text-slate-700">쿠폰</th>
                   <th className="whitespace-nowrap px-3 py-2 text-right font-medium text-slate-700">보유 포인트</th>
                   <th className="whitespace-nowrap px-3 py-2 text-center font-medium text-slate-700">주문 수</th>
                   <th className="whitespace-nowrap px-3 py-2 text-center font-medium text-slate-700">스킨 테스트</th>
                   <th className="whitespace-nowrap px-3 py-2 text-center font-medium text-slate-700">텔레그램</th>
+                  <th className="whitespace-nowrap px-3 py-2 text-center font-medium text-slate-700">이메일 확인</th>
                   <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-slate-700">가입일</th>
                   <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-slate-700">마지막 방문</th>
-                  {canGrantPermission && <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-slate-700">권한</th>}
                   <th className="whitespace-nowrap px-3 py-2 text-center font-medium text-slate-700">조치</th>
                 </tr>
               </thead>
               <tbody>
                 {membersLoading && (
                   <tr>
-                    <td colSpan={canGrantPermission ? 11 : 10} className="px-3 py-6 text-center text-[11px] text-slate-500">
+                    <td colSpan={canGrantPermission ? 12 : 11} className="px-3 py-6 text-center text-[11px] text-slate-500">
                       회원 목록을 불러오는 중입니다…
                     </td>
                   </tr>
                 )}
                 {!membersLoading && regularMembers.length === 0 && (
                   <tr>
-                    <td colSpan={canGrantPermission ? 11 : 10} className="px-3 py-6 text-center text-[11px] text-slate-500">
+                    <td colSpan={canGrantPermission ? 12 : 11} className="px-3 py-6 text-center text-[11px] text-slate-500">
                       등록된 일반 회원이 없습니다.
                     </td>
                   </tr>
@@ -4705,10 +4896,20 @@ export const Admin: React.FC = () => {
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 text-slate-700">
                         {m.tier === 'family'
-                          ? '가족'
+                          ? '골드'
                           : m.tier === 'premium'
-                          ? '프리미엄'
-                          : '일반'}
+                          ? '실버'
+                          : '브론즈'}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2 text-center text-[11px] text-slate-700">
+                        <button
+                          type="button"
+                          className="rounded border border-slate-200 bg-white px-2 py-0.5 tabular-nums hover:bg-slate-50"
+                          onClick={() => window.open(`/profile/coupons?userId=${encodeURIComponent(m.id)}`, '_blank')}
+                          title="쿠폰 상세(새 탭)"
+                        >
+                          사용 {m.coupons_active} / 전체 {m.coupons_total}
+                        </button>
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-800">
                         <div className="inline-flex items-center gap-1">
@@ -4747,31 +4948,25 @@ export const Admin: React.FC = () => {
                       <td className="whitespace-nowrap px-3 py-2 text-center text-slate-700">
                         {m.telegram_id ? '연동' : '미연동'}
                       </td>
+                      <td className="whitespace-nowrap px-3 py-2 text-center text-slate-700">
+                        {m.email_verified_at ? (
+                          <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-medium text-emerald-800">확인</span>
+                        ) : (
+                          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600">미확인</span>
+                        )}
+                      </td>
                       <td className="whitespace-nowrap px-3 py-2 text-slate-700">
                         {m.created_at ? new Date(m.created_at).toLocaleDateString('ru-RU') : '—'}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 text-slate-700">
                         {m.last_visit_at ? new Date(m.last_visit_at).toLocaleString('ru-RU') : '—'}
                       </td>
-                      {canGrantPermission && (
-                      <td className="whitespace-nowrap px-3 py-2">
-                        <select
-                          value="member"
-                          onChange={(e) => handleUpdateMemberRole(m.id, e.target.value as 'member' | 'manager' | 'admin')}
-                          disabled={updatingRoleUserId === m.id}
-                          className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700 disabled:opacity-50"
-                        >
-                          <option value="member">회원</option>
-                          <option value="manager">매니저</option>
-                          {canGrantAdminRole && <option value="admin">관리자</option>}
-                        </select>
-                      </td>
-                      )}
                       <td className="whitespace-nowrap px-3 py-2 text-center">
                         <div className="flex flex-wrap items-center justify-center gap-1">
                           <button
                             type="button"
                             onClick={() => {
+                              pushMembersReturnHistory();
                               setOrdersFilterUserId(m.id);
                               setTab('orders');
                             }}
@@ -4782,6 +4977,7 @@ export const Admin: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => {
+                              pushMembersReturnHistory();
                               setReviewFilterUserId(m.id);
                               setTab('reviewManagement');
                             }}
@@ -4822,11 +5018,31 @@ export const Admin: React.FC = () => {
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span className="text-xs text-slate-500">등급</span>
-                      <span>{m.tier === 'family' ? '가족' : m.tier === 'premium' ? '프리미엄' : '일반'}</span>
+                      <span>{m.tier === 'family' ? '골드' : m.tier === 'premium' ? '실버' : '브론즈'}</span>
                     </div>
-                    <div className="flex justify-between">
+                    <div className="flex justify-between gap-2">
+                      <span className="text-xs text-slate-500">쿠폰</span>
+                      <button
+                        type="button"
+                        className="text-xs font-medium text-brand hover:underline"
+                        onClick={() => window.open(`/profile/coupons?userId=${encodeURIComponent(m.id)}`, '_blank')}
+                      >
+                        사용 {m.coupons_active} / 전체 {m.coupons_total}
+                      </button>
+                    </div>
+                    <div className="flex justify-between gap-2">
                       <span className="text-xs text-slate-500">포인트</span>
-                      <span className="tabular-nums">{m.points.toLocaleString('ru-RU')} pt</span>
+                      <span className="inline-flex items-center gap-1 tabular-nums">
+                        {m.points.toLocaleString('ru-RU')} pt
+                        <button
+                          type="button"
+                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-[11px] text-slate-700 hover:bg-slate-50"
+                          onClick={() => window.open(`/profile/points?userId=${m.id}`, '_blank')}
+                          title="포인트 내역"
+                        >
+                          ★
+                        </button>
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-xs text-slate-500">주문</span>
@@ -4841,33 +5057,33 @@ export const Admin: React.FC = () => {
                       <span>{m.telegram_id ? '연동' : '미연동'}</span>
                     </div>
                     <div className="flex justify-between">
+                      <span className="text-xs text-slate-500">이메일 확인</span>
+                      <span>{m.email_verified_at ? '확인' : '미확인'}</span>
+                    </div>
+                    <div className="flex justify-between">
                       <span className="text-xs text-slate-500">가입일</span>
                       <span>{m.created_at ? new Date(m.created_at).toLocaleDateString('ru-RU') : '—'}</span>
                     </div>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
-                    {canGrantPermission && (
-                      <select
-                        value="member"
-                        onChange={(e) => handleUpdateMemberRole(m.id, e.target.value as 'member' | 'manager' | 'admin')}
-                        disabled={updatingRoleUserId === m.id}
-                        className={inputClass + ' max-w-[140px]'}
-                      >
-                        <option value="member">회원</option>
-                        <option value="manager">매니저</option>
-                        {canGrantAdminRole && <option value="admin">관리자</option>}
-                      </select>
-                    )}
                     <button
                       type="button"
-                      onClick={() => { setOrdersFilterUserId(m.id); setTab('orders'); }}
+                      onClick={() => {
+                        pushMembersReturnHistory();
+                        setOrdersFilterUserId(m.id);
+                        setTab('orders');
+                      }}
                       className="min-h-[44px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
                     >
                       주문
                     </button>
                     <button
                       type="button"
-                      onClick={() => { setReviewFilterUserId(m.id); setTab('reviewManagement'); }}
+                      onClick={() => {
+                        pushMembersReturnHistory();
+                        setReviewFilterUserId(m.id);
+                        setTab('reviewManagement');
+                      }}
                       className="min-h-[44px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
                     >
                       리뷰
@@ -5066,14 +5282,114 @@ export const Admin: React.FC = () => {
       {tab === 'reviewManagement' && (
         <section className="mt-4">
           <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <h2 className="mb-1 text-xs font-semibold text-slate-900">리뷰 관리</h2>
-            <p className="mb-4 text-[11px] text-slate-500">
-              전체 리뷰 목록. 삭제, 리뷰 포인트 지급(일반 200 / 특별 500), 대댓글 작성이 가능합니다.
-            </p>
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <h2 className="mb-1 text-xs font-semibold text-slate-900">리뷰 관리</h2>
+                <p className="text-[11px] text-slate-500">
+                  전체 리뷰 목록. 삭제, 리뷰 포인트 지급(일반 200 / 특별 500), 대댓글 작성이 가능합니다. 우측에서 날짜·기간으로 좁힐 수 있습니다.
+                </p>
+              </div>
+              <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
+                {reviewPeriodCounts != null && (
+                  <div className="flex flex-wrap justify-end gap-1.5" role="group" aria-label="기간별 리뷰 건수(클릭 시 해당 범위로 필터)">
+                    <button
+                      type="button"
+                      className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-700 transition hover:bg-slate-100"
+                      onClick={() => {
+                        setReviewDateMode('day');
+                        setReviewFilterDayYmd(formatLocalYmd(new Date()));
+                      }}
+                    >
+                      오늘 {reviewPeriodCounts.today}
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-700 transition hover:bg-slate-100"
+                      onClick={() => {
+                        const d = new Date();
+                        d.setDate(d.getDate() - 1);
+                        setReviewDateMode('day');
+                        setReviewFilterDayYmd(formatLocalYmd(d));
+                      }}
+                    >
+                      어제 {reviewPeriodCounts.yesterday}
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-700 transition hover:bg-slate-100"
+                      onClick={() => {
+                        const end = new Date();
+                        const start = new Date();
+                        start.setDate(start.getDate() - 6);
+                        setReviewDateMode('range');
+                        setReviewFilterRangeStartYmd(formatLocalYmd(start));
+                        setReviewFilterRangeEndYmd(formatLocalYmd(end));
+                      }}
+                    >
+                      최근 7일 {reviewPeriodCounts.week}
+                    </button>
+                  </div>
+                )}
+                <p className="text-right text-[10px] text-slate-400">날짜·건수는 이 기기(브라우저) 로컬 자정 기준입니다.</p>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <label className="sr-only" htmlFor="review-date-mode">
+                    리뷰 정렬·기간
+                  </label>
+                  <select
+                    id="review-date-mode"
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800"
+                    value={reviewDateMode}
+                    onChange={(e) => setReviewDateMode(e.target.value as 'latest' | 'day' | 'range')}
+                  >
+                    <option value="latest">최신순 (전체)</option>
+                    <option value="day">특정 일</option>
+                    <option value="range">기간</option>
+                  </select>
+                  {reviewDateMode === 'day' && (
+                    <input
+                      type="date"
+                      className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 [color-scheme:light]"
+                      value={reviewFilterDayYmd}
+                      onChange={(e) => setReviewFilterDayYmd(e.target.value)}
+                    />
+                  )}
+                  {reviewDateMode === 'range' && (
+                    <>
+                      <input
+                        type="date"
+                        className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 [color-scheme:light]"
+                        value={reviewFilterRangeStartYmd}
+                        onChange={(e) => setReviewFilterRangeStartYmd(e.target.value)}
+                        aria-label="기간 시작"
+                      />
+                      <span className="text-xs text-slate-400">~</span>
+                      <input
+                        type="date"
+                        className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 [color-scheme:light]"
+                        value={reviewFilterRangeEndYmd}
+                        onChange={(e) => setReviewFilterRangeEndYmd(e.target.value)}
+                        aria-label="기간 끝"
+                      />
+                    </>
+                  )}
+                </div>
+                {reviewFilterUserId ? (
+                  <button
+                    type="button"
+                    className="self-end rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-900 hover:bg-amber-100"
+                    onClick={() => setReviewFilterUserId(null)}
+                  >
+                    회원 필터 해제
+                  </button>
+                ) : null}
+              </div>
+            </div>
             {reviewManagementLoading ? (
               <p className="py-8 text-center text-xs text-slate-500">불러오는 중…</p>
             ) : reviewManagementList.length === 0 ? (
-              <p className="py-8 text-center text-xs text-slate-500">등록된 리뷰가 없습니다.</p>
+              <p className="py-8 text-center text-xs text-slate-500">
+                {reviewDateMode !== 'latest' || reviewFilterUserId ? '이 조건에 맞는 리뷰가 없습니다.' : '등록된 리뷰가 없습니다.'}
+              </p>
             ) : (
               <ul className="space-y-6">
                 {reviewManagementList.map((r) => (

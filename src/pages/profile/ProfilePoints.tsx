@@ -1,28 +1,34 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Link, Navigate } from 'react-router-dom';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { BackArrow } from '../../components/BackArrow';
+import { AuthInitializingScreen } from '../../components/SemoPageSpinner';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 /** 포인트 내역 — 잔액은 DB(profiles.points) 우선, 내역은 향후 API 연동 예정 */
 export const ProfilePoints: React.FC = () => {
-  const { userEmail, userId, isLoggedIn, initialized } = useAuth();
+  const [searchParams] = useSearchParams();
+  const { userEmail, userId, isLoggedIn, initialized, isAdmin } = useAuth();
+  /** 관리자: ?userId= 로 다른 회원 포인트 조회 */
+  const targetUserId = useMemo(() => {
+    const p = searchParams.get('userId');
+    if (isAdmin && p && UUID_RE.test(p)) return p;
+    return userId ?? null;
+  }, [searchParams, isAdmin, userId]);
   const [dbPoints, setDbPoints] = useState<number | null>(null);
   const [profileMeta, setProfileMeta] = useState<{ telegram_reward_given: boolean } | null>(null);
-  const [coupons, setCoupons] = useState<
-    { id: string; amount: number; expires_at: string; used_at: string | null; tier?: string | null; quarter_label?: string | null }[]
-  >([]);
   const [history, setHistory] = useState<{ id: string; label: string; amount: number; date: string }[]>([]);
   const currentUserIdRef = useRef<string | null>(null);
-  currentUserIdRef.current = userId;
+  currentUserIdRef.current = targetUserId;
 
   const refreshPoints = useCallback(() => {
-    if (!supabase || !userId) {
+    if (!supabase || !targetUserId) {
       setDbPoints(null);
-      setCoupons([]);
       return;
     }
-    const requestedUserId = userId;
+    const requestedUserId = targetUserId;
     supabase
       .from('profiles')
       .select('points, telegram_reward_given')
@@ -37,23 +43,6 @@ export const ProfilePoints: React.FC = () => {
         if (currentUserIdRef.current !== requestedUserId) return;
         setDbPoints(null);
         setProfileMeta(null);
-      });
-
-    supabase
-      .from('membership_coupons')
-      .select('id, amount, expires_at, used_at, tier, quarter_label')
-      .eq('user_id', requestedUserId)
-      .order('expires_at', { ascending: true })
-      .then(({ data }) => {
-        if (currentUserIdRef.current !== requestedUserId) return;
-        setCoupons(
-          (data as { id: string; amount: number; expires_at: string; used_at: string | null; tier?: string | null; quarter_label?: string | null }[]) ??
-            [],
-        );
-      })
-      .catch(() => {
-        if (currentUserIdRef.current !== requestedUserId) return;
-        setCoupons([]);
       });
 
     Promise.allSettled([
@@ -183,7 +172,7 @@ export const ProfilePoints: React.FC = () => {
           );
         });
       });
-  }, [userId]);
+  }, [targetUserId]);
 
   useEffect(() => {
     refreshPoints();
@@ -205,14 +194,21 @@ export const ProfilePoints: React.FC = () => {
       ? [...history, { id: 'telegram-reward', label: 'Бонус за привязку Telegram', amount: 200, date: '' }]
       : history;
 
-  if (!initialized) return null;
+  if (!initialized) return <AuthInitializingScreen />;
   if (!isLoggedIn) return <Navigate to="/login" replace />;
+
+  const viewingOtherUser = isAdmin && targetUserId && userId && targetUserId !== userId;
 
   return (
     <main className="mx-auto max-w-xl px-4 py-6 sm:px-6 sm:py-10 md:py-14">
       <p className="mb-6">
         <Link to="/profile" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> Profile</Link>
       </p>
+      {viewingOtherUser && (
+        <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" role="status">
+          Просмотр баллов выбранного пользователя (админ).
+        </p>
+      )}
       <header className="mb-8">
         <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
           История баллов
@@ -245,46 +241,6 @@ export const ProfilePoints: React.FC = () => {
         ))}
       </ul>
 
-      <section className="mt-8">
-        <h2 className="text-sm font-semibold text-slate-900">Купоны по уровню участника</h2>
-        {coupons.length === 0 ? (
-          <p className="mt-2 text-sm text-slate-500">Пока нет купонов.</p>
-        ) : (
-          <ul className="mt-3 space-y-3">
-            {coupons.map((c) => {
-              const now = new Date();
-              const expires = new Date(c.expires_at);
-              const isUsed = !!c.used_at;
-              const isExpired = !isUsed && expires.getTime() < now.getTime();
-              const statusText = isUsed
-                ? 'Использован'
-                : isExpired
-                ? 'Истёк'
-                : `Действует до ${expires.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}`;
-              return (
-                <li
-                  key={c.id}
-                  className="flex items-center justify-between rounded-xl border border-slate-100 bg-white px-4 py-3 text-sm"
-                >
-                  <div>
-                    <p className="font-medium text-slate-800">
-                      Купон {c.amount} ₽ {c.tier ? `(${c.tier})` : ''}
-                    </p>
-                    <p className="text-xs text-slate-500">{c.quarter_label ?? ''}</p>
-                  </div>
-                  <span
-                    className={
-                      isUsed ? 'text-slate-400 text-xs' : isExpired ? 'text-slate-400 text-xs' : 'text-emerald-600 text-xs font-medium'
-                    }
-                  >
-                    {statusText}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
     </main>
   );
 };

@@ -6,7 +6,7 @@ create table if not exists public.membership_coupons (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
   amount int not null,                 -- 100 / 200 / 300 (루블)
-  tier text not null check (tier in ('basic', 'premium', 'family')),
+  tier text not null check (tier in ('basic', 'premium', 'family', 'special')),
   quarter_label text not null,         -- 예: 2026Q2
   created_at timestamptz default now(),
   expires_at timestamptz not null,

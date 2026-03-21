@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { BackArrow } from '../../components/BackArrow';
+import { AuthInitializingScreen, SemoPageSpinner, SEMO_SECTION_LOADING_CLASS } from '../../components/SemoPageSpinner';
 import { getRecommendationPath } from '../../config/skinTypeRecommendations';
 import { useAuth } from '../../context/AuthContext';
 import { SKIN_INFO } from '../../data/skinTestData';
@@ -49,7 +50,7 @@ export const ProfileTestResultDetail: React.FC = () => {
       });
   }, [id, userId]);
 
-  if (!initialized) return null;
+  if (!initialized) return <AuthInitializingScreen />;
   if (!isLoggedIn) return <Navigate to="/login" replace />;
 
   const formatDate = (iso: string) => {
@@ -66,7 +67,9 @@ export const ProfileTestResultDetail: React.FC = () => {
         <p className="mb-6">
           <Link to="/profile/test-results" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> Результаты тестов</Link>
         </p>
-        <p className="py-8 text-center text-sm text-slate-500">Загрузка…</p>
+        <div className={SEMO_SECTION_LOADING_CLASS}>
+          <SemoPageSpinner />
+        </div>
       </main>
     );
   }

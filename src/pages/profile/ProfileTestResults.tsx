@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { BackArrow } from '../../components/BackArrow';
+import { AuthInitializingScreen, SemoPageSpinner, SEMO_SECTION_LOADING_CLASS } from '../../components/SemoPageSpinner';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
 
@@ -58,7 +59,9 @@ export const ProfileTestResults: React.FC = () => {
         <p className="mt-1 text-sm text-slate-500">Последние результаты теста типа кожи</p>
       </header>
       {loading ? (
-        <p className="py-8 text-center text-sm text-slate-500">Загрузка…</p>
+        <div className={SEMO_SECTION_LOADING_CLASS}>
+          <SemoPageSpinner />
+        </div>
       ) : list.length === 0 ? (
         <p className="rounded-xl border border-slate-100 bg-slate-50/50 px-4 py-8 text-center text-slate-500">
           Пока нет результатов. Пройдите тест типа кожи.
