@@ -1054,7 +1054,7 @@ export const Checkout: React.FC = () => {
                       onClick={() => void handleTelegramVerify()}
                       className={accountPrimaryCtaClass}
                     >
-                      Подтвердить в Telegram
+                      Подтвердить
                     </button>
                   )}
                 </div>

@@ -19,6 +19,7 @@ import { shippingHasAnyField, validateShippingOrEmpty } from '../../lib/shipping
 import { clampDigits } from '../../lib/digitsOnly';
 import { CustomsPassportNotice } from '../../components/CustomsPassportNotice';
 import {
+  accountCardSubtextClass,
   accountLinkTwoColGridClass,
   accountPrimaryCtaClass,
   accountStatusPillClass,
@@ -28,13 +29,17 @@ import {
  * 프로필 수정 — 기본 인적/배송 정보 보기·수정.
  * 새로고침 시 auth 초기화를 기다린 뒤 렌더링하며, 로딩/데이터 보호/세션 재검사/에러 방어 적용.
  */
+/** Register.tsx와 동일: 입력 높이·포커스 링 */
 const inputClass =
-  'w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 placeholder:text-xs placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand';
+  'w-full min-h-[44px] rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 placeholder:text-xs placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand sm:min-h-0';
 const labelClass = 'mb-1 block text-sm font-medium text-slate-700';
 const hintClass = 'text-[11px] text-slate-500 font-normal';
-const fieldHintSpacing = 'mt-4';
+/** Доставка — Register와 동일: 라벨↔입력 간격 gap-1 */
+const fieldColClass = 'flex min-w-0 flex-col gap-1';
+const fioCellClass = 'flex min-h-0 min-w-0 flex-col gap-1';
+const fieldLabelClass = 'block text-sm font-medium text-slate-700';
 
-/** Доставка: телефон и email — полная ширина, без дублирующих кнопок (статус — в «Основные данные») */
+/** Доставка: Register와 동일 레이아웃; E-mail / Telegram-подтверждение — только в «Основные данные» */
 const contactInputBase =
   'w-full min-w-0 rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-800 placeholder:text-xs placeholder:text-slate-400 focus:outline-none';
 const contactInputLocked = `${contactInputBase} cursor-default !bg-slate-200 text-slate-600 focus:ring-0`;
@@ -536,28 +541,17 @@ export const ProfileEdit: React.FC = () => {
                         </span>
                         <p className="text-sm font-semibold tracking-tight text-slate-900">Telegram</p>
                       </div>
+                      {/* Подтверждение — в блоке «Доставка» у телефона; здесь только статус (не кликабельно) */}
                       <div className="mt-2.5">
-                        {telegramLinked ? (
-                          <button type="button" disabled className={accountStatusPillClass} aria-label="Telegram привязан">
-                            Telegram привязан ✓
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled={!editing || !form?.phone?.trim()}
-                            onClick={() => void handleTelegramVerify()}
-                            className={accountPrimaryCtaClass}
-                          >
-                            Подтвердить в Telegram
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          disabled
+                          className={accountStatusPillClass}
+                          aria-label={telegramLinked ? 'Telegram привязан' : 'Telegram не привязан'}
+                        >
+                          {telegramLinked ? 'Telegram привязан ✓' : 'Telegram не привязан'}
+                        </button>
                       </div>
-                      {!telegramLinked && (
-                        <p className="prose-ru mx-auto mt-3 max-w-[19rem] text-center text-[10px] leading-tight text-[#6B7280] sm:max-w-none sm:text-[11px] sm:leading-snug">
-                          <span className="block sm:inline">Привяжите Telegram </span>
-                          <span className="mt-0.5 block sm:mt-0 sm:inline">и получите 200 баллов.</span>
-                        </p>
-                      )}
                     </div>
 
                     <div className="flex min-h-0 min-w-0 flex-col pl-2 sm:pl-3 md:pl-5">
@@ -594,7 +588,7 @@ export const ProfileEdit: React.FC = () => {
                         )}
                       </div>
                       {initialized && !isEmailConfirmed && (
-                        <p className="prose-ru mx-auto mt-3 max-w-[19rem] text-center text-[10px] leading-snug text-[#6B7280] sm:max-w-[20rem] sm:text-[11px]">
+                        <p className={accountCardSubtextClass}>
                           Подтвердите email для оформления заказа.
                         </p>
                       )}
@@ -674,77 +668,118 @@ export const ProfileEdit: React.FC = () => {
           </section>
 
           <section>
-            <h2 className="mb-4 text-lg font-semibold text-slate-900">Доставка</h2>
-            <div className="space-y-4">
-              <AddressSuggest
-                label={
-                  <span className="inline-flex items-center gap-2">
-                    Адрес (поиск по базе)
-                    <span className="group relative ml-0.5 inline-flex cursor-help" aria-label="Подсказка">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 text-xs font-medium transition hover:border-brand hover:text-brand">
-                        ?
-                      </span>
-                      <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 inline-block w-max -translate-x-1/2 whitespace-nowrap rounded border border-slate-100 bg-white px-2.5 py-1.5 text-left text-xs font-medium leading-none text-brand shadow-md opacity-0 transition group-hover:opacity-100">
-                        При вводе адреса нижние поля заполнятся автоматически.
-                      </span>
-                    </span>
-                  </span>
-                }
-                placeholder="Начните вводить адрес, затем выберите вариант из списка"
-                value={addressSearch}
-                onChange={setAddressSearch}
-                onPartsChange={({ cityRegion, streetHouse, apartmentOffice, postcode }) => {
-                  if (cityRegion !== undefined) handleChange('cityRegion', cityRegion);
-                  if (streetHouse !== undefined) handleChange('streetHouse', streetHouse);
-                  if (apartmentOffice !== undefined) handleChange('apartmentOffice', apartmentOffice);
-                  if (postcode !== undefined) handleChange('postcode', postcode);
-                }}
-              />
-
-              <div className="space-y-4 rounded-xl border border-brand/20 bg-brand-soft/10 px-4 py-4">
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div>
-                    <label htmlFor="pe-fio-last" className={labelClass}>Фамилия</label>
-                    <input id="pe-fio-last" type="text" placeholder="Ivanov" className={inputClass} {...inputProps('fioLast')} />
+            <h2 className="mb-4 text-lg font-semibold text-slate-900">
+              Доставка <span className={hintClass}>(при заказе — обязательно)</span>
+            </h2>
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-4 rounded-xl border border-brand/20 bg-brand-soft/10 px-4 py-4">
+                {/* ФИО — Register.tsx와 동일한 그리드·«Нет отчества»·힌트 */}
+                <div className={fieldColClass}>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-3 sm:items-start">
+                    <div className={fioCellClass}>
+                      <label htmlFor="pe-fio-last" className={`${fieldLabelClass} flex flex-wrap items-center gap-x-1`}>
+                        Фамилия
+                      </label>
+                      <input
+                        id="pe-fio-last"
+                        type="text"
+                        placeholder="Ivanov"
+                        className={`${inputClass} uppercase${!editing ? ' cursor-default bg-slate-50' : ''}`}
+                        value={form?.fioLast ?? ''}
+                        readOnly={!editing}
+                        onChange={editing ? (e) => handleChange('fioLast', e.target.value) : undefined}
+                      />
+                    </div>
+                    <div className={fioCellClass}>
+                      <label htmlFor="pe-fio-first" className={`${fieldLabelClass} flex flex-wrap items-center gap-x-1`}>
+                        Имя
+                      </label>
+                      <input
+                        id="pe-fio-first"
+                        type="text"
+                        placeholder="Ivan"
+                        className={`${inputClass} uppercase${!editing ? ' cursor-default bg-slate-50' : ''}`}
+                        value={form?.fioFirst ?? ''}
+                        readOnly={!editing}
+                        onChange={editing ? (e) => handleChange('fioFirst', e.target.value) : undefined}
+                      />
+                    </div>
+                    <div className={fioCellClass}>
+                      <label htmlFor="pe-fio-middle" className={`${fieldLabelClass} flex flex-wrap items-center gap-x-1`}>
+                        Отчество
+                      </label>
+                      <input
+                        id="pe-fio-middle"
+                        type="text"
+                        placeholder="Ivanovich"
+                        className={`${inputClass} uppercase disabled:bg-slate-50 disabled:text-slate-400${!editing ? ' cursor-default bg-slate-50' : ''}`}
+                        value={form?.fioMiddle ?? ''}
+                        readOnly={!editing}
+                        disabled={editing && noPatronymic}
+                        onChange={editing ? (e) => handleChange('fioMiddle', e.target.value) : undefined}
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label htmlFor="pe-fio-first" className={labelClass}>Имя</label>
-                    <input id="pe-fio-first" type="text" placeholder="Ivan" className={inputClass} {...inputProps('fioFirst')} />
-                  </div>
-                  <div>
-                    <label htmlFor="pe-fio-middle" className={labelClass}>Отчество</label>
-                    <input id="pe-fio-middle" type="text" placeholder="Ivanovich" className={inputClass} {...inputProps('fioMiddle')} disabled={noPatronymic} />
-                  </div>
-                </div>
-                {/* ФИО: компактная строка; xs — flex-wrap рядом, sm+ — сетка 2+1 под колонки ФИО */}
-                <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 sm:grid sm:grid-cols-3 sm:items-center sm:gap-x-3 sm:gap-y-0">
-                  <p className="min-w-0 max-w-full text-[11px] leading-snug text-slate-500 sm:col-span-2">
-                    * ФИО как в паспорте (латинскими буквами).
-                  </p>
-                  <label className="inline-flex w-fit shrink-0 cursor-pointer items-center gap-1.5 text-[11px] text-slate-500 sm:justify-self-end">
-                    <input type="checkbox" checked={noPatronymic} onChange={(e) => { const v = e.target.checked; setNoPatronymic(v); if (v) handleChange('fioMiddle', ''); }} className="h-3 w-3 rounded border-slate-300 text-brand focus:ring-brand" />
-                    <span className="whitespace-nowrap">Нет отчества</span>
-                  </label>
-                </div>
-
-                <div>
-                  <label htmlFor="pe-phone" className={labelClass}>Номер телефона</label>
-                  <input
-                    ref={phoneInputRef}
-                    id="pe-phone"
-                    type="tel"
-                    placeholder="+7 999 999 9999"
-                    title="+200 баллов за подтверждение в Telegram"
-                    className={phoneFieldClass}
-                    value={form?.phone ?? ''}
-                    onChange={editing && (!telegramLinked || phoneUnlinkRequested) ? handlePhoneChange : undefined}
-                    readOnly={!editing || phoneLockedByTelegram}
-                  />
-                  {!telegramLinked && editing && (
-                    <p className="mt-1.5 text-[11px] leading-snug text-slate-500">
-                      Подтвердите номер в Telegram — блок «Основные данные» выше.
+                  <div className="flex flex-col-reverse items-start gap-1 sm:grid sm:grid-cols-3 sm:items-start sm:justify-items-start sm:gap-x-3 sm:gap-y-0">
+                    <p className="min-w-0 max-w-full text-[11px] leading-snug text-slate-500 sm:col-span-2 sm:row-start-1">
+                      * ФИО как в паспорте (латинскими буквами).
                     </p>
-                  )}
+                    <label className="inline-flex w-fit shrink-0 cursor-pointer items-center gap-1.5 text-[11px] text-slate-500 sm:col-start-3 sm:row-start-1 sm:place-self-start">
+                      <input
+                        type="checkbox"
+                        checked={noPatronymic}
+                        onChange={(e) => {
+                          const v = e.target.checked;
+                          setNoPatronymic(v);
+                          if (v) handleChange('fioMiddle', '');
+                        }}
+                        className="h-3 w-3 rounded border-slate-300 text-brand focus:ring-brand"
+                      />
+                      <span className="whitespace-nowrap">Нет отчества</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Телефон — поле flex-1 + узкая кнопка «Подтвердить» (текст без «в Telegram») */}
+                <div className={fieldColClass}>
+                  <label htmlFor="pe-phone" className={fieldLabelClass}>
+                    Номер телефона
+                  </label>
+                  <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-stretch">
+                    <input
+                      ref={phoneInputRef}
+                      id="pe-phone"
+                      type="tel"
+                      placeholder="+7 999 999 9999"
+                      title="+200 баллов за подтверждение в Telegram"
+                      className={`${phoneFieldClass} min-w-0 flex-1`}
+                      value={form?.phone ?? ''}
+                      onChange={editing && (!telegramLinked || phoneUnlinkRequested) ? handlePhoneChange : undefined}
+                      readOnly={!editing || phoneLockedByTelegram}
+                      maxLength={16}
+                    />
+                    {!telegramLinked && (
+                      <button
+                        type="button"
+                        disabled={(form?.phone ?? '').replace(/\D/g, '').length < 10 || pollingForTelegram}
+                        onClick={() => void handleTelegramVerify()}
+                        className={`${accountPrimaryCtaClass} w-full shrink-0 sm:w-auto sm:px-5`}
+                      >
+                        {pollingForTelegram ? 'Ожидание…' : 'Подтвердить'}
+                      </button>
+                    )}
+                  </div>
+                  <div
+                    className="flex w-full min-w-0 items-start gap-1 overflow-x-auto leading-tight [-webkit-overflow-scrolling:touch] [scrollbar-width:thin] text-gray-500 max-sm:text-[clamp(7px,2.65vw,9.5px)] sm:overflow-x-visible sm:text-[10px]"
+                    role="note"
+                  >
+                    <span aria-hidden className="shrink-0 select-none">
+                      *
+                    </span>
+                    <span className="min-w-0 whitespace-nowrap leading-[inherit]">
+                      Подтверждается через Telegram, за подтверждение +200 баллов.
+                    </span>
+                  </div>
                   {showChangePhoneControl && (
                     <div className="mt-3">
                       <button
@@ -778,39 +813,53 @@ export const ProfileEdit: React.FC = () => {
                   {phoneError && <p className="mt-1 text-xs text-red-500">{phoneError}</p>}
                 </div>
 
-                <div>
-                  <label htmlFor="pe-email-delivery" className={labelClass}>
-                    E-mail
-                  </label>
-                  <input
-                    id="pe-email-delivery"
-                    type="email"
-                    readOnly
-                    value={safeUserEmail}
-                    className={isEmailConfirmed ? contactInputLocked : contactInputEmailPending}
-                    autoComplete="email"
-                  />
-                  {!isEmailConfirmed && initialized && editing && (
-                    <p className={`mt-1.5 ${hintClass}`}>
-                      Подтвердите email — блок «Основные данные» выше.
-                    </p>
-                  )}
-                </div>
+                <AddressSuggest
+                  label={
+                    <span className="inline-flex items-center gap-2">
+                      Адрес (поиск по базе)
+                      <span className="group relative ml-0.5 inline-flex cursor-help" aria-label="Подсказка">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 text-xs font-medium transition hover:border-brand hover:text-brand">
+                          ?
+                        </span>
+                        <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 inline-block w-max -translate-x-1/2 whitespace-nowrap rounded border border-slate-100 bg-white px-2.5 py-1.5 text-left text-xs font-medium leading-none text-brand shadow-md opacity-0 transition group-hover:opacity-100">
+                          При вводе адреса нижние поля заполнятся автоматически.
+                        </span>
+                      </span>
+                    </span>
+                  }
+                  placeholder="Начните вводить адрес, затем выберите вариант из списка"
+                  value={addressSearch}
+                  onChange={setAddressSearch}
+                  onPartsChange={({ cityRegion, streetHouse, apartmentOffice, postcode }) => {
+                    if (cityRegion !== undefined) handleChange('cityRegion', cityRegion);
+                    if (streetHouse !== undefined) handleChange('streetHouse', streetHouse);
+                    if (apartmentOffice !== undefined) handleChange('apartmentOffice', apartmentOffice);
+                    if (postcode !== undefined) handleChange('postcode', postcode);
+                  }}
+                />
 
-                <div>
-                  <label htmlFor="pe-city" className={labelClass}>Город / Регион</label>
+                <div className={fieldColClass}>
+                  <label htmlFor="pe-city" className={fieldLabelClass}>
+                    Город / Регион
+                  </label>
                   <input id="pe-city" type="text" placeholder="Москва, Санкт-Петербург" className={inputClass} {...inputProps('cityRegion')} />
                 </div>
-                <div>
-                  <label htmlFor="pe-street" className={labelClass}>Улица, Дом, Корпус</label>
+                <div className={fieldColClass}>
+                  <label htmlFor="pe-street" className={fieldLabelClass}>
+                    Улица, Дом, Корпус/Строение
+                  </label>
                   <input id="pe-street" type="text" placeholder="ул. Арбат, д. 15, корп. 2" className={inputClass} {...inputProps('streetHouse')} />
                 </div>
-                <div>
-                  <label htmlFor="pe-apt" className={labelClass}>Кв. / Офис</label>
+                <div className={fieldColClass}>
+                  <label htmlFor="pe-apt" className={fieldLabelClass}>
+                    Кв. / Офис
+                  </label>
                   <input id="pe-apt" type="text" placeholder="кв. 104" className={inputClass} {...inputProps('apartmentOffice')} />
                 </div>
-                <div>
-                  <label htmlFor="pe-postcode" className={labelClass}>Postcode <span className={hintClass}>(индекс, 6 цифр)</span></label>
+                <div className={fieldColClass}>
+                  <label htmlFor="pe-postcode" className={fieldLabelClass}>
+                    Postcode <span className={hintClass}>(индекс, 6 цифр)</span>
+                  </label>
                   <input
                     id="pe-postcode"
                     type="text"
@@ -822,8 +871,11 @@ export const ProfileEdit: React.FC = () => {
                     {...inputProps('postcode')}
                   />
                 </div>
-                <div>
-                  <label htmlFor="pe-inn" className={`${labelClass} inline-flex items-center gap-1`}>INN <span className={hintClass}>(12 цифр)</span> <InnHelpTooltip /></label>
+                <div className={fieldColClass}>
+                  <label htmlFor="pe-inn" className={`${fieldLabelClass} inline-flex items-center gap-1`}>
+                    INN <span className={hintClass}>(ИНН, 12 цифр)</span>
+                    <InnHelpTooltip />
+                  </label>
                   <input
                     id="pe-inn"
                     type="text"
@@ -836,8 +888,10 @@ export const ProfileEdit: React.FC = () => {
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label htmlFor="pe-ps" className={labelClass}>Серия паспорта</label>
+                  <div className={fieldColClass}>
+                    <label htmlFor="pe-ps" className={fieldLabelClass}>
+                      Серия паспорта
+                    </label>
                     <input
                       id="pe-ps"
                       type="text"
@@ -849,8 +903,10 @@ export const ProfileEdit: React.FC = () => {
                       {...inputProps('passportSeries')}
                     />
                   </div>
-                  <div>
-                    <label htmlFor="pe-pn" className={labelClass}>Номер паспорта</label>
+                  <div className={fieldColClass}>
+                    <label htmlFor="pe-pn" className={fieldLabelClass}>
+                      Номер паспорта
+                    </label>
                     <input
                       id="pe-pn"
                       type="text"

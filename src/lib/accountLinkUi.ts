@@ -10,3 +10,10 @@ export const accountPrimaryCtaClass =
 
 /** Контейнер двух равных колонок под карточкой */
 export const accountLinkTwoColGridClass = 'grid grid-cols-2 gap-x-2 gap-y-2 sm:gap-x-4';
+
+/**
+ * Подсказка под кнопкой в колонке Telegram | Email (узкая ширина на мобильном).
+ * max-sm: уменьшенный кегль, чтобы фраза уместилась в одну строку.
+ */
+export const accountCardSubtextClass =
+  'prose-ru mx-auto mt-3 max-w-none text-center font-normal tracking-tight text-[#6B7280] text-[7px] leading-tight sm:text-[9px] sm:leading-snug md:text-[10px]';

@@ -400,7 +400,7 @@ export const Register: React.FC = () => {
                   id="phone"
                   type="tel"
                   placeholder="+7 999 999 9999"
-                  className={`${inputClass} min-w-0 sm:flex-1`}
+                  className={`${inputClass} min-w-0 flex-1`}
                   value={phoneValue}
                   onChange={handlePhoneChange}
                   maxLength={16}
@@ -408,9 +408,9 @@ export const Register: React.FC = () => {
                 <button
                   type="button"
                   disabled={phoneValue.replace(/\D/g, '').length < 10}
-                  className={`${accountPrimaryCtaClass} w-full sm:w-[13.5rem] sm:shrink-0`}
+                  className={`${accountPrimaryCtaClass} w-full shrink-0 sm:w-auto sm:px-5`}
                 >
-                  Подтвердить в Telegram
+                  Подтвердить
                 </button>
               </div>
               <div

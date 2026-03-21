@@ -8,7 +8,7 @@
 
 **버튼 눌러도 연동이 안 되는 경우**
 - **전화번호 미입력** — 프로필 수정에서 전화번호를 먼저 입력해야 함. `?focus=phone` 으로 들어오면 편집 모드가 자동으로 켜짐.
-- **「Подтвердить в Telegram」 비활성** — 「Редактировать」를 눌러 편집 모드로 들어가야 함. (또는 주소에 `?focus=phone` 이 있으면 자동 편집 모드.)
+- **「Подтвердить」 비활성** — 번호 10자리 미만 등. 편집이 꺼져 있으면 「Редактировать」 또는 `?focus=phone` 으로 편집 모드.
 - **link_tokens INSERT 실패** — Supabase `link_tokens` 테이블 RLS에서 본인(`user_id = auth.uid()`) INSERT가 허용되는지 확인.
 - **봇이 RPC를 호출하지 않음** — 유저가 Telegram 링크(`t.me/...?start=link_<uuid>`)를 눌렀을 때, 봇이 `link_telegram(p_token, p_telegram_id)` RPC를 호출해야 함. 봇 로직·서비스 로그 확인.
 - **토큰 만료** — 링크는 15분 유효. 그 안에 Telegram에서 시작하기를 눌러야 함.
