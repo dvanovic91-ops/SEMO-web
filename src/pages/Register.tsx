@@ -5,7 +5,8 @@ import { supabase } from '../lib/supabase';
 import { AddressSuggest } from '../components/AddressSuggest';
 import { BackArrow } from '../components/BackArrow';
 import { useAuth } from '../context/AuthContext';
-import { REGISTER_EMAIL_HINT_RU, isValidEmailFormat } from '../lib/emailValidation';
+import { accountPrimaryCtaClass } from '../lib/accountLinkUi';
+import { isValidEmailFormat } from '../lib/emailValidation';
 import { clampDigits } from '../lib/digitsOnly';
 import { CustomsPassportNotice } from '../components/CustomsPassportNotice';
 
@@ -14,7 +15,12 @@ import { CustomsPassportNotice } from '../components/CustomsPassportNotice';
  */
 const inputClass =
   'w-full min-h-[44px] rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 placeholder:text-xs placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand sm:min-h-0';
-const labelClass = 'mb-1 block text-sm font-medium text-slate-700';
+/** 라벨·입력·(* 안내) 세로 스택 — 인접 요소 간격 = gap-1 (= mt-1, 4px) */
+const fieldColClass = 'flex min-w-0 flex-col gap-1';
+/** ФИО 한 칸: 라벨↔입력 = gap-1 */
+const fioCellClass = 'flex min-h-0 min-w-0 flex-col gap-1';
+/** 라벨: mb 없음 — 간격은 부모 fieldColClass gap-1 */
+const fieldLabelClass = 'block text-sm font-medium text-slate-700';
 const hintClass = 'text-[11px] text-slate-500 font-normal';
 
 function normalizeLatin(value: string): string {
@@ -202,38 +208,64 @@ export const Register: React.FC = () => {
           <h2 className="mb-4 text-lg font-semibold text-slate-900">
             Основные данные
           </h2>
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="email" className={labelClass}>
+          <div className="flex flex-col gap-4">
+            <div className={fieldColClass}>
+              <label htmlFor="email" className={fieldLabelClass}>
                 Email <span className="text-brand">*</span>
               </label>
-              <input
-                id="email"
-                type="email"
-                placeholder="example@mail.ru"
-                className={`${inputClass} ${emailError ? 'border-red-400' : ''}`}
-                value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                  if (emailError) setEmailError(false);
-                }}
-                onBlur={handleEmailBlur}
-                required
-              />
-              <span className="prose-ru mt-1 block text-xs text-red-500">
-                Используйте реальный e-mail. Без подтверждения заказ невозможен, а перенос бонусов на другой аккаунт запрещен.
-              </span>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
+                <input
+                  id="email"
+                  type="email"
+                  placeholder="example@mail.ru"
+                  className={`${inputClass} min-w-0 sm:flex-1 ${emailError ? 'border-red-400' : ''}`}
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (emailError) setEmailError(false);
+                  }}
+                  onBlur={handleEmailBlur}
+                  required
+                />
+                <button
+                  type="button"
+                  disabled
+                  title="После регистрации откройте письмо и перейдите по ссылке"
+                  className={`${accountPrimaryCtaClass} w-full sm:w-[13.5rem] sm:shrink-0`}
+                >
+                  Подтвердить email
+                </button>
+              </div>
               {emailError && (
-                <p className="mt-1 text-xs text-red-500">
+                <p className="text-xs text-red-500">
                   Введите корректный адрес: латиница, цифры и . _ % + - до @; домен как mail.ru или semo-box.ru.
                 </p>
               )}
-              <p className="prose-ru mt-1.5 min-w-0 text-[11px] leading-snug text-slate-500 sm:text-xs">
-                {REGISTER_EMAIL_HINT_RU}
-              </p>
+              <div
+                className="leading-tight text-gray-500 text-[8px] min-[361px]:max-sm:text-[9px] min-[401px]:max-sm:text-[10px] sm:text-[11px]"
+                role="note"
+              >
+                {/* Мобильный: * + две строки */}
+                <div className="flex items-start gap-1 sm:hidden">
+                  <span aria-hidden>*</span>
+                  <div className="min-w-0 flex flex-col whitespace-pre-line">
+                    <span>Вход без подтверждения, но активация обязательна для заказов.</span>
+                    <span>Изменение e-mail после регистрации невозможно.</span>
+                  </div>
+                </div>
+                {/* sm+: одна строка (nowrap + тонкий скролл при узкой ширине) */}
+                <div className="hidden min-w-0 items-start gap-1 overflow-x-auto pb-0.5 [scrollbar-width:thin] sm:flex">
+                  <span className="shrink-0" aria-hidden>
+                    *
+                  </span>
+                  <span className="whitespace-nowrap">
+                    Вход без подтверждения, но активация обязательна для заказов. Изменение e-mail после регистрации невозможно.
+                  </span>
+                </div>
+              </div>
             </div>
-            <div>
-              <label htmlFor="password" className={labelClass}>
+            <div className={fieldColClass}>
+              <label htmlFor="password" className={fieldLabelClass}>
                 Пароль
                 <span className="text-brand">*</span>
               </label>
@@ -251,8 +283,8 @@ export const Register: React.FC = () => {
               />
             </div>
             {/* 닉네임 — 서비스에서 불러줄 이름 */}
-            <div>
-              <label htmlFor="nickname" className={labelClass}>
+            <div className={fieldColClass}>
+              <label htmlFor="nickname" className={fieldLabelClass}>
                 Имя <span className="text-brand">*</span>
               </label>
               <input
@@ -265,8 +297,8 @@ export const Register: React.FC = () => {
                 required
               />
             </div>
-            <div>
-              <p className={`${labelClass} mb-2`}>
+            <div className={fieldColClass}>
+              <p className={fieldLabelClass}>
                 Пол
               </p>
               <div className="flex gap-6">
@@ -280,8 +312,8 @@ export const Register: React.FC = () => {
                 </label>
               </div>
             </div>
-            <div>
-              <label htmlFor="referrer" className={labelClass}>
+            <div className={fieldColClass}>
+              <label htmlFor="referrer" className={fieldLabelClass}>
                 Email рекомендателя
               </label>
               <input
@@ -302,7 +334,95 @@ export const Register: React.FC = () => {
           <h2 className="mb-4 text-lg font-semibold text-slate-900">
             Доставка <span className={hintClass}>(при заказе — обязательно)</span>
           </h2>
-          <div className="space-y-4">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-4 rounded-xl border border-brand/20 bg-brand-soft/10 px-4 py-4">
+            {/* ФИО — сверху блока «Доставка», затем телефон — как в ЛК: кнопки min-h-11, одинаковая ширина на sm */}
+            <div className={fieldColClass}>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-3 sm:items-start">
+              <div className={fioCellClass}>
+                <label htmlFor="lastName" className={`${fieldLabelClass} flex flex-wrap items-center gap-x-1`}>
+                  Фамилия
+                </label>
+                <input
+                  id="lastName"
+                  type="text"
+                  placeholder="Ivanov"
+                  className={`${inputClass} uppercase`}
+                  value={fioLast}
+                  onChange={(e) => setFioLast(normalizeLatin(e.target.value).toUpperCase())}
+                />
+              </div>
+              <div className={fioCellClass}>
+                <label htmlFor="firstName" className={`${fieldLabelClass} flex flex-wrap items-center gap-x-1`}>
+                  Имя
+                </label>
+                <input
+                  id="firstName"
+                  type="text"
+                  placeholder="Ivan"
+                  className={`${inputClass} uppercase`}
+                  value={fioFirst}
+                  onChange={(e) => setFioFirst(normalizeLatin(e.target.value).toUpperCase())}
+                />
+              </div>
+              <div className={fioCellClass}>
+                <label htmlFor="patronymic" className={`${fieldLabelClass} flex flex-wrap items-center gap-x-1`}>
+                  Отчество
+                </label>
+                <input
+                  id="patronymic"
+                  type="text"
+                  placeholder="Ivanovich"
+                  className={`${inputClass} uppercase disabled:bg-slate-50 disabled:text-slate-400`}
+                  value={fioMiddle}
+                  onChange={(e) => setFioMiddle(normalizeLatin(e.target.value).toUpperCase())}
+                  disabled={noPatronymic}
+                />
+              </div>
+            </div>
+            {/* Мобильный: «Нет отчества» 위, подсказка ФИО 아래; sm+: 그리드. 체크↔안내 간격 = gap-1 */}
+            <div className="flex flex-col-reverse items-start gap-1 sm:grid sm:grid-cols-3 sm:items-start sm:justify-items-start sm:gap-x-3 sm:gap-y-0">
+              <p className="min-w-0 max-w-full text-[11px] leading-snug text-slate-500 sm:col-span-2 sm:row-start-1">
+                * ФИО как в паспорте (латинскими буквами).
+              </p>
+              <label className="inline-flex w-fit shrink-0 cursor-pointer items-center gap-1.5 text-[11px] text-slate-500 sm:col-start-3 sm:row-start-1 sm:place-self-start">
+                <input type="checkbox" checked={noPatronymic} onChange={(e) => { const v = e.target.checked; setNoPatronymic(v); if (v) setFioMiddle(''); }} className="h-3 w-3 rounded border-slate-300 text-brand focus:ring-brand" />
+                <span className="whitespace-nowrap">Нет отчества</span>
+              </label>
+            </div>
+            </div>
+            <div className={fieldColClass}>
+              <label htmlFor="phone" className={fieldLabelClass}>
+                Номер телефона
+              </label>
+              <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-stretch">
+                <input
+                  id="phone"
+                  type="tel"
+                  placeholder="+7 999 999 9999"
+                  className={`${inputClass} min-w-0 sm:flex-1`}
+                  value={phoneValue}
+                  onChange={handlePhoneChange}
+                  maxLength={16}
+                />
+                <button
+                  type="button"
+                  disabled={phoneValue.replace(/\D/g, '').length < 10}
+                  className={`${accountPrimaryCtaClass} w-full sm:w-[13.5rem] sm:shrink-0`}
+                >
+                  Подтвердить в Telegram
+                </button>
+              </div>
+              <div
+                className="flex w-full min-w-0 items-start gap-1 overflow-x-auto leading-tight [-webkit-overflow-scrolling:touch] [scrollbar-width:thin] text-gray-500 max-sm:text-[clamp(7px,2.65vw,9.5px)] sm:overflow-x-visible sm:text-[10px]"
+                role="note"
+              >
+                <span aria-hidden className="shrink-0 select-none">*</span>
+                <span className="min-w-0 whitespace-nowrap leading-[inherit]">
+                  Подтверждается через Telegram, за подтверждение +200 баллов.
+                </span>
+              </div>
+            </div>
             <AddressSuggest
               label={
                 <span className="inline-flex items-center gap-2">
@@ -331,9 +451,8 @@ export const Register: React.FC = () => {
                 if (postcode !== undefined && postEl) postEl.value = postcode;
               }}
             />
-            <div className="space-y-4 rounded-xl border border-brand/20 bg-brand-soft/10 px-4 py-4">
-            <div>
-              <label htmlFor="cityRegion" className={labelClass}>
+            <div className={fieldColClass}>
+              <label htmlFor="cityRegion" className={fieldLabelClass}>
                 Город / Регион
               </label>
               <input
@@ -343,8 +462,8 @@ export const Register: React.FC = () => {
                 className={inputClass}
               />
             </div>
-            <div>
-              <label htmlFor="streetHouse" className={labelClass}>
+            <div className={fieldColClass}>
+              <label htmlFor="streetHouse" className={fieldLabelClass}>
                 Улица, Дом, Корпус/Строение
               </label>
               <input
@@ -354,8 +473,8 @@ export const Register: React.FC = () => {
                 className={inputClass}
               />
             </div>
-            <div>
-              <label htmlFor="apartmentOffice" className={labelClass}>
+            <div className={fieldColClass}>
+              <label htmlFor="apartmentOffice" className={fieldLabelClass}>
                 Кв. / Офис
               </label>
               <input
@@ -365,8 +484,8 @@ export const Register: React.FC = () => {
                 className={inputClass}
               />
             </div>
-            <div>
-              <label htmlFor="postcode" className={labelClass}>
+            <div className={fieldColClass}>
+              <label htmlFor="postcode" className={fieldLabelClass}>
                 Postcode <span className={hintClass}>(индекс, 6 цифр)</span>
               </label>
               <input
@@ -382,8 +501,8 @@ export const Register: React.FC = () => {
                 }}
               />
             </div>
-            <div>
-              <label htmlFor="inn" className={`${labelClass} inline-flex items-center gap-1`}>
+            <div className={fieldColClass}>
+              <label htmlFor="inn" className={`${fieldLabelClass} inline-flex items-center gap-1`}>
                 INN <span className={hintClass}>(ИНН, 12 цифр)</span>
                 <InnHelpTooltip />
               </label>
@@ -401,8 +520,8 @@ export const Register: React.FC = () => {
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label htmlFor="passportSeries" className={labelClass}>Серия паспорта</label>
+              <div className={fieldColClass}>
+                <label htmlFor="passportSeries" className={fieldLabelClass}>Серия паспорта</label>
                 <input
                   id="passportSeries"
                   type="text"
@@ -416,8 +535,8 @@ export const Register: React.FC = () => {
                   }}
                 />
               </div>
-              <div>
-                <label htmlFor="passportNumber" className={labelClass}>Номер паспорта</label>
+              <div className={fieldColClass}>
+                <label htmlFor="passportNumber" className={fieldLabelClass}>Номер паспорта</label>
                 <input
                   id="passportNumber"
                   type="text"
@@ -433,111 +552,6 @@ export const Register: React.FC = () => {
               </div>
             </div>
             <CustomsPassportNotice />
-            {/* ФИО для доставки — 참고용, 필수 아님 */}
-            {/* items-start: 세 열 라벨·인풋 상단 정렬 (부칭 열에만 체크박스가 있어 items-end 시 높이 어긋남) */}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-3 sm:items-start">
-              <div className="flex min-h-0 flex-col">
-                <label htmlFor="lastName" className={`${labelClass} flex flex-wrap items-center gap-x-1`}>
-                  Фамилия
-                </label>
-                <input
-                  id="lastName"
-                  type="text"
-                  placeholder="Ivanov"
-                  className={`${inputClass} uppercase`}
-                  value={fioLast}
-                  onChange={(e) => setFioLast(normalizeLatin(e.target.value).toUpperCase())}
-                />
-              </div>
-              <div className="flex min-h-0 flex-col">
-                <label htmlFor="firstName" className={`${labelClass} flex flex-wrap items-center gap-x-1`}>
-                  Имя
-                </label>
-                <input
-                  id="firstName"
-                  type="text"
-                  placeholder="Ivan"
-                  className={`${inputClass} uppercase`}
-                  value={fioFirst}
-                  onChange={(e) => setFioFirst(normalizeLatin(e.target.value).toUpperCase())}
-                />
-              </div>
-              <div className="flex min-h-0 flex-col">
-                <label htmlFor="patronymic" className={`${labelClass} flex flex-wrap items-center gap-x-1`}>
-                  Отчество
-                </label>
-                <input
-                  id="patronymic"
-                  type="text"
-                  placeholder="Ivanovich"
-                  className={`${inputClass} uppercase disabled:bg-slate-50 disabled:text-slate-400`}
-                  value={fioMiddle}
-                  onChange={(e) => setFioMiddle(normalizeLatin(e.target.value).toUpperCase())}
-                  disabled={noPatronymic}
-                />
-              </div>
-            </div>
-            <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 sm:grid sm:grid-cols-3 sm:items-center sm:gap-x-3 sm:gap-y-0">
-              <p className="min-w-0 max-w-full text-[11px] leading-snug text-slate-500 sm:col-span-2">
-                * ФИО как в паспорте (латинскими буквами).
-              </p>
-              <label className="inline-flex w-fit shrink-0 cursor-pointer items-center gap-1.5 text-[11px] text-slate-500 sm:justify-self-end">
-                <input type="checkbox" checked={noPatronymic} onChange={(e) => { const v = e.target.checked; setNoPatronymic(v); if (v) setFioMiddle(''); }} className="h-3 w-3 rounded border-slate-300 text-brand focus:ring-brand" />
-                <span className="whitespace-nowrap">Нет отчества</span>
-              </label>
-            </div>
-            <div>
-              <label htmlFor="phone" className={labelClass}>
-                Номер телефона
-              </label>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <input
-                  id="phone"
-                  type="tel"
-                  placeholder="+7 999 999 9999"
-                  className={`${inputClass} sm:flex-1`}
-                  value={phoneValue}
-                  onChange={handlePhoneChange}
-                  maxLength={16}
-                />
-                <button
-                  type="button"
-                  disabled={phoneValue.replace(/\D/g, '').length < 10}
-                  className="inline-flex min-h-11 w-full shrink-0 items-center justify-center rounded-full border border-brand/35 bg-brand-soft px-4 py-2 text-xs font-medium text-brand transition hover:bg-brand-soft/80 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
-                >
-                  Подтвердить в Telegram
-                </button>
-              </div>
-              <p className="prose-ru mt-1 text-[11px] leading-snug text-slate-500">
-                * Подтверждается через Telegram, за подтверждение +200 баллов.
-              </p>
-            </div>
-            <div>
-              <label htmlFor="delivery-email" className={labelClass}>
-                E-mail
-              </label>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
-                <input
-                  id="delivery-email"
-                  type="email"
-                  readOnly
-                  value={email}
-                  className={`${inputClass} cursor-default bg-slate-50 sm:flex-1`}
-                  autoComplete="email"
-                />
-                <button
-                  type="button"
-                  disabled
-                  title="После регистрации откройте письмо и перейдите по ссылке"
-                  className="inline-flex min-h-11 w-full shrink-0 cursor-not-allowed items-center justify-center rounded-full border border-brand/35 bg-brand-soft px-4 py-2 text-xs font-medium text-brand opacity-70 sm:w-auto"
-                >
-                  Подтвердить email
-                </button>
-              </div>
-              <p className="prose-ru mt-1 text-[11px] leading-snug text-slate-500">
-                * Тот же email, что выше. После регистрации — подтверждение по ссылке из письма.
-              </p>
-            </div>
             </div>
           </div>
           {/* 하단 안내 문구는 제거 — 화면을 더 간결하게 유지 */}
@@ -568,8 +582,11 @@ export const Register: React.FC = () => {
         )}
       </form>
 
-      <p className="mt-6 text-center">
-        <Link to="/login" className="inline-flex items-center justify-center gap-1.5 text-sm font-medium text-brand hover:opacity-90">
+      <p className="mt-6 flex justify-center text-center">
+        <Link
+          to="/login"
+          className="inline-flex max-w-full items-center justify-center gap-1.5 whitespace-nowrap text-[clamp(13px,3.85vw,15px)] font-medium text-brand hover:opacity-90 sm:text-[12px]"
+        >
           <BackArrow /> Уже есть аккаунт? Войти
         </Link>
       </p>

@@ -10,6 +10,3 @@ export function isValidEmailFormat(trimmed: string): boolean {
   return EMAIL_REGEX.test(trimmed);
 }
 
-/** Подсказка под полем email на регистрации (одна строка без переноса, RU) */
-export const REGISTER_EMAIL_HINT_RU =
-  'Нужен рабочий e-mail. Без подтверждения покупка и перенос данных на другие профили не производятся.';

@@ -15,13 +15,15 @@ export const CUSTOMS_PASSPORT_NOTICE_RU = CUSTOMS_PASSPORT_NOTICE_LINES_RU.join(
  * на узком экране при необходимости — горизонтальный скролл строки.
  */
 export const CustomsPassportNotice: React.FC = () => (
-  <div className="mt-2 -mx-4 w-[calc(100%+2rem)] text-[7px] font-medium leading-[1.35] tracking-tight text-red-600 sm:text-[8px] md:text-[9px] lg:text-xs lg:leading-snug">
+  <div className="mt-2 -mx-4 w-[calc(100%+2rem)] px-1 text-[8.5px] font-medium leading-snug tracking-tight text-red-600 sm:px-0 sm:text-[10.5px] sm:leading-[1.35] md:text-[11.5px] md:leading-snug lg:text-[12.5px] lg:leading-snug">
     {CUSTOMS_PASSPORT_NOTICE_LINES_RU.map((line, i) => (
       <div
         key={i}
-        className={`flex justify-center overflow-x-auto [-webkit-overflow-scrolling:touch] ${i > 0 ? 'mt-1.5' : ''}`}
+        className={`flex w-full min-w-0 justify-center max-sm:overflow-visible sm:overflow-x-auto [-webkit-overflow-scrolling:touch] ${i > 0 ? 'mt-1 sm:mt-1.5' : ''}`}
       >
-        <p className="whitespace-nowrap text-center">{line}</p>
+        <p className="w-full max-w-full text-center break-words text-balance max-sm:whitespace-normal sm:whitespace-nowrap">
+          {line}
+        </p>
       </div>
     ))}
   </div>

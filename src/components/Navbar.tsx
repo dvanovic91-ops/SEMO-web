@@ -269,7 +269,7 @@ export const Navbar: React.FC = () => {
           </div>
           {/* 데스크톱: 화면 가운데 정렬된 텍스트 메뉴 (Telegram은 우측 아이콘으로만) */}
           <nav
-            className="absolute left-1/2 top-1/2 hidden min-w-0 max-w-[min(100%,52rem)] -translate-x-1/2 -translate-y-1/2 flex-wrap items-center justify-center gap-x-3 text-sm md:flex lg:gap-x-5"
+            className="absolute left-1/2 top-1/2 hidden min-w-0 max-w-[min(100%,52rem)] -translate-x-1/2 -translate-y-1/2 flex-wrap items-center justify-center gap-x-[calc(0.75rem*1.1)] text-sm md:flex lg:gap-x-[calc(1.25rem*1.1)]"
             aria-label="Main"
           >
             {NAV_LINKS.map((item) => (

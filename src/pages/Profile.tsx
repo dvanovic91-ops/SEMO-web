@@ -509,10 +509,9 @@ export const Profile: React.FC = () => {
                 )}
               </div>
               {telegramButtonState === 'unlinked' && (
-                <p className="prose-ru mx-auto mt-3 max-w-[19rem] text-center text-[10px] leading-snug text-[#6B7280] sm:max-w-[20rem] sm:text-[11px] sm:leading-snug">
-                  Привяжите Telegram для доступа к закрытым акциям
-                  <br />
-                  и бонус 200 баллов.
+                <p className="prose-ru mx-auto mt-3 max-w-[19rem] text-center text-[10px] leading-tight text-[#6B7280] sm:max-w-none sm:text-[11px] sm:leading-snug">
+                  <span className="block sm:inline">Привяжите Telegram </span>
+                  <span className="mt-0.5 block sm:mt-0 sm:inline">и получите 200 баллов.</span>
                 </p>
               )}
             </div>
