@@ -52,9 +52,16 @@ Deno.serve(async (req) => {
   }
   if (!user_id) return json({ error: 'user_id or order_id required' }, 400);
 
-  const { data: profile } = await supabase.from('profiles').select('telegram_id').eq('id', user_id).single();
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('telegram_id, telegram_notify_orders')
+    .eq('id', user_id)
+    .single();
   const telegram_id = profile?.telegram_id ?? null;
   if (!telegram_id) return json({ ok: true, sent: false, reason: 'no_telegram' });
+  if (profile?.telegram_notify_orders === false) {
+    return json({ ok: true, sent: false, reason: 'orders_notifications_off' });
+  }
 
   const totalStr = order_total != null ? `\nСумма: ${(order_total / 100).toFixed(0)} ₽` : '';
   const text = `✅ Заказ оформлен!\nНомер: ${order_id ?? '—'}${totalStr}\nПодробности в личном кабинете.`;

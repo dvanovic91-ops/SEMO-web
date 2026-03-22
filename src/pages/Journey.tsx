@@ -2,46 +2,51 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 
 /**
- * Journey to SEMO — 주문부터 수령까지 한 그림. 5단계, 좌우 교차(사진/텍스트) 레이아웃.
- * 각 단계별 큰 이미지 영역 + 오른쪽 또는 왼쪽 텍스트.
+ * Journey to SEMO — тест кожи → подбор → заказ с данными для таможни РФ → доставка из Кореи до двери.
+ * 4 шага, чередование изображение/текст.
  */
-const STEPS: {
+type JourneyStep = {
   titleEn: string;
   titleRu: string;
   description: string;
-  /** 실제 이미지 URL 넣으면 여기 표시 (없으면 플레이스홀더) */
+  bullets?: string[];
+  imagePlaceholder: string;
   imageUrl?: string;
-  imagePlaceholder?: string;
-}[] = [
+};
+
+const STEPS: JourneyStep[] = [
   {
-    titleEn: 'The Selection',
-    titleRu: 'Тщательный подбор',
-    description: 'Идеальный набор под ваш тип кожи. Мы подбираем продукты по результатам теста.',
-    imagePlaceholder: 'Step 1',
+    titleEn: 'Test & Match',
+    titleRu: 'Тест типа кожи и подбор средств',
+    description:
+      'Пройдите тест на сайте — мы определим тип кожи и покажем подходящие корейские продукты. После результата откроются персональные рекомендации в каталоге: так вы выбираете уход осознанно, до оплаты.',
+    imagePlaceholder: '1',
   },
   {
-    titleEn: 'Eco-friendly Wrap',
-    titleRu: 'Экологичная упаковка',
-    description: 'Забота SEMO об окружающей среде. Упаковка, которая бережёт природу.',
-    imagePlaceholder: 'Step 2',
+    titleEn: 'Order & Customs',
+    titleRu: 'Оформление заказа и данные для таможни РФ',
+    description:
+      'Международная доставка и личная таможенная очистка в России требуют полных и точных данных получателя. Всё это вы указываете при заказе в профиле — один раз аккуратно, чтобы посылка прошла без задержек.',
+    bullets: [
+      'ФИО латиницей (как в паспорте), адрес, индекс',
+      'ИНН и паспорт — для таможни',
+      'Телефон с подтверждением в Telegram и e-mail',
+    ],
+    imagePlaceholder: '2',
   },
   {
-    titleEn: 'Safe Travel',
-    titleRu: 'Безопасная доставка',
-    description: 'Отправка после тщательной проверки. Ваш бокс в надёжных руках.',
-    imagePlaceholder: 'Step 3',
+    titleEn: 'From Korea',
+    titleRu: 'Отправка из Кореи',
+    description:
+      'После оплаты заказ собирается и отправляется из Кореи. Дальше посылка идёт в Россию: мы используем надёжные службы доставки (например, СДЭК или Почта России / EMS — в зависимости от маршрута и доступности).',
+    imagePlaceholder: '3',
   },
   {
-    titleEn: 'The Moment',
-    titleRu: 'Долгожданная встреча',
-    description: 'Коробка у вашей двери. Доставка до порога.',
-    imagePlaceholder: 'Step 4',
-  },
-  {
-    titleEn: 'Unboxing',
-    titleRu: 'Распаковка',
-    description: 'Ваша персональная beauty-коробка. Наконец-то встреча с вашими продуктами.',
-    imagePlaceholder: 'Step 5',
+    titleEn: 'To Your Door',
+    titleRu: 'До вашей двери в России',
+    description:
+      'По прибытии в страну посылка передаётся курьеру или к выбранному пункту выдачи — к двери квартиры, до постамата или отделения — удобно для вас. Трекинг и статус заказа доступны в личном кабинете.',
+    imagePlaceholder: '4',
   },
 ];
 
@@ -49,11 +54,11 @@ export const Journey: React.FC = () => {
   return (
     <main className="mx-auto min-h-screen max-w-6xl px-4 py-5 sm:px-6 sm:py-10 md:py-14">
       <header className="mb-12 text-center">
-        <h1 className="text-center text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl md:text-5xl">
-          Как это работает
+        <h1 className="text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl md:text-5xl">
+          Journey to SEMO
         </h1>
-        <p className="mt-4 text-lg text-slate-600">
-          От заказа до получения — путь вашего SEMO бокса
+        <p className="mx-auto mt-4 max-w-2xl text-base leading-relaxed text-slate-600 sm:text-lg">
+          От теста типа кожи и подбора корейской косметики до заказа с данными для таможни и доставки из Кореи до вашего адреса в России — в четыре шага.
         </p>
       </header>
 
@@ -63,12 +68,11 @@ export const Journey: React.FC = () => {
           const stepNum = index + 1;
           return (
             <article
-              key={stepNum}
+              key={step.titleRu}
               className="grid gap-8 md:grid-cols-2 md:items-center md:gap-12 lg:gap-16"
             >
-              {/* 이미지 영역: 큰 비율로 배치 (교차) */}
               <div
-                className={`relative min-h-[320px] overflow-hidden rounded-2xl bg-slate-100 sm:min-h-[400px] md:min-h-[480px] lg:min-h-[520px] ${
+                className={`relative min-h-[280px] overflow-hidden rounded-2xl bg-slate-100 sm:min-h-[360px] md:min-h-[420px] lg:min-h-[460px] ${
                   isImageLeft ? '' : 'md:order-2'
                 }`}
               >
@@ -87,30 +91,42 @@ export const Journey: React.FC = () => {
                 )}
               </div>
 
-              {/* 텍스트 영역 */}
               <div className={`flex flex-col justify-center ${isImageLeft ? '' : 'md:order-1'}`}>
-                <span className="text-sm font-semibold tracking-wide text-brand">
-                  Step {stepNum}
-                </span>
+                <span className="text-sm font-semibold tracking-wide text-brand">Step {stepNum}</span>
                 <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
                   {step.titleEn}
                 </h2>
-                <p className="mt-1 text-lg font-medium text-slate-700">
-                  {step.titleRu}
-                </p>
-                <p className="mt-4 text-base leading-relaxed text-slate-600">
-                  {step.description}
-                </p>
+                <p className="mt-1 text-lg font-medium text-slate-700">{step.titleRu}</p>
+                <p className="prose-ru mt-4 text-base leading-relaxed text-slate-600">{step.description}</p>
+                {step.bullets && step.bullets.length > 0 && (
+                  <ul className="mt-5 space-y-2.5 text-left">
+                    {step.bullets.map((line) => (
+                      <li key={line} className="flex gap-2.5 text-sm leading-snug text-slate-600 sm:text-base">
+                        <span
+                          className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-brand"
+                          aria-hidden
+                        />
+                        <span className="prose-ru min-w-0">{line}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             </article>
           );
         })}
       </section>
 
-      <div className="mt-24 flex justify-center pb-12">
+      <div className="mt-20 flex flex-col items-center justify-center gap-3 pb-12 sm:flex-row sm:gap-4">
+        <Link
+          to="/skin-test"
+          className="w-full rounded-full bg-brand px-8 py-3 text-center text-sm font-semibold text-white transition hover:bg-brand/90 sm:w-auto"
+        >
+          Пройти тест кожи
+        </Link>
         <Link
           to="/shop"
-          className="rounded-full bg-brand px-8 py-3 text-sm font-semibold text-white transition hover:bg-brand/90"
+          className="w-full rounded-full border border-slate-200 bg-white px-8 py-3 text-center text-sm font-semibold text-slate-800 transition hover:border-brand hover:text-brand sm:w-auto"
         >
           В каталог
         </Link>

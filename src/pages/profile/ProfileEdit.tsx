@@ -162,6 +162,9 @@ export const ProfileEdit: React.FC = () => {
   /** Telegram 링크 열린 뒤 연동 완료 감지용 폴링 */
   const [pollingForTelegram, setPollingForTelegram] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** Telegram уведомления — внизу «Основные данные» + при «Подтвердить» в Доставке */
+  const [telegramNotifyOrders, setTelegramNotifyOrders] = useState(true);
+  const [telegramNotifyMarketing, setTelegramNotifyMarketing] = useState(false);
 
   const safeUserEmail = userEmail ?? '';
   /** 서버 저장 실패 시 로컬 백업 안내(러시아어) */
@@ -175,7 +178,7 @@ export const ProfileEdit: React.FC = () => {
     Promise.all([
       supabase
         .from('profiles')
-        .select('name, phone, telegram_id, telegram_reward_given')
+        .select('name, phone, telegram_id, telegram_reward_given, telegram_notify_orders, telegram_notify_marketing')
         .eq('id', userId)
         .single(),
       supabase.from('shipping_addresses').select('*').eq('user_id', userId).maybeSingle(),
@@ -205,6 +208,16 @@ export const ProfileEdit: React.FC = () => {
           passportSeries: shipForm.passportSeries ?? prev?.passportSeries ?? '',
           passportNumber: shipForm.passportNumber ?? prev?.passportNumber ?? '',
         }));
+        if (typeof data.telegram_notify_orders === 'boolean') {
+          setTelegramNotifyOrders(data.telegram_notify_orders);
+        } else {
+          setTelegramNotifyOrders(true);
+        }
+        if (typeof data.telegram_notify_marketing === 'boolean') {
+          setTelegramNotifyMarketing(data.telegram_notify_marketing);
+        } else {
+          setTelegramNotifyMarketing(false);
+        }
         const fioMiddleVal = up(shipForm.fioMiddle ?? '');
         setNoPatronymic(!fioMiddleVal.trim());
         const parts = [shipForm.cityRegion, shipForm.streetHouse, shipForm.apartmentOffice, shipForm.postcode].filter(Boolean);
@@ -276,6 +289,20 @@ export const ProfileEdit: React.FC = () => {
       setVerifyEmailSending(false);
     }
   }, [userId, safeUserEmail]);
+
+  /** Telegram уведомления — profiles (секция «Основные данные» внизу) */
+  const saveTelegramNotificationPrefs = useCallback(
+    async (patch: { telegram_notify_orders?: boolean; telegram_notify_marketing?: boolean }) => {
+      if (!supabase || !userId) return;
+      const { error } = await supabase.from('profiles').update(patch).eq('id', userId);
+      if (error) {
+        console.warn('[telegram prefs ProfileEdit]', error.message);
+        void loadProfileFromDb();
+        return;
+      }
+    },
+    [supabase, userId, loadProfileFromDb],
+  );
 
   useEffect(() => {
     const onVisibility = () => {
@@ -451,7 +478,14 @@ export const ProfileEdit: React.FC = () => {
     }
     if (!supabase || !userId) return;
     try {
-      await supabase.from('profiles').update({ phone: form?.phone ?? '' }).eq('id', userId);
+      await supabase
+        .from('profiles')
+        .update({
+          phone: form?.phone ?? '',
+          telegram_notify_orders: telegramNotifyOrders,
+          telegram_notify_marketing: telegramNotifyMarketing,
+        })
+        .eq('id', userId);
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
       const { data, error } = await supabase
         .from('link_tokens')
@@ -639,6 +673,41 @@ export const ProfileEdit: React.FC = () => {
                   </div>
                 )}
               </div>
+
+              {userId && userId !== ADMIN_DUMMY_USER_ID && (
+                <div className="prose-ru mt-6 min-w-0 max-w-full border-t border-slate-100 pt-4">
+                  <p className="text-sm font-semibold leading-snug text-slate-900">Уведомления в Telegram</p>
+                  <p className="mt-1.5 text-xs leading-snug text-slate-500">
+                    Привязка Telegram — в разделе «Доставка» ниже. Уведомления о заказах и акциях.
+                  </p>
+                  <label className="mt-3 flex min-w-0 cursor-pointer items-start gap-2.5 text-sm leading-snug text-slate-700">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-brand focus:ring-brand"
+                      checked={telegramNotifyOrders}
+                      onChange={(e) => {
+                        const v = e.target.checked;
+                        setTelegramNotifyOrders(v);
+                        void saveTelegramNotificationPrefs({ telegram_notify_orders: v });
+                      }}
+                    />
+                    <span className="min-w-0 flex-1">Заказы и доставка (статус, трекинг)</span>
+                  </label>
+                  <label className="mt-2.5 flex min-w-0 cursor-pointer items-start gap-2.5 text-sm leading-snug text-slate-700">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-brand focus:ring-brand"
+                      checked={telegramNotifyMarketing}
+                      onChange={(e) => {
+                        const v = e.target.checked;
+                        setTelegramNotifyMarketing(v);
+                        void saveTelegramNotificationPrefs({ telegram_notify_marketing: v });
+                      }}
+                    />
+                    <span className="min-w-0 flex-1">Новинки, скидки и акции</span>
+                  </label>
+                </div>
+              )}
             </div>
           </section>
 

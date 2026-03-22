@@ -15,6 +15,7 @@ import { useAuth } from '../../context/AuthContext';
 type DashboardPeriodType = 'day' | 'week' | 'month' | 'range';
 import { deleteMappingForTypes, fetchMapping, saveMapping } from '../../lib/skinTypeSlotMapping';
 import { supabase } from '../../lib/supabase';
+import { sendMarketingTelegramBroadcast } from '../../lib/telegramBroadcast';
 import { ALL_SKIN_TYPES } from '../../config/skinTypeRecommendations';
 import { PromoImageCropModal } from '../../components/PromoImageCropModal';
 import { AuthInitializingScreen } from '../../components/SemoPageSpinner';
@@ -442,6 +443,8 @@ export const Admin: React.FC = () => {
   const [broadcastHistory, setBroadcastHistory] = useState<AnnouncementBroadcastRow[]>([]);
   const [broadcastHistoryLoading, setBroadcastHistoryLoading] = useState(false);
   const [broadcastDeletingId, setBroadcastDeletingId] = useState<string | null>(null);
+  /** 마케팅 동의(telegram_notify_marketing) 고객에게 유저 봇으로 동일 공지 발송 — Edge Function 배포·환경 필요 */
+  const [broadcastAlsoTelegram, setBroadcastAlsoTelegram] = useState(false);
 
   /** 상품 대표 이미지 파일 선택용 (숨김 input 트리거) */
   const mainImageInputRef = useRef<HTMLInputElement>(null);
@@ -3978,6 +3981,18 @@ export const Admin: React.FC = () => {
                 </div>
               </div>
               <div className="mt-auto pt-6">
+                <label className="mb-3 flex cursor-pointer items-start gap-2 text-xs text-slate-700">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
+                    checked={broadcastAlsoTelegram}
+                    onChange={(e) => setBroadcastAlsoTelegram(e.target.checked)}
+                  />
+                  <span>
+                    Telegram으로도 발송 (마케팅 동의 고객만, 유저 봇). Edge Function <code className="text-[10px]">telegram-broadcast-marketing</code>{' '}
+                    배포 및 <code className="text-[10px]">TELEGRAM_USER_BOT_TOKEN</code> 필요.
+                  </span>
+                </label>
                 {broadcastMessage && (
                   <p className="mb-3 text-xs text-slate-600" role="status">
                     {broadcastMessage}
@@ -4007,9 +4022,11 @@ export const Admin: React.FC = () => {
                     setBroadcastSending(true);
                     setBroadcastMessage(null);
                     setError(null);
+                    const titleTrim = broadcastTitle.trim();
+                    const bodyTrim = broadcastBody.trim();
                     const { data: newBroadcastId, error: rpcErr } = await supabase.rpc('admin_broadcast_notifications', {
-                      p_title: broadcastTitle.trim(),
-                      p_body: broadcastBody.trim(),
+                      p_title: titleTrim,
+                      p_body: bodyTrim,
                       p_visible_from: new Date(broadcastVisibleFrom).toISOString(),
                       p_visible_until: new Date(broadcastVisibleUntil).toISOString(),
                       p_category: broadcastCategory,
@@ -4031,10 +4048,17 @@ export const Admin: React.FC = () => {
                         countLabel = `${row.recipient_count}명에게 알림 생성`;
                       }
                     }
+                    let telegramSuffix = '';
+                    if (broadcastAlsoTelegram) {
+                      const tg = await sendMarketingTelegramBroadcast(titleTrim, bodyTrim);
+                      telegramSuffix = tg.ok
+                        ? ` · Telegram(마케팅 동의): ${tg.sent ?? 0}/${tg.total ?? 0}명`
+                        : ` · Telegram 실패: ${tg.error ?? 'unknown'}`;
+                    }
                     setBroadcastMessage(
-                      countLabel
+                      (countLabel
                         ? `전송 완료: ${countLabel}. (기간 외에는 종 목록에 표시되지 않습니다.)`
-                        : '전송 완료. (기간 외에는 종 목록에 표시되지 않습니다.)',
+                        : '전송 완료. (기간 외에는 종 목록에 표시되지 않습니다.)') + telegramSuffix,
                     );
                     setBroadcastTitle('');
                     setBroadcastBody('');

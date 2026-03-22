@@ -32,8 +32,9 @@ Deno.serve(async (req) => {
   // points_expires_at이 7일 이내인 프로필 조회 (telegram_id 있는 경우만)
   const { data: profiles, error: qErr } = await supabase
     .from('profiles')
-    .select('id, telegram_id, points, points_expires_at')
+    .select('id, telegram_id, points, points_expires_at, telegram_notify_marketing')
     .not('telegram_id', 'is', null)
+    .eq('telegram_notify_marketing', true)
     .not('points_expires_at', 'is', null)
     .gte('points_expires_at', new Date().toISOString())
     .lte('points_expires_at', new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString());
