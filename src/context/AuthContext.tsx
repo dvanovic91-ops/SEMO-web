@@ -3,6 +3,7 @@ import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { getOrCreateVisitSessionId } from '../lib/clientSession';
 import { migrateLegacyProfileEditToSupabase } from '../lib/profileDeliveryDb';
+import { loginWithMiniApp, isTelegramMiniApp } from '../lib/telegramAuth';
 
 /** 테스트용 관리자 이메일 — 이 계정으로 로그인 시 Profile 진입용 dummy userId 사용 */
 export const TEST_ADMIN_EMAIL = 'admin@semo-box.ru';
@@ -246,18 +247,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }, 4000);
 
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        if (cancelled) return;
-        if (session?.user) {
-          void applySession(session);
-          return;
+      // Mini App 자동 로그인: 텔레그램 Mini App에서 열렸으면 먼저 자동 로그인 시도
+      const initSession = async () => {
+        if (isTelegramMiniApp() && supabase) {
+          try {
+            const ok = await loginWithMiniApp(supabase, import.meta.env.VITE_SUPABASE_URL ?? '');
+            if (ok) {
+              // verifyOtp 성공 → onAuthStateChange가 applySession 호출
+              return;
+            }
+          } catch {
+            // Mini App 로그인 실패 → 기존 세션 체크로 fallthrough
+          }
         }
-        supabase.auth.refreshSession().then(({ data: { session: refreshed } }) => {
+        // 기존 로직: getSession → refreshSession
+        try {
+          const { data: { session } } = await supabase!.auth.getSession();
+          if (cancelled) return;
+          if (session?.user) {
+            void applySession(session);
+            return;
+          }
+          const { data: { session: refreshed } } = await supabase!.auth.refreshSession();
           void applySession(refreshed ?? null);
-        }).catch(() => {
-          void applySession(null);
-        });
-      }).catch(() => {
+        } catch {
+          if (!cancelled) {
+            void applySession(null);
+          }
+        }
+      };
+      initSession().catch(() => {
         setUserEmailState(null);
         setUserId(null);
         setIsAdmin(false);
