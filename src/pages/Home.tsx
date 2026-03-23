@@ -128,86 +128,207 @@ function useScrollFadeIn(threshold = 0.15) {
   return { ref, visible };
 }
 
-/* ─── 주문 과정 — 기하학적 대각선 박스 디자인 ─── */
+/* ─── 주문 과정 — PPT 스타일 비정형 '띠' (clip-path 사선 컬럼) ─── */
 const ORDER_STEPS = [
-  { num: '01', title: 'Тест кожи', desc: 'Пройдите тест и узнайте свой тип кожи' },
-  { num: '02', title: 'Заказ и оплата', desc: 'Выберите бокс и оплатите удобным способом' },
-  { num: '03', title: 'Доставка', desc: 'Из Кореи в Россию — таможня на нас' },
-  { num: '04', title: 'Получение', desc: 'Распакуйте свой персональный бокс!' },
+  {
+    num: '01',
+    title: 'Тест кожи',
+    desc: 'Пройдите тест и узнайте свой тип кожи',
+    bg: 'linear-gradient(135deg, #d4a574 0%, #c8956c 50%, #b8835a 100%)',
+    icon: (
+      <svg className="h-8 w-8 sm:h-10 sm:w-10" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
+        <circle cx="24" cy="17" r="7" />
+        <path d="M13 38c0-6 5-11 11-11s11 5 11 11" />
+      </svg>
+    ),
+  },
+  {
+    num: '02',
+    title: 'Заказ и оплата',
+    desc: 'Выберите бокс и оплатите удобным способом',
+    bg: 'linear-gradient(135deg, #c8956c 0%, #be8a62 50%, #a87850 100%)',
+    icon: (
+      <svg className="h-8 w-8 sm:h-10 sm:w-10" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
+        <rect x="8" y="14" width="32" height="22" rx="2" />
+        <path d="M8 22h32" />
+        <path d="M16 30h8" />
+      </svg>
+    ),
+  },
+  {
+    num: '03',
+    title: 'Доставка',
+    desc: 'Из Кореи в Россию — таможня на нас',
+    bg: 'linear-gradient(135deg, #be8a62 0%, #b07e56 50%, #9c6e48 100%)',
+    icon: (
+      <svg className="h-8 w-8 sm:h-10 sm:w-10" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M6 30h28V14H6z" /><path d="M34 22h6l4 8v6h-10" />
+        <circle cx="14" cy="36" r="3" /><circle cx="38" cy="36" r="3" />
+        <path d="M17 36h17" /><path d="M6 36h5" />
+      </svg>
+    ),
+  },
+  {
+    num: '04',
+    title: 'Получение',
+    desc: 'Распакуйте свой персональный бокс!',
+    bg: 'linear-gradient(135deg, #b07e56 0%, #a0704c 50%, #8d6240 100%)',
+    icon: (
+      <svg className="h-8 w-8 sm:h-10 sm:w-10" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
+        <rect x="10" y="16" width="28" height="22" rx="1.5" />
+        <path d="M10 24h28" /><path d="M24 16v22" /><path d="M18 16l6-6 6 6" />
+      </svg>
+    ),
+  },
+];
+
+/*
+ * 비정형 사선 clip-path:
+ * 4개 컬럼이 서로 맞물리도록 경계를 사선으로 자름.
+ *   col 0: 0,0  →  28%,0  →  24%,100%  →  0,100%
+ *   col 1: 24%,0 →  53%,0  →  50%,100%  →  20%,100%
+ *   col 2: 49%,0 →  78%,0  →  76%,100%  →  46%,100%
+ *   col 3: 74%,0 → 100%,0  → 100%,100%  → 72%,100%
+ *
+ * 각 컬럼은 position:absolute + width:100% 위에 clip-path로 잘라냄.
+ * 겹침(overlap)이 있으므로 뒷 컬럼이 앞 컬럼 위에 올라감.
+ */
+const CLIP_PATHS = [
+  'polygon(0% 0%, 30% 0%, 24% 100%, 0% 100%)',
+  'polygon(22% 0%, 54% 0%, 50% 100%, 18% 100%)',
+  'polygon(48% 0%, 79% 0%, 76% 100%, 44% 100%)',
+  'polygon(73% 0%, 100% 0%, 100% 100%, 70% 100%)',
+];
+
+/* 모바일: 세로 스택 시 각 띠가 가로 전체를 채우되 상하 사선 */
+const CLIP_PATHS_MOBILE = [
+  'polygon(0% 0%, 100% 0%, 100% 88%, 0% 100%)',
+  'polygon(0% 0%, 100% 12%, 100% 88%, 0% 100%)',
+  'polygon(0% 0%, 100% 12%, 100% 88%, 0% 100%)',
+  'polygon(0% 0%, 100% 12%, 100% 100%, 0% 100%)',
 ];
 
 function OrderProcess() {
-  const { ref: sectionRef, visible } = useScrollFadeIn(0.08);
+  const { ref: sectionRef, visible } = useScrollFadeIn(0.05);
 
   return (
-    <section ref={sectionRef} className="relative w-full overflow-hidden bg-[#1a1a1a]">
+    <section ref={sectionRef} className="relative w-full overflow-hidden bg-[#141414]">
       {/* 타이틀 */}
-      <div className="relative z-10 px-4 pt-16 pb-8 sm:pt-20 sm:pb-10">
+      <div className="relative z-20 px-4 pt-14 pb-6 sm:pt-20 sm:pb-10">
         <h2
-          className={`text-center text-xl font-light tracking-[0.15em] uppercase text-white/90 transition-all duration-700 sm:text-2xl lg:text-3xl ${
+          className={`text-center font-light tracking-[0.18em] uppercase text-white/90 transition-all duration-700 text-lg sm:text-2xl lg:text-[1.7rem] ${
             visible ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0'
           }`}
         >
           Как заказать SEMO Box
         </h2>
         <div
-          className={`mx-auto mt-4 h-px w-12 bg-gradient-to-r from-transparent via-[#c8956c] to-transparent transition-all duration-700 delay-200 ${
+          className={`mx-auto mt-4 h-px w-10 bg-gradient-to-r from-transparent via-[#c8956c]/80 to-transparent transition-all duration-700 delay-200 ${
             visible ? 'scale-x-100 opacity-100' : 'scale-x-0 opacity-0'
           }`}
         />
       </div>
 
-      {/* 기하학적 카드 그리드 — 2×2 대각선 분할 */}
-      <div className="relative z-10 mx-auto grid max-w-6xl grid-cols-2 gap-[2px] px-4 pb-16 sm:pb-20 lg:gap-[3px]">
+      {/* ── 데스크톱(md+): 비정형 사선 '띠' 4개 ── */}
+      <div className="relative z-10 mx-auto hidden w-full pb-16 sm:pb-20 md:block" style={{ height: 'clamp(22rem, 42vw, 34rem)' }}>
         {ORDER_STEPS.map((step, idx) => (
           <div
             key={step.num}
-            className={`group relative aspect-[4/3] overflow-hidden bg-[#c8956c] transition-all duration-800 sm:aspect-[16/9] ${
-              visible ? 'translate-y-0 opacity-100' : 'translate-y-12 opacity-0'
+            className={`absolute inset-0 transition-all duration-[900ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
+              visible ? 'translate-x-0 opacity-100' : 'translate-x-[-6%] opacity-0'
             }`}
-            style={{ transitionDelay: visible ? `${300 + idx * 150}ms` : '0ms' }}
+            style={{
+              clipPath: CLIP_PATHS[idx],
+              background: step.bg,
+              transitionDelay: visible ? `${350 + idx * 180}ms` : '0ms',
+              zIndex: idx + 1,
+            }}
           >
-            {/* 대각선 라인 장식 */}
-            <svg
-              className="absolute inset-0 h-full w-full"
-              viewBox="0 0 400 300"
-              preserveAspectRatio="none"
-            >
-              <line
-                x1={idx % 2 === 0 ? '55%' : '45%'}
-                y1="0"
-                x2={idx % 2 === 0 ? '75%' : '25%'}
-                y2="100%"
-                stroke="rgba(255,255,255,0.25)"
-                strokeWidth="1"
-              />
-            </svg>
-
-            {/* 스텝 번호 */}
-            <span
-              className={`absolute text-[2.5rem] font-extralight tracking-wider text-white/80 sm:text-[3.5rem] lg:text-[4.5rem] ${
-                idx % 2 === 0 ? 'left-5 top-4 sm:left-8 sm:top-6' : 'right-5 top-4 sm:right-8 sm:top-6'
-              }`}
-            >
-              {step.num}
-            </span>
-
-            {/* 내용 */}
+            {/* 대각선 장식 라인 */}
             <div
-              className={`absolute bottom-0 flex flex-col gap-1 p-5 sm:gap-2 sm:p-8 ${
-                idx % 2 === 0 ? 'left-0 items-start text-left' : 'right-0 items-end text-right'
-              }`}
+              className="absolute inset-0 opacity-[0.12]"
+              style={{
+                background: `repeating-linear-gradient(${115 + idx * 8}deg, transparent, transparent 48%, rgba(255,255,255,0.5) 48%, rgba(255,255,255,0.5) 48.3%, transparent 48.3%)`,
+              }}
+            />
+
+            {/* 콘텐츠 — 각 컬럼의 중심에 배치 */}
+            <div
+              className="absolute top-0 bottom-0 flex flex-col items-center justify-center gap-3 text-center"
+              style={{
+                /* 각 클립 영역의 시각적 중심 */
+                left: `${[14, 37, 62, 86][idx]}%`,
+                transform: 'translateX(-50%)',
+                width: 'clamp(8rem, 18vw, 14rem)',
+              }}
             >
-              <p className="text-sm font-medium tracking-wide text-white sm:text-base lg:text-lg">
+              {/* Serif 숫자 */}
+              <span
+                className="block font-serif text-[3rem] font-extralight leading-none tracking-wider text-white/30 sm:text-[3.5rem] lg:text-[4.2rem]"
+                style={{ fontFamily: "'Georgia', 'Times New Roman', serif" }}
+              >
+                {step.num}
+              </span>
+
+              {/* 아이콘 */}
+              <div className="text-white/60">{step.icon}</div>
+
+              {/* 제목 */}
+              <p className="text-sm font-medium tracking-wide text-white sm:text-[0.95rem] lg:text-base">
                 {step.title}
               </p>
-              <p className="max-w-[12rem] text-[11px] leading-relaxed text-white/60 sm:max-w-[16rem] sm:text-xs lg:text-sm">
+
+              {/* 설명 */}
+              <p className="text-[11px] leading-relaxed text-white/50 sm:text-xs lg:text-[0.8rem]">
                 {step.desc}
               </p>
             </div>
+          </div>
+        ))}
+      </div>
 
-            {/* 호버 오버레이 */}
-            <div className="absolute inset-0 bg-black/0 transition-colors duration-300 group-hover:bg-black/10" />
+      {/* ── 모바일(<md): 세로 스택 사선 띠 ── */}
+      <div className="relative z-10 flex flex-col pb-8 md:hidden" style={{ marginTop: '-1rem' }}>
+        {ORDER_STEPS.map((step, idx) => (
+          <div
+            key={step.num}
+            className={`relative transition-all duration-[800ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
+              visible ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0'
+            }`}
+            style={{
+              clipPath: CLIP_PATHS_MOBILE[idx],
+              background: step.bg,
+              transitionDelay: visible ? `${300 + idx * 140}ms` : '0ms',
+              marginTop: idx > 0 ? '-1.2rem' : '0',
+              zIndex: idx + 1,
+              padding: '2.5rem 1.5rem',
+            }}
+          >
+            {/* 대각선 장식 */}
+            <div
+              className="absolute inset-0 opacity-[0.08]"
+              style={{
+                background: `repeating-linear-gradient(${115 + idx * 8}deg, transparent, transparent 48%, rgba(255,255,255,0.6) 48%, rgba(255,255,255,0.6) 48.3%, transparent 48.3%)`,
+              }}
+            />
+
+            <div className="relative flex items-center gap-5">
+              {/* 숫자 */}
+              <span
+                className="shrink-0 font-serif text-[2.8rem] font-extralight leading-none tracking-wider text-white/25"
+                style={{ fontFamily: "'Georgia', 'Times New Roman', serif" }}
+              >
+                {step.num}
+              </span>
+
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center gap-3">
+                  <div className="text-white/60">{step.icon}</div>
+                  <p className="text-sm font-medium tracking-wide text-white">{step.title}</p>
+                </div>
+                <p className="text-[11px] leading-relaxed text-white/50">{step.desc}</p>
+              </div>
+            </div>
           </div>
         ))}
       </div>
