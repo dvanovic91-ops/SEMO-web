@@ -22,20 +22,20 @@ function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
       setDirection(dir);
       setAnimating(true);
       setCurrent(next);
-      setTimeout(() => setAnimating(false), 700);
+      setTimeout(() => setAnimating(false), 1000);
     },
     [len, current, animating],
   );
 
-  // 자동 슬라이드 (3초)
+  // 자동 슬라이드 (5초)
   useEffect(() => {
     if (len <= 1) return;
     timerRef.current = setInterval(() => {
       setDirection('left');
       setAnimating(true);
       setCurrent((c) => (c + 1) % len);
-      setTimeout(() => setAnimating(false), 700);
-    }, 3000);
+      setTimeout(() => setAnimating(false), 1000);
+    }, 5000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [len]);
 
@@ -45,8 +45,8 @@ function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
       setDirection('left');
       setAnimating(true);
       setCurrent((c) => (c + 1) % len);
-      setTimeout(() => setAnimating(false), 700);
-    }, 3000);
+      setTimeout(() => setAnimating(false), 1000);
+    }, 5000);
   };
 
   const prev = () => { goTo(current - 1, 'right'); resetTimer(); };
@@ -57,7 +57,7 @@ function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
   return (
     <section
       className="relative w-full select-none overflow-hidden bg-white"
-      style={{ height: '100vh' }}
+      style={{ height: 'calc(100dvh - var(--semo-mobile-header-h, 3.5rem))' }}
       onTouchStart={(e) => { touchStartX.current = e.touches[0].clientX; }}
       onTouchEnd={(e) => {
         const diff = e.changedTouches[0].clientX - touchStartX.current;
@@ -66,7 +66,7 @@ function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
     >
       {/* 슬라이드 — CSS transition으로 좌/우 슬라이드 */}
       <div
-        className="flex h-full transition-transform duration-700 ease-in-out"
+        className="flex h-full transition-transform duration-1000 ease-[cubic-bezier(0.25,0.1,0.25,1)]"
         style={{
           width: `${len * 100}%`,
           transform: `translateX(-${current * (100 / len)}%)`,
