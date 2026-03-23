@@ -5,95 +5,133 @@ import { supabase } from '../lib/supabase';
 /* ─── 히어로 이미지 타입 ─── */
 type HeroSlide = { image_url: string; link_url?: string };
 
-/* ─── 히어로 캐러셀 ─── */
+/* ─── 히어로 캐러셀 — 좌측 슬라이드 애니메이션, 100vh, contain, white bg ─── */
 function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
   const [current, setCurrent] = useState(0);
+  const [direction, setDirection] = useState<'left' | 'right'>('left');
+  const [animating, setAnimating] = useState(false);
   const touchStartX = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const len = slides.length;
 
   const goTo = useCallback(
-    (idx: number) => setCurrent(((idx % len) + len) % len),
-    [len],
+    (idx: number, dir: 'left' | 'right' = 'left') => {
+      if (animating) return;
+      const next = ((idx % len) + len) % len;
+      if (next === current) return;
+      setDirection(dir);
+      setAnimating(true);
+      setCurrent(next);
+      setTimeout(() => setAnimating(false), 700);
+    },
+    [len, current, animating],
   );
 
   // 자동 슬라이드 (3초)
   useEffect(() => {
     if (len <= 1) return;
-    timerRef.current = setInterval(() => setCurrent((c) => (c + 1) % len), 3000);
+    timerRef.current = setInterval(() => {
+      setDirection('left');
+      setAnimating(true);
+      setCurrent((c) => (c + 1) % len);
+      setTimeout(() => setAnimating(false), 700);
+    }, 3000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [len]);
 
-  // 사용자 조작 시 타이머 리셋
   const resetTimer = () => {
     if (timerRef.current) clearInterval(timerRef.current);
-    if (len > 1) timerRef.current = setInterval(() => setCurrent((c) => (c + 1) % len), 3000);
+    if (len > 1) timerRef.current = setInterval(() => {
+      setDirection('left');
+      setAnimating(true);
+      setCurrent((c) => (c + 1) % len);
+      setTimeout(() => setAnimating(false), 700);
+    }, 3000);
   };
 
-  const prev = () => { goTo(current - 1); resetTimer(); };
-  const next = () => { goTo(current + 1); resetTimer(); };
+  const prev = () => { goTo(current - 1, 'right'); resetTimer(); };
+  const next = () => { goTo(current + 1, 'left'); resetTimer(); };
 
   if (len === 0) return null;
 
-  const slide = slides[current];
-  const img = (
-    <img
-      src={slide.image_url}
-      alt={`SEMO box ${current + 1}`}
-      className="w-full object-cover"
-      style={{ maxHeight: '80vh' }}
-      draggable={false}
-    />
-  );
-
   return (
     <section
-      className="relative w-full select-none overflow-hidden"
+      className="relative w-full select-none overflow-hidden bg-white"
+      style={{ height: '100vh' }}
       onTouchStart={(e) => { touchStartX.current = e.touches[0].clientX; }}
       onTouchEnd={(e) => {
         const diff = e.changedTouches[0].clientX - touchStartX.current;
         if (Math.abs(diff) > 40) { diff < 0 ? next() : prev(); }
       }}
     >
-      {slide.link_url ? (
-        <Link to={slide.link_url} className="block w-full">{img}</Link>
-      ) : (
-        img
-      )}
+      {/* 슬라이드 — CSS transition으로 좌/우 슬라이드 */}
+      <div
+        className="flex h-full transition-transform duration-700 ease-in-out"
+        style={{
+          width: `${len * 100}%`,
+          transform: `translateX(-${current * (100 / len)}%)`,
+        }}
+      >
+        {slides.map((slide, i) => {
+          const inner = (
+            <img
+              src={slide.image_url}
+              alt={`SEMO box ${i + 1}`}
+              className="h-full w-full object-contain"
+              draggable={false}
+            />
+          );
+          return (
+            <div
+              key={i}
+              className="flex h-full shrink-0 items-center justify-center bg-white"
+              style={{ width: `${100 / len}%` }}
+            >
+              {slide.link_url ? (
+                <Link to={slide.link_url} className="flex h-full w-full items-center justify-center">{inner}</Link>
+              ) : (
+                inner
+              )}
+            </div>
+          );
+        })}
+      </div>
 
-      {/* 좌우 화살표 — 데스크톱 */}
+      {/* 좌우 화살표 — 데스크톱, 미니멀 */}
       {len > 1 && (
         <>
           <button
             type="button"
             onClick={prev}
             aria-label="이전"
-            className="absolute left-3 top-1/2 z-10 hidden -translate-y-1/2 items-center justify-center rounded-full bg-black/30 p-2 text-white backdrop-blur-sm transition hover:bg-black/50 md:flex"
+            className="absolute left-4 top-1/2 z-10 hidden -translate-y-1/2 items-center justify-center rounded-full bg-white/60 p-2.5 text-slate-700 shadow-sm backdrop-blur-sm transition hover:bg-white/90 md:flex"
           >
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
           </button>
           <button
             type="button"
             onClick={next}
             aria-label="다음"
-            className="absolute right-3 top-1/2 z-10 hidden -translate-y-1/2 items-center justify-center rounded-full bg-black/30 p-2 text-white backdrop-blur-sm transition hover:bg-black/50 md:flex"
+            className="absolute right-4 top-1/2 z-10 hidden -translate-y-1/2 items-center justify-center rounded-full bg-white/60 p-2.5 text-slate-700 shadow-sm backdrop-blur-sm transition hover:bg-white/90 md:flex"
           >
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
           </button>
         </>
       )}
 
-      {/* 인디케이터 */}
+      {/* 인디케이터 — 미니멀 */}
       {len > 1 && (
-        <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 gap-2">
+        <div className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 gap-2.5">
           {slides.map((_, i) => (
             <button
               key={i}
               type="button"
               aria-label={`Slide ${i + 1}`}
-              onClick={() => { goTo(i); resetTimer(); }}
-              className={`h-2.5 w-2.5 rounded-full transition-all ${
-                i === current ? 'bg-white scale-110 shadow' : 'bg-white/50'
+              onClick={() => { goTo(i, i > current ? 'left' : 'right'); resetTimer(); }}
+              className={`rounded-full transition-all duration-300 ${
+                i === current
+                  ? 'h-2.5 w-6 bg-brand shadow-sm'
+                  : 'h-2.5 w-2.5 bg-slate-300/60 hover:bg-slate-400/80'
               }`}
             />
           ))}
@@ -379,11 +417,9 @@ export const Home: React.FC = () => {
 
   return (
     <>
-      {/* 히어로 이미지 캐러셀 */}
+      {/* 히어로 이미지 캐러셀 — 100vh 풀스크린 */}
       {heroSlides.length > 0 && (
-        <div className="mt-2">
-          <HeroCarousel slides={heroSlides} />
-        </div>
+        <HeroCarousel slides={heroSlides} />
       )}
 
       {/* 주문 과정 시각화 (4단계) */}

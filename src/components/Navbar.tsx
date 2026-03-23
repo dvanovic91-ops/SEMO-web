@@ -393,7 +393,7 @@ export const Navbar: React.FC = () => {
                   {/* SEMO Box — 호버 시 하단 서브바 표시 */}
                   <div
                     ref={semoBoxDesktopRef}
-                    className="relative"
+                    className="relative flex items-center"
                     onMouseEnter={() => setSemoBoxOpen(true)}
                     onMouseLeave={() => setSemoBoxOpen(false)}
                   >
