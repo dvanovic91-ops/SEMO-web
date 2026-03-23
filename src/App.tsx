@@ -73,6 +73,7 @@ import { Journey } from './pages/Journey';
 import { Promo } from './pages/Promo';
 import { Recommendations } from './pages/Recommendations';
 import { AuthCallback, AUTH_MESSAGE_TYPE } from './pages/AuthCallback';
+import { YandexCallback } from './pages/YandexCallback';
 import { Admin } from './pages/admin/Admin';
 
 /** 상품 id가 바뀔 때마다 ProductDetail을 새로 마운트 → effect 중복·#310 완화 */
@@ -121,6 +122,7 @@ function AppLayout() {
               <Route path="/admin" element={<Admin />} />
               <Route path="/login" element={<Login />} />
               <Route path="/auth/callback" element={<AuthCallback />} />
+              <Route path="/auth/yandex/callback" element={<YandexCallback />} />
               <Route path="/register" element={<Register />} />
               <Route path="/register/shipping" element={<RegisterShipping />} />
             </Routes>

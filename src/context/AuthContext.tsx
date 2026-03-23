@@ -81,6 +81,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [userEmail, setUserEmailState] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
+  const [miniAppDebug, setMiniAppDebug] = useState<string>('');
   const [isAdmin, setIsAdmin] = useState(false);
   const [canGrantPermission, setCanGrantPermission] = useState(false);
   const [canGrantAdminRole, setCanGrantAdminRole] = useState(false);
@@ -249,14 +250,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       // Mini App 자동 로그인: 텔레그램 Mini App에서 열렸으면 먼저 자동 로그인 시도
       const initSession = async () => {
+        const hasTg = !!(window as any).Telegram;
+        const hasWebApp = !!(window as any).Telegram?.WebApp;
+        const initData = (window as any).Telegram?.WebApp?.initData || '';
+        const debugInfo: string[] = [];
+        debugInfo.push(`TG:${hasTg} WA:${hasWebApp} initLen:${initData.length} isMini:${isTelegramMiniApp()}`);
+        if (initData) debugInfo.push(`data: ${initData.substring(0, 120)}`);
+        setMiniAppDebug(debugInfo.join(' | '));
+        console.log('[MiniApp Debug]', debugInfo.join(' | '));
+
         if (isTelegramMiniApp() && supabase) {
+          debugInfo.push('→ attempting login...');
+          setMiniAppDebug(debugInfo.join(' | '));
           try {
-            const ok = await loginWithMiniApp(supabase, import.meta.env.VITE_SUPABASE_URL ?? '');
+            const loginResult = await loginWithMiniApp(supabase, import.meta.env.VITE_SUPABASE_URL ?? '');
+            const ok = loginResult.ok;
+            debugInfo.push(`result: ${ok}${loginResult.error ? ' err:' + loginResult.error : ''}`);
+            setMiniAppDebug(debugInfo.join(' | '));
             if (ok) {
               // verifyOtp 성공 → onAuthStateChange가 applySession 호출
               return;
             }
-          } catch {
+          } catch (e) {
+            debugInfo.push(`ERR: ${(e as Error).message}`);
+            setMiniAppDebug(debugInfo.join(' | '));
+            console.error('[MiniApp Debug] loginWithMiniApp error:', e);
             // Mini App 로그인 실패 → 기존 세션 체크로 fallthrough
           }
         }
@@ -338,7 +356,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     ]
   );
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      {miniAppDebug && (
+        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 99999, background: '#000', color: '#0f0', fontSize: '10px', padding: '6px 8px', maxHeight: '80px', overflow: 'auto', wordBreak: 'break-all', fontFamily: 'monospace' }}>
+          {miniAppDebug}
+        </div>
+      )}
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth() {

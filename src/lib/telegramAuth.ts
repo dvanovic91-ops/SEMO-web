@@ -3,7 +3,7 @@
  *
  * 흐름:
  *  1. Widget / Mini App에서 Telegram 데이터 수집
- *  2. Edge Function `telegram-auth`로 전송 → token_hash 수령
+ *  2. supabase.functions.invoke('telegram-auth') → token_hash 수령
  *  3. supabase.auth.verifyOtp({ token_hash, type: 'magiclink' }) → 세션 생성
  */
 
@@ -21,7 +21,7 @@ declare global {
         close: () => void;
       };
     };
-    // Telegram Login Widget 콜백
+    // Telegram Login Widget 콜백 (script 방식)
     __telegramLoginCallback?: (user: TelegramWidgetUser) => void;
   }
 }
@@ -36,222 +36,144 @@ interface TelegramWidgetUser {
   hash: string;
 }
 
-// ── Edge Function URL ──
-function getEdgeFunctionUrl(supabaseUrl: string): string {
-  return `${supabaseUrl}/functions/v1/telegram-auth`;
+// ── Edge Function 호출 (supabase.functions.invoke — auth 자동 처리) ──
+
+async function authenticateWithEdgeFunction(
+  supabaseClient: SupabaseClient,
+  mode: 'widget' | 'miniapp',
+  data: Record<string, string> | string,
+): Promise<{ ok: boolean; isNew?: boolean; error?: string }> {
+  console.log('[TelegramAuth] calling telegram-auth, mode:', mode);
+
+  const { data: result, error: invokeErr } = await supabaseClient.functions.invoke('telegram-auth', {
+    body: { mode, data },
+  });
+
+  console.log('[TelegramAuth] result:', JSON.stringify(result), 'err:', invokeErr?.message);
+
+  if (invokeErr) {
+    return { ok: false, error: `invoke:${invokeErr.message}` };
+  }
+
+  if (!result?.ok) {
+    return { ok: false, error: `${result?.error || 'no_ok'}` };
+  }
+
+  console.log('[TelegramAuth] verifyOtp...');
+  const { error: otpErr } = await supabaseClient.auth.verifyOtp({
+    token_hash: result.token_hash,
+    type: 'magiclink',
+  });
+
+  if (otpErr) {
+    return { ok: false, error: `otp:${otpErr.message}` };
+  }
+  console.log('[TelegramAuth] success!');
+
+  return { ok: true, isNew: result.is_new };
 }
 
-// ── Widget 로그인 (로그인 페이지) ──
+// ── Widget 로그인 (로그인 페이지에서 텔레그램 버튼 클릭) ──
 
-/**
- * Telegram Login Widget를 팝업으로 열어 인증.
- * 성공 시 supabase 세션이 자동 생성됨.
- */
-export function loginWithTelegramWidget(
+export function triggerTelegramLogin(
   supabaseClient: SupabaseClient,
-  supabaseUrl: string,
+  _supabaseUrl: string,
   botUsername: string,
 ): Promise<{ ok: boolean; isNew?: boolean; error?: string }> {
   return new Promise((resolve) => {
-    // 콜백 등록
-    window.__telegramLoginCallback = async (user: TelegramWidgetUser) => {
+    let resolved = false;
+    const finish = (result: { ok: boolean; isNew?: boolean; error?: string }) => {
+      if (!resolved) {
+        resolved = true;
+        // 오버레이/컨테이너 정리
+        document.getElementById('telegram-login-overlay')?.remove();
+        document.getElementById('telegram-login-container')?.remove();
+        resolve(result);
+      }
+    };
+
+    // 콜백: Telegram 인증 데이터 수신 → Edge Function 호출
+    const handleAuth = async (user: TelegramWidgetUser | false) => {
+      if (!user) {
+        finish({ ok: false, error: 'popup_closed' });
+        return;
+      }
       try {
-        // 위젯 데이터를 Record<string, string>으로 변환
         const data: Record<string, string> = {};
         for (const [k, v] of Object.entries(user)) {
           data[k] = String(v);
         }
-
-        const resp = await fetch(getEdgeFunctionUrl(supabaseUrl), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mode: 'widget', data }),
-        });
-
-        const result = await resp.json();
-        if (!result.ok) {
-          resolve({ ok: false, error: result.error || 'auth_failed' });
-          return;
-        }
-
-        // verifyOtp로 세션 생성
-        const { error: otpErr } = await supabaseClient.auth.verifyOtp({
-          token_hash: result.token_hash,
-          type: 'magiclink',
-        });
-
-        if (otpErr) {
-          resolve({ ok: false, error: otpErr.message });
-          return;
-        }
-
-        resolve({ ok: true, isNew: result.is_new });
+        const result = await authenticateWithEdgeFunction(supabaseClient, 'widget', data);
+        finish(result);
       } catch (err) {
-        resolve({ ok: false, error: (err as Error).message });
+        finish({ ok: false, error: (err as Error).message });
       }
     };
 
-    // Telegram Login Widget를 팝업으로 열기
-    // https://core.telegram.org/widgets/login#setting-up-a-widget
-    const origin = encodeURIComponent(window.location.origin);
-    const popupUrl =
-      `https://oauth.telegram.org/auth?bot_id=${botUsername}&origin=${origin}&embed=0&request_access=write&return_to=${encodeURIComponent(window.location.href)}`;
+    window.__telegramLoginCallback = (user: TelegramWidgetUser) => handleAuth(user);
 
-    // 팝업 대신 iframe/script 방식 사용 (더 안정적)
-    // Telegram Login Widget 스크립트를 동적으로 삽입
-    const containerId = 'telegram-login-container';
-    let container = document.getElementById(containerId);
-    if (!container) {
-      container = document.createElement('div');
-      container.id = containerId;
-      container.style.position = 'fixed';
-      container.style.top = '-9999px';
-      container.style.left = '-9999px';
-      document.body.appendChild(container);
-    }
-    container.innerHTML = '';
+    // 기존 컨테이너 정리
+    document.getElementById('telegram-login-overlay')?.remove();
+    document.getElementById('telegram-login-container')?.remove();
 
+    // 배경 오버레이
+    const overlay = document.createElement('div');
+    overlay.id = 'telegram-login-overlay';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:99998';
+    overlay.onclick = () => finish({ ok: false, error: 'popup_closed' });
+    document.body.appendChild(overlay);
+
+    // 위젯 컨테이너
+    const container = document.createElement('div');
+    container.id = 'telegram-login-container';
+    container.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:99999;background:white;border-radius:16px;padding:32px;box-shadow:0 20px 60px rgba(0,0,0,0.3);min-width:280px;text-align:center';
+    document.body.appendChild(container);
+
+    // 타이틀
+    const title = document.createElement('p');
+    title.textContent = 'Войти через Telegram';
+    title.style.cssText = 'margin-bottom:16px;font-size:16px;font-weight:600;color:#333';
+    container.appendChild(title);
+
+    // Telegram Widget 스크립트
     const script = document.createElement('script');
     script.src = 'https://telegram.org/js/telegram-widget.js?22';
     script.setAttribute('data-telegram-login', botUsername);
     script.setAttribute('data-size', 'large');
+    script.setAttribute('data-radius', '8');
     script.setAttribute('data-onauth', '__telegramLoginCallback(user)');
     script.setAttribute('data-request-access', 'write');
     script.async = true;
-
-    // 실제로는 Telegram이 auth 팝업을 열어줌
-    // 스크립트가 로드되면 자동으로 팝업/리다이렉트 처리
     container.appendChild(script);
 
-    // 타임아웃 (2분)
-    setTimeout(() => {
-      resolve({ ok: false, error: 'timeout' });
-    }, 120_000);
-  });
-}
-
-/**
- * Telegram 위젯 로그인을 바로 트리거 (팝업 방식).
- * 콜백 함수를 등록하고, Telegram OAuth 창을 엶.
- */
-export function triggerTelegramLogin(
-  supabaseClient: SupabaseClient,
-  supabaseUrl: string,
-  botUsername: string,
-): Promise<{ ok: boolean; isNew?: boolean; error?: string }> {
-  return new Promise((resolve) => {
-    // 글로벌 콜백
-    window.__telegramLoginCallback = async (user: TelegramWidgetUser) => {
-      try {
-        const data: Record<string, string> = {};
-        for (const [k, v] of Object.entries(user)) {
-          data[k] = String(v);
-        }
-
-        const resp = await fetch(getEdgeFunctionUrl(supabaseUrl), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mode: 'widget', data }),
-        });
-
-        const result = await resp.json();
-        if (!result.ok) {
-          resolve({ ok: false, error: result.error || 'auth_failed' });
-          return;
-        }
-
-        const { error: otpErr } = await supabaseClient.auth.verifyOtp({
-          token_hash: result.token_hash,
-          type: 'magiclink',
-        });
-
-        if (otpErr) {
-          resolve({ ok: false, error: otpErr.message });
-          return;
-        }
-
-        resolve({ ok: true, isNew: result.is_new });
-      } catch (err) {
-        resolve({ ok: false, error: (err as Error).message });
-      }
-    };
-
-    // Telegram OAuth 팝업 열기
-    const botId = botUsername.replace('@', '');
-    const popup = window.open(
-      `https://oauth.telegram.org/auth?bot_id=${botId}&origin=${encodeURIComponent(window.location.origin)}&embed=0&request_access=write`,
-      'TelegramAuth',
-      'width=550,height=470,resizable=yes,scrollbars=yes',
-    );
-
-    // 팝업이 닫히면 체크
-    if (popup) {
-      const interval = setInterval(() => {
-        if (popup.closed) {
-          clearInterval(interval);
-          // 콜백이 아직 호출되지 않았으면 취소로 처리
-          // (resolve가 이미 호출되었으면 무시됨)
-          resolve({ ok: false, error: 'popup_closed' });
-        }
-      }, 500);
-    }
-
-    // 타임아웃
-    setTimeout(() => resolve({ ok: false, error: 'timeout' }), 120_000);
+    setTimeout(() => finish({ ok: false, error: 'timeout' }), 120_000);
   });
 }
 
 
 // ── Mini App 자동 로그인 ──
 
-/**
- * Telegram Mini App에서 열렸을 때 자동 로그인.
- * window.Telegram.WebApp.initData가 있으면 Edge Function으로 인증.
- * @returns true면 로그인 성공, false면 Mini App 아니거나 실패
- */
 export async function loginWithMiniApp(
   supabaseClient: SupabaseClient,
-  supabaseUrl: string,
-): Promise<boolean> {
+  _supabaseUrl: string,
+): Promise<{ ok: boolean; error?: string }> {
   const initData = window.Telegram?.WebApp?.initData;
-  if (!initData) return false;
+  if (!initData) return { ok: false, error: 'no_initData' };
 
   try {
-    // Mini App 준비 알림
     window.Telegram?.WebApp?.ready();
 
-    const resp = await fetch(getEdgeFunctionUrl(supabaseUrl), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode: 'miniapp', data: initData }),
-    });
-
-    const result = await resp.json();
+    const result = await authenticateWithEdgeFunction(supabaseClient, 'miniapp', initData);
     if (!result.ok) {
-      console.warn('[MiniApp Auth] Edge function error:', result.error);
-      return false;
+      return { ok: false, error: result.error };
     }
 
-    const { error: otpErr } = await supabaseClient.auth.verifyOtp({
-      token_hash: result.token_hash,
-      type: 'magiclink',
-    });
-
-    if (otpErr) {
-      console.warn('[MiniApp Auth] verifyOtp error:', otpErr.message);
-      return false;
-    }
-
-    return true;
+    return { ok: true };
   } catch (err) {
-    console.warn('[MiniApp Auth] unexpected error:', err);
-    return false;
+    return { ok: false, error: (err as Error).message };
   }
 }
 
-/**
- * Mini App 환경인지 빠르게 확인
- */
 export function isTelegramMiniApp(): boolean {
   return !!(window.Telegram?.WebApp?.initData);
 }

@@ -1,8 +1,6 @@
 // ============================================================
 //  Telegram Auth — Widget Login + Mini App Auto-Login
-//  1) Verify Telegram hash (widget or miniapp mode)
-//  2) Find or create Supabase user
-//  3) Return magiclink token_hash for frontend verifyOtp
+//  모든 응답은 HTTP 200 + JSON body (ok: true/false)
 // ============================================================
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -12,14 +10,18 @@ const cors = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-function json(res: object, status = 200) {
+function json(res: object) {
   return new Response(JSON.stringify(res), {
-    status,
+    status: 200,
     headers: { ...cors, 'Content-Type': 'application/json' },
   });
 }
 
-// ── Crypto helpers (Deno / Web Crypto API) ──
+function fail(error: string, extra?: Record<string, unknown>) {
+  return json({ ok: false, error, ...extra });
+}
+
+// ── Crypto helpers ──
 
 async function hmacSha256(key: ArrayBuffer | Uint8Array, data: string): Promise<ArrayBuffer> {
   const cryptoKey = await crypto.subtle.importKey(
@@ -61,10 +63,10 @@ async function verifyWidgetHash(
 async function verifyMiniAppHash(
   botToken: string,
   initData: string,
-): Promise<{ ok: boolean; user?: Record<string, unknown> }> {
+): Promise<{ ok: boolean; user?: Record<string, unknown>; debug?: string }> {
   const params = new URLSearchParams(initData);
   const hash = params.get('hash');
-  if (!hash) return { ok: false };
+  if (!hash) return { ok: false, debug: 'no_hash_param' };
   const checkArr: string[] = [];
   params.forEach((v, k) => {
     if (k !== 'hash') checkArr.push(`${k}=${v}`);
@@ -73,7 +75,9 @@ async function verifyMiniAppHash(
   const checkString = checkArr.join('\n');
   const secretKey = await hmacSha256(new TextEncoder().encode('WebAppData'), botToken);
   const computed = bufToHex(await hmacSha256(secretKey, checkString));
-  if (computed !== hash) return { ok: false };
+  if (computed !== hash) {
+    return { ok: false, debug: `hash_mismatch|expected:${hash.substring(0,16)}|got:${computed.substring(0,16)}|tokenLen:${botToken.length}` };
+  }
   try {
     const userStr = params.get('user');
     const user = userStr ? JSON.parse(userStr) : null;
@@ -88,151 +92,140 @@ async function verifyMiniAppHash(
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
 
-  const botToken = Deno.env.get('TELEGRAM_USER_BOT_TOKEN') ?? Deno.env.get('TELEGRAM_BOT_TOKEN') ?? '';
-  if (!botToken) return json({ error: 'TELEGRAM_BOT_TOKEN not configured' }, 500);
-
-  const supabaseUrl = Deno.env.get('SUPABASE_URL');
-  const serviceRole = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-  if (!supabaseUrl || !serviceRole) return json({ error: 'Supabase env missing' }, 500);
-
-  const supabase = createClient(supabaseUrl, serviceRole, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-
-  let mode: string;
-  let widgetData: Record<string, string> | null = null;
-  let miniAppInitData: string | null = null;
-
   try {
-    const body = await req.json();
-    mode = body.mode;
-    if (mode === 'widget') widgetData = body.data;
-    else if (mode === 'miniapp') miniAppInitData = body.data;
-    else return json({ error: 'mode must be "widget" or "miniapp"' }, 400);
-  } catch {
-    return json({ error: 'Invalid JSON' }, 400);
-  }
+    const botToken = Deno.env.get('TELEGRAM_USER_BOT_TOKEN') ?? Deno.env.get('TELEGRAM_BOT_TOKEN') ?? '';
+    if (!botToken) return fail('TELEGRAM_BOT_TOKEN_not_configured');
 
-  // ── 1. Verify hash ──
-  let telegramId: string | null = null;
-  let firstName = '';
-  let lastName = '';
-  let username = '';
-  let photoUrl = '';
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const serviceRole = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    if (!supabaseUrl || !serviceRole) return fail('supabase_env_missing');
 
-  if (mode === 'widget' && widgetData) {
-    const valid = await verifyWidgetHash(botToken, widgetData);
-    if (!valid) return json({ error: 'invalid_hash' }, 401);
-    // Check auth_date freshness (5 minutes)
-    const authDate = parseInt(widgetData.auth_date || '0', 10);
-    if (Math.abs(Date.now() / 1000 - authDate) > 300) {
-      return json({ error: 'auth_date_expired' }, 401);
-    }
-    telegramId = widgetData.id;
-    firstName = widgetData.first_name || '';
-    lastName = widgetData.last_name || '';
-    username = widgetData.username || '';
-    photoUrl = widgetData.photo_url || '';
-  }
-
-  if (mode === 'miniapp' && miniAppInitData) {
-    const result = await verifyMiniAppHash(botToken, miniAppInitData);
-    if (!result.ok) return json({ error: 'invalid_hash' }, 401);
-    // Check auth_date
-    const params = new URLSearchParams(miniAppInitData);
-    const authDate = parseInt(params.get('auth_date') || '0', 10);
-    if (Math.abs(Date.now() / 1000 - authDate) > 300) {
-      return json({ error: 'auth_date_expired' }, 401);
-    }
-    const user = result.user as Record<string, unknown> | undefined;
-    telegramId = user?.id != null ? String(user.id) : null;
-    firstName = (user?.first_name as string) || '';
-    lastName = (user?.last_name as string) || '';
-    username = (user?.username as string) || '';
-    photoUrl = (user?.photo_url as string) || '';
-  }
-
-  if (!telegramId) return json({ error: 'telegram_id missing' }, 400);
-
-  // ── 2. Find existing user by telegram_id ──
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('id, email')
-    .eq('telegram_id', telegramId)
-    .maybeSingle();
-
-  let userId: string;
-  let userEmail: string;
-  let isNew = false;
-
-  if (profile?.id) {
-    // Existing user
-    userId = profile.id;
-    // Get email from auth.users
-    const { data: authUser } = await supabase.auth.admin.getUserById(userId);
-    userEmail = authUser?.user?.email || profile.email || `tg_${telegramId}@tg.semo-box.local`;
-  } else {
-    // ── 3. Create new user ──
-    isNew = true;
-    userEmail = `tg_${telegramId}@tg.semo-box.local`;
-    const displayName = [firstName, lastName].filter(Boolean).join(' ').trim() || username || `TG_${telegramId}`;
-
-    // Generate random password (user won't need it — they login via Telegram)
-    const randomPwd = bufToHex(crypto.getRandomValues(new Uint8Array(32)));
-
-    const { data: newUser, error: createErr } = await supabase.auth.admin.createUser({
-      email: userEmail,
-      password: randomPwd,
-      email_confirm: true,
-      user_metadata: { nickname: displayName, telegram_id: telegramId },
+    const supabase = createClient(supabaseUrl, serviceRole, {
+      auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    if (createErr || !newUser?.user?.id) {
-      // Maybe race condition — try lookup again
-      const { data: retryProfile } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('telegram_id', telegramId)
-        .maybeSingle();
-      if (retryProfile?.id) {
-        userId = retryProfile.id;
-        isNew = false;
-      } else {
-        return json({ error: 'user_creation_failed', details: createErr?.message }, 500);
-      }
-    } else {
-      userId = newUser.user.id;
+    let mode: string;
+    let widgetData: Record<string, string> | null = null;
+    let miniAppInitData: string | null = null;
+
+    try {
+      const body = await req.json();
+      mode = body.mode;
+      if (mode === 'widget') widgetData = body.data;
+      else if (mode === 'miniapp') miniAppInitData = body.data;
+      else return fail('bad_mode');
+    } catch {
+      return fail('invalid_json');
     }
 
-    // Update profile with telegram_id and name
-    // (handle_new_user trigger already created the row, but telegram_id might not be set)
-    await supabase.from('profiles').update({
+    // ── 1. Verify hash ──
+    let telegramId: string | null = null;
+    let firstName = '';
+    let lastName = '';
+    let username = '';
+
+    if (mode === 'widget' && widgetData) {
+      const valid = await verifyWidgetHash(botToken, widgetData);
+      if (!valid) return fail('widget_invalid_hash');
+      const authDate = parseInt(widgetData.auth_date || '0', 10);
+      if (Math.abs(Date.now() / 1000 - authDate) > 600) {
+        return fail('widget_auth_date_expired', { authDate, serverTime: Math.floor(Date.now() / 1000) });
+      }
+      telegramId = widgetData.id;
+      firstName = widgetData.first_name || '';
+      lastName = widgetData.last_name || '';
+      username = widgetData.username || '';
+    }
+
+    if (mode === 'miniapp' && miniAppInitData) {
+      const result = await verifyMiniAppHash(botToken, miniAppInitData);
+      if (!result.ok) return fail('miniapp_invalid_hash', { debug: result.debug });
+      const params = new URLSearchParams(miniAppInitData);
+      const authDate = parseInt(params.get('auth_date') || '0', 10);
+      const serverTime = Math.floor(Date.now() / 1000);
+      if (Math.abs(serverTime - authDate) > 600) {
+        return fail('miniapp_auth_date_expired', { authDate, serverTime, diff: serverTime - authDate });
+      }
+      const user = result.user as Record<string, unknown> | undefined;
+      telegramId = user?.id != null ? String(user.id) : null;
+      firstName = (user?.first_name as string) || '';
+      lastName = (user?.last_name as string) || '';
+      username = (user?.username as string) || '';
+    }
+
+    if (!telegramId) return fail('telegram_id_missing');
+
+    // ── 2. Find existing user by telegram_id ──
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('id, email')
+      .eq('telegram_id', telegramId)
+      .maybeSingle();
+
+    let userId: string;
+    let userEmail: string;
+    let isNew = false;
+
+    if (profile?.id) {
+      userId = profile.id;
+      const { data: authUser } = await supabase.auth.admin.getUserById(userId);
+      userEmail = authUser?.user?.email || profile.email || `tg_${telegramId}@tg.semo-box.local`;
+    } else {
+      isNew = true;
+      userEmail = `tg_${telegramId}@tg.semo-box.local`;
+      const displayName = [firstName, lastName].filter(Boolean).join(' ').trim() || username || `TG_${telegramId}`;
+      const randomPwd = bufToHex(crypto.getRandomValues(new Uint8Array(32)));
+
+      const { data: newUser, error: createErr } = await supabase.auth.admin.createUser({
+        email: userEmail,
+        password: randomPwd,
+        email_confirm: true,
+        user_metadata: { nickname: displayName, telegram_id: telegramId },
+      });
+
+      if (createErr || !newUser?.user?.id) {
+        const { data: retryProfile } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('telegram_id', telegramId)
+          .maybeSingle();
+        if (retryProfile?.id) {
+          userId = retryProfile.id;
+          isNew = false;
+        } else {
+          return fail('user_creation_failed', { details: createErr?.message });
+        }
+      } else {
+        userId = newUser.user.id;
+      }
+
+      await supabase.from('profiles').update({
+        telegram_id: telegramId,
+        name: [firstName, lastName].filter(Boolean).join(' ').trim() || null,
+      }).eq('id', userId!);
+    }
+
+    // ── 4. Generate magiclink ──
+    const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
+      type: 'magiclink',
+      email: userEmail,
+    });
+
+    if (linkErr || !linkData) {
+      return fail('magiclink_failed', { details: linkErr?.message });
+    }
+
+    const tokenHash = linkData.properties?.hashed_token;
+    if (!tokenHash) return fail('no_token_hash');
+
+    return json({
+      ok: true,
+      token_hash: tokenHash,
+      is_new: isNew,
       telegram_id: telegramId,
-      name: [firstName, lastName].filter(Boolean).join(' ').trim() || null,
-    }).eq('id', userId!);
+      display_name: [firstName, lastName].filter(Boolean).join(' ').trim() || username,
+    });
+  } catch (e) {
+    return fail('unexpected_error', { message: (e as Error).message });
   }
-
-  // ── 4. Generate magiclink for session ──
-  const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
-    type: 'magiclink',
-    email: userEmail,
-  });
-
-  if (linkErr || !linkData) {
-    return json({ error: 'magiclink_failed', details: linkErr?.message }, 500);
-  }
-
-  // Extract token_hash from the generated link
-  const tokenHash = linkData.properties?.hashed_token;
-  if (!tokenHash) {
-    return json({ error: 'no_token_hash' }, 500);
-  }
-
-  return json({
-    ok: true,
-    token_hash: tokenHash,
-    is_new: isNew,
-    telegram_id: telegramId,
-    display_name: [firstName, lastName].filter(Boolean).join(' ').trim() || username,
-  });
 });

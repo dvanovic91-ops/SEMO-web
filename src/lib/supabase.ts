@@ -5,8 +5,10 @@ import { createClient } from '@supabase/supabase-js';
  * .env에 VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY 설정 필요.
  * "로그인 유지하기" 체크 시 localStorage, 미체크 시 sessionStorage 사용 (탭 종료 시 로그아웃).
  */
-const url = import.meta.env.VITE_SUPABASE_URL ?? '';
-const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY ?? '';
+export const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? '';
+export const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY ?? '';
+const url = SUPABASE_URL;
+const anonKey = SUPABASE_ANON_KEY;
 
 const REMEMBER_ME_KEY = 'semo_remember_me';
 

@@ -26,26 +26,33 @@ export const Login: React.FC = () => {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginLoading, setLoginLoading] = useState(false);
 
+  // DEBUG: Mini App 상태 확인용 (배포 후 제거)
+  const debugTg = typeof window !== 'undefined' ? {
+    hasTelegram: !!(window as any).Telegram,
+    hasWebApp: !!(window as any).Telegram?.WebApp,
+    initDataLen: ((window as any).Telegram?.WebApp?.initData || '').length,
+    initDataPreview: ((window as any).Telegram?.WebApp?.initData || '').substring(0, 80),
+    platform: (window as any).Telegram?.WebApp?.platform ?? 'none',
+  } : null;
+
   if (!initialized) {
     return (
       <main className={SEMO_FULL_PAGE_LOADING_MAIN_CLASS}>
         <SemoPageSpinner />
+        {debugTg && <pre className="mt-4 text-xs text-slate-400 max-w-xs mx-auto break-all">{JSON.stringify(debugTg, null, 2)}</pre>}
       </main>
     );
   }
   if (isLoggedIn) return <Navigate to="/" replace />;
 
-  const openOAuthRedirect = async (provider: 'google' | 'yandex') => {
+  const handleGoogleLogin = async () => {
     if (!supabase) return;
     setRememberMe(rememberMe);
-    setOauthLoading(provider);
+    setOauthLoading('google');
     try {
       const { error } = await supabase.auth.signInWithOAuth({
-        provider,
-        options: {
-          // 로그인 후 항상 홈으로 돌아오도록 설정
-          redirectTo: `${window.location.origin}/`,
-        },
+        provider: 'google',
+        options: { redirectTo: `${window.location.origin}/` },
       });
       if (error) console.error(error);
     } finally {
@@ -53,8 +60,13 @@ export const Login: React.FC = () => {
     }
   };
 
-  const handleGoogleLogin = () => openOAuthRedirect('google');
-  const handleYandexLogin = () => openOAuthRedirect('yandex');
+  const handleYandexLogin = () => {
+    const clientId = import.meta.env.VITE_YANDEX_CLIENT_ID || '488f7e3680314946b02f39be0c4368f8';
+    const redirectUri = `${window.location.origin}/auth/yandex/callback`;
+    setRememberMe(rememberMe);
+    setOauthLoading('yandex');
+    window.location.href = `https://oauth.yandex.com/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}`;
+  };
 
   const handleTelegramLogin = async () => {
     if (!supabase) return;
