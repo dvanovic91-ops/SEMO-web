@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 
 /* ─── 히어로 이미지 타입 ─── */
-type HeroSlide = { image_url: string; link_url?: string };
+type HeroSlide = { image_url: string; mobile_image_url?: string; link_url?: string };
 
 /* ─── 히어로 캐러셀 — 무한 루프, object-cover 풀 와이드 ─── */
 function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
@@ -80,7 +80,16 @@ function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
         style={{ width: `${extLen * 100}%`, transform: `translateX(-${current * (100 / extLen)}%)` }}
       >
         {extSlides.map((slide, i) => {
-          const inner = <img src={slide.image_url} alt={`SEMO box ${i + 1}`} className="h-full w-full object-cover" draggable={false} />;
+          const inner = (
+            <>
+              {/* 데스크톱 이미지 */}
+              <img src={slide.image_url} alt={`SEMO box ${i + 1}`} className={`h-full w-full object-cover ${slide.mobile_image_url ? 'hidden md:block' : ''}`} draggable={false} />
+              {/* 모바일 전용 이미지 (있을 경우) */}
+              {slide.mobile_image_url && (
+                <img src={slide.mobile_image_url} alt={`SEMO box ${i + 1}`} className="h-full w-full object-cover md:hidden" draggable={false} />
+              )}
+            </>
+          );
           return (
             <div key={i} className="relative h-full shrink-0" style={{ width: `${100 / extLen}%` }}>
               {slide.link_url ? <Link to={slide.link_url} className="block h-full w-full">{inner}</Link> : inner}
@@ -128,17 +137,15 @@ function useScrollFadeIn(threshold = 0.15) {
   return { ref, visible };
 }
 
-/* ─── 주문 과정 — PPT 스타일 비정형 '띠' (clip-path 사선 컬럼) ─── */
+/* ─── 주문 과정 — PPT 스타일 비정형 사선 '띠' (clip-path) ─── */
 const ORDER_STEPS = [
   {
     num: '01',
     title: 'Тест кожи',
     desc: 'Пройдите тест и узнайте свой тип кожи',
-    bg: 'linear-gradient(135deg, #d4a574 0%, #c8956c 50%, #b8835a 100%)',
     icon: (
       <svg className="h-8 w-8 sm:h-10 sm:w-10" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
-        <circle cx="24" cy="17" r="7" />
-        <path d="M13 38c0-6 5-11 11-11s11 5 11 11" />
+        <circle cx="24" cy="17" r="7" /><path d="M13 38c0-6 5-11 11-11s11 5 11 11" />
       </svg>
     ),
   },
@@ -146,12 +153,9 @@ const ORDER_STEPS = [
     num: '02',
     title: 'Заказ и оплата',
     desc: 'Выберите бокс и оплатите удобным способом',
-    bg: 'linear-gradient(135deg, #c8956c 0%, #be8a62 50%, #a87850 100%)',
     icon: (
       <svg className="h-8 w-8 sm:h-10 sm:w-10" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
-        <rect x="8" y="14" width="32" height="22" rx="2" />
-        <path d="M8 22h32" />
-        <path d="M16 30h8" />
+        <rect x="8" y="14" width="32" height="22" rx="2" /><path d="M8 22h32" /><path d="M16 30h8" />
       </svg>
     ),
   },
@@ -159,7 +163,6 @@ const ORDER_STEPS = [
     num: '03',
     title: 'Доставка',
     desc: 'Из Кореи в Россию — таможня на нас',
-    bg: 'linear-gradient(135deg, #be8a62 0%, #b07e56 50%, #9c6e48 100%)',
     icon: (
       <svg className="h-8 w-8 sm:h-10 sm:w-10" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M6 30h28V14H6z" /><path d="M34 22h6l4 8v6h-10" />
@@ -172,7 +175,6 @@ const ORDER_STEPS = [
     num: '04',
     title: 'Получение',
     desc: 'Распакуйте свой персональный бокс!',
-    bg: 'linear-gradient(135deg, #b07e56 0%, #a0704c 50%, #8d6240 100%)',
     icon: (
       <svg className="h-8 w-8 sm:h-10 sm:w-10" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
         <rect x="10" y="16" width="28" height="22" rx="1.5" />
@@ -182,155 +184,137 @@ const ORDER_STEPS = [
   },
 ];
 
-/*
- * 비정형 사선 clip-path:
- * 4개 컬럼이 서로 맞물리도록 경계를 사선으로 자름.
- *   col 0: 0,0  →  28%,0  →  24%,100%  →  0,100%
- *   col 1: 24%,0 →  53%,0  →  50%,100%  →  20%,100%
- *   col 2: 49%,0 →  78%,0  →  76%,100%  →  46%,100%
- *   col 3: 74%,0 → 100%,0  → 100%,100%  → 72%,100%
- *
- * 각 컬럼은 position:absolute + width:100% 위에 clip-path로 잘라냄.
- * 겹침(overlap)이 있으므로 뒷 컬럼이 앞 컬럼 위에 올라감.
- */
-const CLIP_PATHS = [
-  'polygon(0% 0%, 30% 0%, 24% 100%, 0% 100%)',
-  'polygon(22% 0%, 54% 0%, 50% 100%, 18% 100%)',
-  'polygon(48% 0%, 79% 0%, 76% 100%, 44% 100%)',
-  'polygon(73% 0%, 100% 0%, 100% 100%, 70% 100%)',
+/* 데스크톱: PPT 스타일 사다리꼴 — 겹치며 맞물리는 4개 컬럼 */
+const CLIP_DESKTOP = [
+  'polygon(0% 0%, 30% 0%, 23% 100%, 0% 100%)',
+  'polygon(23% 0%, 55% 0%, 49% 100%, 17% 100%)',
+  'polygon(49% 0%, 80% 0%, 75% 100%, 43% 100%)',
+  'polygon(75% 0%, 100% 0%, 100% 100%, 69% 100%)',
 ];
 
-/* 모바일: 세로 스택 시 각 띠가 가로 전체를 채우되 상하 사선 */
-const CLIP_PATHS_MOBILE = [
-  'polygon(0% 0%, 100% 0%, 100% 88%, 0% 100%)',
-  'polygon(0% 0%, 100% 12%, 100% 88%, 0% 100%)',
-  'polygon(0% 0%, 100% 12%, 100% 88%, 0% 100%)',
-  'polygon(0% 0%, 100% 12%, 100% 100%, 0% 100%)',
+/* brand #E65427 → 오른쪽으로 갈수록 옅어지는 rgba 투명도 */
+const STEP_COLORS = [
+  'rgba(230, 84, 39, 0.92)',   // 01 — 거의 원색
+  'rgba(230, 84, 39, 0.68)',   // 02
+  'rgba(230, 84, 39, 0.45)',   // 03
+  'rgba(230, 84, 39, 0.25)',   // 04 — 아주 옅은
 ];
 
 function OrderProcess() {
   const { ref: sectionRef, visible } = useScrollFadeIn(0.05);
 
   return (
-    <section ref={sectionRef} className="relative w-full overflow-hidden bg-[#141414]">
-      {/* 타이틀 */}
-      <div className="relative z-20 px-4 pt-14 pb-6 sm:pt-20 sm:pb-10">
+    <section ref={sectionRef} className="relative w-full overflow-hidden">
+      {/* ── 데스크톱(md+) ── */}
+      <div className="hidden md:block">
+        {/* 타이틀 — 다크 바탕 */}
+        <div className="bg-[#141414] px-4 pt-16 pb-10">
+          <h2
+            className={`text-center font-light tracking-[0.18em] uppercase text-white/90 transition-all duration-700 text-2xl lg:text-[1.7rem] ${
+              visible ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0'
+            }`}
+          >
+            Как заказать SEMO Box
+          </h2>
+          <div
+            className={`mx-auto mt-4 h-px w-10 bg-gradient-to-r from-transparent via-white/30 to-transparent transition-all duration-700 delay-200 ${
+              visible ? 'scale-x-100 opacity-100' : 'scale-x-0 opacity-0'
+            }`}
+          />
+        </div>
+        {/* 사선 '띠' 영역 — 다크 배경 위 */}
+        <div className="relative w-full bg-[#141414]" style={{ height: 'clamp(20rem, 38vw, 30rem)' }}>
+          {ORDER_STEPS.map((step, idx) => (
+            <div
+              key={step.num}
+              className={`absolute inset-0 transition-all duration-[900ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                visible ? 'translate-x-0 opacity-100' : 'translate-x-[-5%] opacity-0'
+              }`}
+              style={{
+                clipPath: CLIP_DESKTOP[idx],
+                background: STEP_COLORS[idx],
+                transitionDelay: visible ? `${400 + idx * 180}ms` : '0ms',
+                zIndex: idx + 1,
+              }}
+            >
+              {/* 콘텐츠 — 각 사다리꼴 중심 */}
+              <div
+                className="absolute top-0 bottom-0 flex flex-col items-center justify-center gap-3 text-center"
+                style={{
+                  left: `${[14, 37, 62, 86][idx]}%`,
+                  transform: 'translateX(-50%)',
+                  width: 'clamp(8rem, 18vw, 14rem)',
+                }}
+              >
+                <span
+                  className="block font-serif text-[3.5rem] font-extralight leading-none tracking-wider lg:text-[4.5rem]"
+                  style={{ color: idx < 2 ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.12)' }}
+                >
+                  {step.num}
+                </span>
+                <div style={{ color: idx < 2 ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.25)' }}>{step.icon}</div>
+                <p
+                  className="text-sm font-medium tracking-wide sm:text-[0.95rem] lg:text-base"
+                  style={{ color: idx < 2 ? 'rgba(255,255,255,0.95)' : 'rgba(30,30,30,0.7)' }}
+                >
+                  {step.title}
+                </p>
+                <p
+                  className="text-[11px] leading-relaxed sm:text-xs lg:text-[0.8rem]"
+                  style={{ color: idx < 2 ? 'rgba(255,255,255,0.5)' : 'rgba(30,30,30,0.4)' }}
+                >
+                  {step.desc}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="h-16 bg-[#141414]" />
+      </div>
+
+      {/* ── 모바일(<md): 흰 배경 + 심플 카드 ── */}
+      <div className="bg-white px-4 py-12 md:hidden">
         <h2
-          className={`text-center font-light tracking-[0.18em] uppercase text-white/90 transition-all duration-700 text-lg sm:text-2xl lg:text-[1.7rem] ${
-            visible ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0'
+          className={`mb-8 text-center text-lg font-light tracking-[0.12em] uppercase text-slate-800 transition-all duration-700 ${
+            visible ? 'translate-y-0 opacity-100' : 'translate-y-6 opacity-0'
           }`}
         >
           Как заказать SEMO Box
         </h2>
-        <div
-          className={`mx-auto mt-4 h-px w-10 bg-gradient-to-r from-transparent via-[#c8956c]/80 to-transparent transition-all duration-700 delay-200 ${
-            visible ? 'scale-x-100 opacity-100' : 'scale-x-0 opacity-0'
-          }`}
-        />
-      </div>
-
-      {/* ── 데스크톱(md+): 비정형 사선 '띠' 4개 ── */}
-      <div className="relative z-10 mx-auto hidden w-full pb-16 sm:pb-20 md:block" style={{ height: 'clamp(22rem, 42vw, 34rem)' }}>
-        {ORDER_STEPS.map((step, idx) => (
-          <div
-            key={step.num}
-            className={`absolute inset-0 transition-all duration-[900ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
-              visible ? 'translate-x-0 opacity-100' : 'translate-x-[-6%] opacity-0'
-            }`}
-            style={{
-              clipPath: CLIP_PATHS[idx],
-              background: step.bg,
-              transitionDelay: visible ? `${350 + idx * 180}ms` : '0ms',
-              zIndex: idx + 1,
-            }}
-          >
-            {/* 대각선 장식 라인 */}
+        <div className="mx-auto grid max-w-sm grid-cols-2 gap-3">
+          {ORDER_STEPS.map((step, idx) => (
             <div
-              className="absolute inset-0 opacity-[0.12]"
+              key={step.num}
+              className={`relative flex flex-col items-center gap-2 rounded-2xl p-5 text-center transition-all duration-700 ${
+                visible ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0'
+              }`}
               style={{
-                background: `repeating-linear-gradient(${115 + idx * 8}deg, transparent, transparent 48%, rgba(255,255,255,0.5) 48%, rgba(255,255,255,0.5) 48.3%, transparent 48.3%)`,
-              }}
-            />
-
-            {/* 콘텐츠 — 각 컬럼의 중심에 배치 */}
-            <div
-              className="absolute top-0 bottom-0 flex flex-col items-center justify-center gap-3 text-center"
-              style={{
-                /* 각 클립 영역의 시각적 중심 */
-                left: `${[14, 37, 62, 86][idx]}%`,
-                transform: 'translateX(-50%)',
-                width: 'clamp(8rem, 18vw, 14rem)',
+                background: STEP_COLORS[idx],
+                transitionDelay: visible ? `${200 + idx * 120}ms` : '0ms',
               }}
             >
-              {/* Serif 숫자 */}
               <span
-                className="block font-serif text-[3rem] font-extralight leading-none tracking-wider text-white/30 sm:text-[3.5rem] lg:text-[4.2rem]"
-                style={{ fontFamily: "'Georgia', 'Times New Roman', serif" }}
+                className="font-serif text-[2rem] font-extralight leading-none tracking-wider"
+                style={{ color: idx < 2 ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.12)' }}
               >
                 {step.num}
               </span>
-
-              {/* 아이콘 */}
-              <div className="text-white/60">{step.icon}</div>
-
-              {/* 제목 */}
-              <p className="text-sm font-medium tracking-wide text-white sm:text-[0.95rem] lg:text-base">
+              <div style={{ color: idx < 2 ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.25)' }}>{step.icon}</div>
+              <p
+                className="text-xs font-semibold tracking-wide"
+                style={{ color: idx < 2 ? '#fff' : 'rgba(30,30,30,0.7)' }}
+              >
                 {step.title}
               </p>
-
-              {/* 설명 */}
-              <p className="text-[11px] leading-relaxed text-white/50 sm:text-xs lg:text-[0.8rem]">
+              <p
+                className="text-[10px] leading-relaxed"
+                style={{ color: idx < 2 ? 'rgba(255,255,255,0.6)' : 'rgba(30,30,30,0.4)' }}
+              >
                 {step.desc}
               </p>
             </div>
-          </div>
-        ))}
-      </div>
-
-      {/* ── 모바일(<md): 세로 스택 사선 띠 ── */}
-      <div className="relative z-10 flex flex-col pb-8 md:hidden" style={{ marginTop: '-1rem' }}>
-        {ORDER_STEPS.map((step, idx) => (
-          <div
-            key={step.num}
-            className={`relative transition-all duration-[800ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
-              visible ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0'
-            }`}
-            style={{
-              clipPath: CLIP_PATHS_MOBILE[idx],
-              background: step.bg,
-              transitionDelay: visible ? `${300 + idx * 140}ms` : '0ms',
-              marginTop: idx > 0 ? '-1.2rem' : '0',
-              zIndex: idx + 1,
-              padding: '2.5rem 1.5rem',
-            }}
-          >
-            {/* 대각선 장식 */}
-            <div
-              className="absolute inset-0 opacity-[0.08]"
-              style={{
-                background: `repeating-linear-gradient(${115 + idx * 8}deg, transparent, transparent 48%, rgba(255,255,255,0.6) 48%, rgba(255,255,255,0.6) 48.3%, transparent 48.3%)`,
-              }}
-            />
-
-            <div className="relative flex items-center gap-5">
-              {/* 숫자 */}
-              <span
-                className="shrink-0 font-serif text-[2.8rem] font-extralight leading-none tracking-wider text-white/25"
-                style={{ fontFamily: "'Georgia', 'Times New Roman', serif" }}
-              >
-                {step.num}
-              </span>
-
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-center gap-3">
-                  <div className="text-white/60">{step.icon}</div>
-                  <p className="text-sm font-medium tracking-wide text-white">{step.title}</p>
-                </div>
-                <p className="text-[11px] leading-relaxed text-white/50">{step.desc}</p>
-              </div>
-            </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     </section>
   );
