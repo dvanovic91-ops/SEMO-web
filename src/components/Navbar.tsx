@@ -17,11 +17,17 @@ const TELEGRAM_BOT_URL = 'https://t.me/My_SEMO_Beautybot';
 
 const NAV_LINKS: { to: string; label: string }[] = [
   { to: '/about', label: 'About SEMO' },
-  { to: '/skin-test', label: 'Skin Type Test' },
   { to: '/journey', label: 'Journey to SEMO' },
-  { to: '/shop', label: 'SEMO Box' },
-  { to: '/promo', label: 'Promo' },
   { to: '/support', label: 'FAQ' },
+];
+
+/** SEMO Box 하위 메뉴 (드롭다운) */
+const SEMO_BOX_SUBMENU: { to: string; label: string }[] = [
+  { to: '/skin-test', label: 'Find my box' },
+  { to: '/shop', label: 'Beauty box' },
+  { to: '/inner-beauty', label: 'Inner Beauty box' },
+  { to: '/hair-beauty', label: 'Hair Beauty box' },
+  { to: '/promo', label: 'Promo' },
 ];
 
 function formatPrice(price: number): string {
@@ -52,8 +58,11 @@ export const Navbar: React.FC = () => {
   const { items: notificationItems, unreadCount, markAllRead, markNotificationRead, deleteNotification } =
     useNotifications(isLoggedIn ? userId : null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [semoBoxOpen, setSemoBoxOpen] = useState(false);
+  const [mobileSemoBoxOpen, setMobileSemoBoxOpen] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [cartPopoverOpen, setCartPopoverOpen] = useState(false);
+  const semoBoxDesktopRef = useRef<HTMLDivElement>(null);
   /** 데스크톱: FAB + 팝오버 / 모바일: 하단 시트 — 외부 클릭 감지용 */
   const cartDesktopRef = useRef<HTMLDivElement>(null);
   const cartMobileRef = useRef<HTMLDivElement>(null);
@@ -130,11 +139,12 @@ export const Navbar: React.FC = () => {
 
   /** 모바일 하단바: 현재 화면에 따른 아이콘 활성화 (강조용) */
   const path = location.pathname;
-  const isShop = path.startsWith('/shop');
+  const isSemoBoxActive = SEMO_BOX_SUBMENU.some((l) => path === l.to || path.startsWith(l.to + '/'));
+  const isShop = isSemoBoxActive;
   const isCartActive = path === '/cart' || cartPopoverOpen;
   const isNotificationActive = notificationOpen;
   const isProfileActive = path.startsWith('/profile') || path === '/login';
-  const isMenuActive = NAV_LINKS.some((l) => l.to !== '/shop' && (path === l.to || path.startsWith(l.to + '/')));
+  const isMenuActive = NAV_LINKS.some((l) => (path === l.to || path.startsWith(l.to + '/')));
 
   useEffect(() => {
     if (!cartPopoverOpen) {
@@ -189,6 +199,27 @@ export const Navbar: React.FC = () => {
       document.removeEventListener('click', onDocClick);
     };
   }, [notificationOpen]);
+
+  // SEMO Box 드롭다운 바깥 클릭 시 닫기
+  useEffect(() => {
+    if (!semoBoxOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (semoBoxDesktopRef.current?.contains(t)) return;
+      setSemoBoxOpen(false);
+    };
+    const timer = setTimeout(() => document.addEventListener('click', onDocClick), 0);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('click', onDocClick);
+    };
+  }, [semoBoxOpen]);
+
+  // 라우트 변경 시 SEMO Box 드롭다운 닫기
+  useEffect(() => {
+    setSemoBoxOpen(false);
+    setMobileSemoBoxOpen(false);
+  }, [location.pathname]);
 
   /** 장바구니 미리보기 패널 — 데스크톱(헤더) / 모바일(시트) 공용 내용 */
   const cartPanelInner = (
@@ -356,17 +387,74 @@ export const Navbar: React.FC = () => {
                   className="flex min-w-0 max-w-[min(100%,52rem)] flex-wrap items-center justify-center gap-x-[calc(0.75rem*1.1)] text-sm lg:gap-x-[calc(1.25rem*1.1)]"
                   aria-label="Main"
                 >
-                  {NAV_LINKS.map((item) => (
-                    <NavLink
-                      key={item.to}
-                      to={item.to}
-                      className={({ isActive }) =>
-                        `${navLinkBase} whitespace-nowrap ${isActive ? activeClass : inactiveClass}`
-                      }
+                  {/* About SEMO */}
+                  <NavLink
+                    to="/about"
+                    className={({ isActive }) =>
+                      `${navLinkBase} whitespace-nowrap ${isActive ? activeClass : inactiveClass}`
+                    }
+                  >
+                    About SEMO
+                  </NavLink>
+                  {/* Journey to SEMO */}
+                  <NavLink
+                    to="/journey"
+                    className={({ isActive }) =>
+                      `${navLinkBase} whitespace-nowrap ${isActive ? activeClass : inactiveClass}`
+                    }
+                  >
+                    Journey to SEMO
+                  </NavLink>
+                  {/* SEMO Box — 드롭다운 */}
+                  <div ref={semoBoxDesktopRef} className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setSemoBoxOpen((v) => !v)}
+                      className={`${navLinkBase} flex items-center gap-1 whitespace-nowrap ${
+                        isSemoBoxActive ? activeClass : inactiveClass
+                      }`}
                     >
-                      {item.label}
-                    </NavLink>
-                  ))}
+                      SEMO Box
+                      <svg
+                        className={`h-3 w-3 transition-transform ${semoBoxOpen ? 'rotate-180' : ''}`}
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+                    {semoBoxOpen && (
+                      <div className="absolute left-1/2 top-full z-50 mt-2 -translate-x-1/2 rounded-xl border border-slate-200 bg-white py-2 shadow-xl min-w-[11rem]">
+                        {SEMO_BOX_SUBMENU.map((sub) => (
+                          <NavLink
+                            key={sub.to}
+                            to={sub.to}
+                            onClick={() => setSemoBoxOpen(false)}
+                            className={({ isActive }) =>
+                              `block px-4 py-2.5 text-sm transition whitespace-nowrap ${
+                                isActive
+                                  ? 'bg-brand-soft/30 text-brand font-semibold'
+                                  : 'text-slate-700 hover:bg-slate-50 hover:text-brand'
+                              }`
+                            }
+                          >
+                            {sub.label}
+                          </NavLink>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {/* FAQ */}
+                  <NavLink
+                    to="/support"
+                    className={({ isActive }) =>
+                      `${navLinkBase} whitespace-nowrap ${isActive ? activeClass : inactiveClass}`
+                    }
+                  >
+                    FAQ
+                  </NavLink>
                 </nav>
               ) : (
                 /* 컴팩트 시 가격·CTA는 absolute 오버레이(본문 max-w-3xl 열 정렬) — 여기는 레이아웃용 빈 칸 */
@@ -816,18 +904,74 @@ export const Navbar: React.FC = () => {
               </button>
             </div>
             <nav className="flex flex-1 flex-col gap-0.5 overflow-auto p-4">
-              {NAV_LINKS.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  onClick={() => setMobileMenuOpen(false)}
-                  className={({ isActive }) =>
-                    `rounded-xl px-4 py-3.5 text-base ${isActive ? 'bg-brand-soft/30 text-brand font-semibold' : 'text-slate-700 font-medium'}`
-                  }
+              <NavLink
+                to="/about"
+                onClick={() => setMobileMenuOpen(false)}
+                className={({ isActive }) =>
+                  `rounded-xl px-4 py-3.5 text-base ${isActive ? 'bg-brand-soft/30 text-brand font-semibold' : 'text-slate-700 font-medium'}`
+                }
+              >
+                About SEMO
+              </NavLink>
+              <NavLink
+                to="/journey"
+                onClick={() => setMobileMenuOpen(false)}
+                className={({ isActive }) =>
+                  `rounded-xl px-4 py-3.5 text-base ${isActive ? 'bg-brand-soft/30 text-brand font-semibold' : 'text-slate-700 font-medium'}`
+                }
+              >
+                Journey to SEMO
+              </NavLink>
+              {/* SEMO Box — 접히는 서브메뉴 */}
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setMobileSemoBoxOpen((v) => !v)}
+                  className={`flex w-full items-center justify-between rounded-xl px-4 py-3.5 text-base ${
+                    isSemoBoxActive ? 'bg-brand-soft/30 text-brand font-semibold' : 'text-slate-700 font-medium'
+                  }`}
                 >
-                  {item.label}
-                </NavLink>
-              ))}
+                  SEMO Box
+                  <svg
+                    className={`h-4 w-4 transition-transform ${mobileSemoBoxOpen ? 'rotate-180' : ''}`}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {mobileSemoBoxOpen && (
+                  <div className="ml-3 mt-0.5 flex flex-col gap-0.5 border-l-2 border-brand/20 pl-2">
+                    {SEMO_BOX_SUBMENU.map((sub) => (
+                      <NavLink
+                        key={sub.to}
+                        to={sub.to}
+                        onClick={() => setMobileMenuOpen(false)}
+                        className={({ isActive }) =>
+                          `rounded-xl px-3 py-2.5 text-sm ${
+                            isActive
+                              ? 'bg-brand-soft/30 text-brand font-semibold'
+                              : 'text-slate-600 font-medium'
+                          }`
+                        }
+                      >
+                        {sub.label}
+                      </NavLink>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <NavLink
+                to="/support"
+                onClick={() => setMobileMenuOpen(false)}
+                className={({ isActive }) =>
+                  `rounded-xl px-4 py-3.5 text-base ${isActive ? 'bg-brand-soft/30 text-brand font-semibold' : 'text-slate-700 font-medium'}`
+                }
+              >
+                FAQ
+              </NavLink>
             </nav>
           </aside>
         </>

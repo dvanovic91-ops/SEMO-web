@@ -57,6 +57,8 @@ import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 import { RegisterShipping } from './pages/RegisterShipping';
 import { Shop } from './pages/Shop';
+import { InnerBeauty } from './pages/InnerBeauty';
+import { HairBeauty } from './pages/HairBeauty';
 import { ProductDetail } from './pages/ProductDetail';
 import { SkinTest } from './pages/SkinTest';
 import { Profile } from './pages/Profile';
@@ -103,6 +105,8 @@ function AppLayout() {
               <Route path="/promo" element={<Promo />} />
               <Route path="/skin-test" element={<SkinTest />} />
               <Route path="/shop" element={<Shop />} />
+              <Route path="/inner-beauty" element={<InnerBeauty />} />
+              <Route path="/hair-beauty" element={<HairBeauty />} />
               <Route path="/recommendations" element={<Recommendations />} />
               <Route path="/recommendations/:skinType" element={<Recommendations />} />
               <Route path="/product/:id" element={<ProductDetailWithKey />} />

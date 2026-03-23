@@ -4,7 +4,6 @@ import { useAuth } from '../context/AuthContext';
 import { supabase, setRememberMe } from '../lib/supabase';
 import { isValidEmailFormat } from '../lib/emailValidation';
 import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../components/SemoPageSpinner';
-import { triggerTelegramLogin } from '../lib/telegramAuth';
 
 const inputClass =
   'w-full min-h-[44px] rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-base text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand sm:min-h-0';
@@ -20,26 +19,17 @@ export const Login: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMeChecked] = useState(true);
-  const [oauthLoading, setOauthLoading] = useState<'google' | 'yandex' | 'telegram' | null>(null);
+  const [oauthLoading, setOauthLoading] = useState<'google' | 'yandex' | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginLoading, setLoginLoading] = useState(false);
 
-  // DEBUG: Mini App 상태 확인용 (배포 후 제거)
-  const debugTg = typeof window !== 'undefined' ? {
-    hasTelegram: !!(window as any).Telegram,
-    hasWebApp: !!(window as any).Telegram?.WebApp,
-    initDataLen: ((window as any).Telegram?.WebApp?.initData || '').length,
-    initDataPreview: ((window as any).Telegram?.WebApp?.initData || '').substring(0, 80),
-    platform: (window as any).Telegram?.WebApp?.platform ?? 'none',
-  } : null;
 
   if (!initialized) {
     return (
       <main className={SEMO_FULL_PAGE_LOADING_MAIN_CLASS}>
         <SemoPageSpinner />
-        {debugTg && <pre className="mt-4 text-xs text-slate-400 max-w-xs mx-auto break-all">{JSON.stringify(debugTg, null, 2)}</pre>}
       </main>
     );
   }
@@ -66,31 +56,6 @@ export const Login: React.FC = () => {
     setRememberMe(rememberMe);
     setOauthLoading('yandex');
     window.location.href = `https://oauth.yandex.com/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}`;
-  };
-
-  const handleTelegramLogin = async () => {
-    if (!supabase) return;
-    const botUsername = import.meta.env.VITE_TELEGRAM_BOT_USERNAME;
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    if (!botUsername || !supabaseUrl) {
-      setLoginError('Telegram login не настроен.');
-      return;
-    }
-    setOauthLoading('telegram');
-    setLoginError(null);
-    try {
-      const result = await triggerTelegramLogin(supabase, supabaseUrl, botUsername);
-      if (!result.ok) {
-        if (result.error !== 'popup_closed' && result.error !== 'timeout') {
-          setLoginError('Не удалось войти через Telegram. Попробуйте снова.');
-        }
-      }
-      // 성공 시 onAuthStateChange가 세션 감지 → 자동 리디렉트
-    } catch {
-      setLoginError('Ошибка при входе через Telegram.');
-    } finally {
-      setOauthLoading(null);
-    }
   };
 
   const handleEmailLogin = async () => {
@@ -264,21 +229,6 @@ export const Login: React.FC = () => {
             ) : (
             <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none">
               <text x="12" y="18" fontSize="20" fontWeight="700" fill="#FC3F1D" textAnchor="middle" fontFamily="Montserrat, Arial, sans-serif">Я</text>
-            </svg>
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={handleTelegramLogin}
-            disabled={oauthLoading !== null}
-            aria-label="Войти через Telegram"
-            className="flex h-12 w-12 items-center justify-center rounded-full border border-slate-200 bg-white transition hover:border-slate-300 disabled:opacity-60 sm:h-14 sm:w-14"
-          >
-            {oauthLoading === 'telegram' ? (
-              <span className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-brand" />
-            ) : (
-            <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none">
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69.01-.03.01-.14-.07-.2-.08-.06-.19-.04-.27-.02-.12.03-1.99 1.27-5.63 3.72-.53.37-1.01.55-1.44.54-.47-.01-1.38-.27-2.06-.49-.83-.27-1.49-.42-1.43-.88.03-.24.37-.49 1.02-.74 3.98-1.73 6.64-2.88 7.97-3.44 3.8-1.58 4.59-1.86 5.1-1.87.11 0 .37.03.54.17.14.12.18.28.2.45-.01.06.01.24 0 .37z" fill="#26A5E4"/>
             </svg>
             )}
           </button>

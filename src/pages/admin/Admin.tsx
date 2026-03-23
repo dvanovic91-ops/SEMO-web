@@ -351,8 +351,9 @@ const emptySlot = (index: number): Slot => ({
 /** 개발자 계정 이메일 — RLS 안내 문구에 사용 */
 const DEVELOPER_EMAILS = ['dvanovic91@gmail.com', 'dvavnovic91@gmail.com'];
 
-const ADMIN_TABS: { key: 'dashboard' | 'products' | 'skinMatch' | 'promo' | 'promoCodes' | 'broadcast' | 'orders' | 'activityLogs' | 'cartAbandonment' | 'reviewManagement' | 'members'; label: string }[] = [
+const ADMIN_TABS: { key: 'dashboard' | 'products' | 'skinMatch' | 'promo' | 'promoCodes' | 'broadcast' | 'orders' | 'activityLogs' | 'cartAbandonment' | 'reviewManagement' | 'members' | 'heroImage'; label: string }[] = [
   { key: 'dashboard', label: '대시보드' },
+  { key: 'heroImage', label: '히어로 이미지' },
   { key: 'products', label: '상품관리' },
   { key: 'skinMatch', label: '테스트 매칭' },
   { key: 'promo', label: '프로모' },
@@ -378,19 +379,27 @@ const ADMIN_TAB_ICON: Record<(typeof ADMIN_TABS)[number]['key'], string> = {
   cartAbandonment: '🛒',
   reviewManagement: '⭐',
   members: '👥',
+  heroImage: '🖼️',
 };
 
 export const Admin: React.FC = () => {
   const { isLoggedIn, initialized, isAdmin, canGrantPermission, canGrantAdminRole, userEmail } = useAuth();
   const canBroadcast = isAdmin;
   const [tab, setTab] = useState<
-    'dashboard' | 'products' | 'skinMatch' | 'promo' | 'promoCodes' | 'broadcast' | 'orders' | 'activityLogs' | 'cartAbandonment' | 'reviewManagement' | 'members'
+    'dashboard' | 'products' | 'skinMatch' | 'promo' | 'promoCodes' | 'broadcast' | 'orders' | 'activityLogs' | 'cartAbandonment' | 'reviewManagement' | 'members' | 'heroImage'
   >('dashboard');
   /** 모바일: 햄버거로 열리는 탭 메뉴 */
   const [adminMobileMenuOpen, setAdminMobileMenuOpen] = useState(false);
   /** 헤더가 스크롤로 화면 밖으로 나가면 상단 고정바 표시 */
   const [stickyHeaderVisible, setStickyHeaderVisible] = useState(false);
   const headerRef = useRef<HTMLElement>(null);
+
+  /** 히어로 이미지 관리 */
+  const [heroImageUrl, setHeroImageUrl] = useState('');
+  const [heroLinkUrl, setHeroLinkUrl] = useState('');
+  const [heroSaving, setHeroSaving] = useState(false);
+  const [heroUploading, setHeroUploading] = useState(false);
+  const heroFileRef = useRef<HTMLInputElement>(null);
 
   const [products, setProducts] = useState<Product[]>([]);
   /** 상품 목록 표시 순서 (앞에서 5개가 쇼핑 슬롯 1~5). 드래그로 순서 변경 후 저장 시 main_layout_slots에 반영 */
@@ -1258,6 +1267,68 @@ export const Admin: React.FC = () => {
       .catch(() => {})
       .finally(() => setSkinMatchLoading(false));
   }, [tab, slots]);
+
+  // 히어로 이미지 탭: site_settings에서 로드
+  useEffect(() => {
+    if (tab !== 'heroImage' || !supabase) return;
+    supabase
+      .from('site_settings')
+      .select('key, value')
+      .in('key', ['hero_image_url', 'hero_link_url'])
+      .then(({ data }) => {
+        if (data) {
+          for (const row of data as { key: string; value: string }[]) {
+            if (row.key === 'hero_image_url') setHeroImageUrl(row.value ?? '');
+            if (row.key === 'hero_link_url') setHeroLinkUrl(row.value ?? '');
+          }
+        }
+      });
+  }, [tab]);
+
+  const handleHeroImageUpload = async (file: File) => {
+    if (!supabase) return;
+    setHeroUploading(true);
+    try {
+      const ext = (file.name.split('.').pop() ?? 'jpg').toLowerCase();
+      const safeExt = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext) ? ext : 'jpg';
+      const path = `hero/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${safeExt}`;
+      const { error } = await supabase.storage.from(BUCKET_PROMOS).upload(path, file, {
+        cacheControl: '3600',
+        upsert: false,
+        contentType: file.type || `image/${safeExt}`,
+      });
+      if (error) {
+        window.alert(`업로드 실패: ${error.message}`);
+        return;
+      }
+      const { data } = supabase.storage.from(BUCKET_PROMOS).getPublicUrl(path);
+      setHeroImageUrl(data.publicUrl);
+    } finally {
+      setHeroUploading(false);
+    }
+  };
+
+  const handleHeroSave = async () => {
+    if (!supabase) return;
+    setHeroSaving(true);
+    try {
+      // upsert hero_image_url
+      await supabase.from('site_settings').upsert(
+        { key: 'hero_image_url', value: heroImageUrl },
+        { onConflict: 'key' }
+      );
+      // upsert hero_link_url
+      await supabase.from('site_settings').upsert(
+        { key: 'hero_link_url', value: heroLinkUrl },
+        { onConflict: 'key' }
+      );
+      window.alert('히어로 이미지 저장 완료');
+    } catch (err) {
+      window.alert('저장 실패: ' + (err as Error).message);
+    } finally {
+      setHeroSaving(false);
+    }
+  };
 
   // 프로모 탭: promos 테이블 로드 (Supabase에 promos 테이블 필요: id, title, image_url, end_at, sort_order)
   useEffect(() => {
@@ -2357,6 +2428,97 @@ export const Admin: React.FC = () => {
             이미지를 업로드하고 있습니다…
           </div>
         </div>
+      )}
+
+      {/* ── 히어로 이미지 관리 탭 ── */}
+      {tab === 'heroImage' && (
+        <section className="space-y-6">
+          <h2 className="text-sm font-semibold text-slate-900">랜딩 페이지 히어로 이미지</h2>
+          <p className="text-xs text-slate-500">메인 페이지 최상단에 전체 너비로 표시되는 이미지입니다. 이미지를 업로드하고 저장하면 즉시 반영됩니다.</p>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
+            {/* 이미지 업로드 */}
+            <div>
+              <label className={labelClass}>이미지 업로드</label>
+              <input
+                ref={heroFileRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleHeroImageUpload(file);
+                  e.target.value = '';
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => heroFileRef.current?.click()}
+                disabled={heroUploading}
+                className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-brand hover:text-brand disabled:opacity-60"
+              >
+                {heroUploading ? '업로드 중…' : '이미지 선택'}
+              </button>
+            </div>
+
+            {/* 이미지 URL 직접 입력 */}
+            <div>
+              <label className={labelClass}>이미지 URL</label>
+              <input
+                type="text"
+                className={inputClass}
+                placeholder="https://..."
+                value={heroImageUrl}
+                onChange={(e) => setHeroImageUrl(e.target.value)}
+              />
+            </div>
+
+            {/* 클릭 시 이동 링크 (선택) */}
+            <div>
+              <label className={labelClass}>클릭 시 이동 경로 (선택)</label>
+              <input
+                type="text"
+                className={inputClass}
+                placeholder="/shop 또는 /promo 등"
+                value={heroLinkUrl}
+                onChange={(e) => setHeroLinkUrl(e.target.value)}
+              />
+              <p className="mt-1 text-xs text-slate-400">비워두면 클릭 불가. /shop, /promo, /skin-test 등 내부 경로를 입력하세요.</p>
+            </div>
+
+            {/* 미리보기 */}
+            {heroImageUrl && (
+              <div>
+                <label className={labelClass}>미리보기</label>
+                <div className="rounded-lg border border-slate-200 overflow-hidden">
+                  <img src={heroImageUrl} alt="히어로 미리보기" className="w-full object-cover" style={{ maxHeight: '300px' }} />
+                </div>
+              </div>
+            )}
+
+            {/* 저장 + 삭제 */}
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={handleHeroSave}
+                disabled={heroSaving}
+                className="rounded-full bg-brand px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-brand/90 disabled:opacity-60"
+              >
+                {heroSaving ? '저장 중…' : '저장'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setHeroImageUrl('');
+                  setHeroLinkUrl('');
+                }}
+                className="rounded-full border border-slate-200 px-6 py-2.5 text-sm font-medium text-slate-600 transition hover:border-red-300 hover:text-red-500"
+              >
+                이미지 제거
+              </button>
+            </div>
+          </div>
+        </section>
       )}
 
       {tab === 'dashboard' && (

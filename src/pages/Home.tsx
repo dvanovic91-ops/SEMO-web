@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
 
 /**
  * 스크롤 시 뷰포트에 들어오면 보이도록 하는 훅.
@@ -96,8 +97,55 @@ export const Home: React.FC = () => {
   const step2 = useInView({ rootMargin: '0px 0px -100px 0px', threshold: 0.15 });
   const step3 = useInView({ rootMargin: '0px 0px -100px 0px', threshold: 0.15 });
 
+  // 히어로 이미지: site_settings 테이블에서 hero_image_url, hero_link_url 로드
+  const [heroImageUrl, setHeroImageUrl] = useState<string | null>(null);
+  const [heroLinkUrl, setHeroLinkUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!supabase) return;
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('site_settings')
+          .select('key, value')
+          .in('key', ['hero_image_url', 'hero_link_url']);
+        if (data) {
+          for (const row of data as { key: string; value: string }[]) {
+            if (row.key === 'hero_image_url' && row.value) setHeroImageUrl(row.value);
+            if (row.key === 'hero_link_url' && row.value) setHeroLinkUrl(row.value);
+          }
+        }
+      } catch {
+        // site_settings 테이블이 없으면 히어로 이미지 표시 안 함
+      }
+    })();
+  }, []);
+
   return (
     <>
+      {/* 히어로 이미지 — 관리자 설정 시 전체 화면 너비로 표시 */}
+      {heroImageUrl && (
+        <section className="w-full">
+          {heroLinkUrl ? (
+            <Link to={heroLinkUrl} className="block w-full">
+              <img
+                src={heroImageUrl}
+                alt="SEMO box"
+                className="w-full object-cover"
+                style={{ maxHeight: '80vh' }}
+              />
+            </Link>
+          ) : (
+            <img
+              src={heroImageUrl}
+              alt="SEMO box"
+              className="w-full object-cover"
+              style={{ maxHeight: '80vh' }}
+            />
+          )}
+        </section>
+      )}
+
       {/* 상단 여백 후, 중앙 블록: 메인 타이틀 + CTA */}
       <main className="flex min-h-[75vh] flex-col items-center justify-center px-3 py-12 sm:px-4 sm:py-24">
         <section className="mx-auto w-full min-w-0 max-w-4xl px-0 text-center">
