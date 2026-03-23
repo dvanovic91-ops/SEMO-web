@@ -184,32 +184,27 @@ const ORDER_STEPS = [
   },
 ];
 
-/* 데스크톱: 사다리꼴 4열 — flex gap으로 겹침 없음 (첨부 1 레퍼런스) */
-const TRAP_CLIP = {
-  first: 'polygon(0 0, 100% 0, calc(100% - 14px) 100%, 0 100%)',
-  mid: 'polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%)',
-  last: 'polygon(14px 0, 100% 0, 100% 100%, 0 100%)',
-} as const;
+/* 데스크톱: 슬라이스마다 다른 사선·꺾임으로 PPT처럼 비정형 느낌 (간격은 얇은 흰 gap) */
+const STEP_CLIP_PATHS = [
+  'polygon(0 0, 100% 1.5%, calc(100% - min(4.5vw, 40px)) 100%, 0 96%)',
+  'polygon(min(3.2vw, 18px) 0, 100% 0, calc(100% - min(2.2vw, 14px)) 97%, 0 100%)',
+  'polygon(min(2.8vw, 14px) 2.5%, 100% 0, calc(100% - min(5vw, 44px)) 100%, 0 100%)',
+  'polygon(min(4vw, 22px) 0, 100% 0, 100% 100%, 0 calc(100% - min(1.8vw, 10px)))',
+] as const;
 
-/* brand #E65427 — 오른쪽으로 갈수록 투명도 ↑ (흰 배경과 자연스럽게 합성) */
+/* brand #E65427 — 오른쪽으로 갈수록 투명도 ↑; 2번째부터는 글자는 어두운 톤으로 대비 유지 */
 const STEP_COLORS = [
-  'rgba(230, 84, 39, 0.95)',
-  'rgba(230, 84, 39, 0.62)',
-  'rgba(230, 84, 39, 0.28)',
-  'rgba(230, 84, 39, 0.08)',
+  'rgba(230, 84, 39, 0.97)',
+  'rgba(230, 84, 39, 0.72)',
+  'rgba(230, 84, 39, 0.38)',
+  'rgba(230, 84, 39, 0.1)',
 ];
 
 function OrderProcess() {
   const { ref: sectionRef, visible } = useScrollFadeIn(0.05);
 
-  const clipFor = (idx: number) => {
-    if (idx === 0) return TRAP_CLIP.first;
-    if (idx === ORDER_STEPS.length - 1) return TRAP_CLIP.last;
-    return TRAP_CLIP.mid;
-  };
-
-  /** 01–02: 진한 주황 위 흰 텍스트 / 03–04: 거의 흰색 배경에 가까워 어두운 글자 */
-  const textOnLight = (idx: number) => idx >= 2;
+  /** 01: 흰 글자 / 02~04: 배경이 옅어져 slate 계열 */
+  const textOnLight = (idx: number) => idx >= 1;
 
   return (
     <section ref={sectionRef} className="relative w-full overflow-hidden bg-white">
@@ -229,10 +224,11 @@ function OrderProcess() {
             }`}
           />
         </div>
-        <div className="px-4 pb-14">
+        {/* 좌우 끝까지 풀블리드, 도형 사이 간격 최소화 */}
+        <div className="bg-white pb-14">
           <div
-            className="mx-auto flex w-full max-w-6xl gap-2"
-            style={{ height: 'clamp(18rem, 32vw, 28rem)' }}
+            className="flex w-full gap-px bg-white"
+            style={{ height: 'clamp(17rem, 30vw, 27rem)' }}
           >
             {ORDER_STEPS.map((step, idx) => (
               <div
@@ -241,30 +237,42 @@ function OrderProcess() {
                   visible ? 'translate-y-0 opacity-100' : 'translate-y-6 opacity-0'
                 }`}
                 style={{
-                  clipPath: clipFor(idx),
+                  clipPath: STEP_CLIP_PATHS[idx],
                   background: STEP_COLORS[idx],
                   transitionDelay: visible ? `${200 + idx * 120}ms` : '0ms',
                 }}
               >
-                <div className="flex h-full flex-col items-center justify-center gap-2 px-2 py-4 text-center sm:gap-3 sm:px-3">
+                <div
+                  className={`flex h-full flex-col items-center justify-center gap-1.5 px-1.5 py-3 text-center sm:gap-2 sm:px-3 md:gap-3 ${
+                    textOnLight(idx) ? '' : '[&_svg]:drop-shadow-[0_1px_2px_rgba(0,0,0,0.25)]'
+                  }`}
+                >
                   <span
-                    className={`block font-serif text-[2.75rem] font-extralight leading-none tracking-wider sm:text-[3.25rem] lg:text-[4rem] ${
-                      textOnLight(idx) ? 'text-slate-800/25' : 'text-white/30'
+                    className={`block font-serif text-[2.35rem] font-extralight leading-none tracking-wider sm:text-[3rem] lg:text-[3.75rem] ${
+                      textOnLight(idx) ? 'text-slate-800/35' : 'text-white/40 [text-shadow:0_1px_3px_rgba(0,0,0,0.2)]'
                     }`}
                   >
                     {step.num}
                   </span>
-                  <div className={textOnLight(idx) ? 'text-slate-700' : 'text-white/85'}>{step.icon}</div>
+                  <div
+                    className={
+                      textOnLight(idx)
+                        ? 'text-slate-800'
+                        : 'text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.2)]'
+                    }
+                  >
+                    {step.icon}
+                  </div>
                   <p
-                    className={`text-xs font-medium tracking-wide sm:text-sm lg:text-[0.95rem] ${
-                      textOnLight(idx) ? 'text-slate-900' : 'text-white'
+                    className={`text-[11px] font-semibold tracking-wide sm:text-sm lg:text-[0.95rem] ${
+                      textOnLight(idx) ? 'text-slate-900' : 'text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.25)]'
                     }`}
                   >
                     {step.title}
                   </p>
                   <p
-                    className={`max-w-[11rem] text-[10px] leading-relaxed sm:text-[11px] lg:text-xs ${
-                      textOnLight(idx) ? 'text-slate-600' : 'text-white/75'
+                    className={`max-w-[11.5rem] text-[9px] leading-snug sm:text-[10px] lg:text-xs ${
+                      textOnLight(idx) ? 'text-slate-700' : 'text-white/90 [text-shadow:0_1px_2px_rgba(0,0,0,0.2)]'
                     }`}
                   >
                     {step.desc}
@@ -298,15 +306,15 @@ function OrderProcess() {
               }}
             >
               <span
-                className={`font-serif text-[2rem] font-extralight leading-none tracking-wider ${idx >= 2 ? 'text-slate-800/30' : 'text-white/35'}`}
+                className={`font-serif text-[2rem] font-extralight leading-none tracking-wider ${idx >= 1 ? 'text-slate-800/35' : 'text-white/40'}`}
               >
                 {step.num}
               </span>
-              <div className={idx >= 2 ? 'text-slate-700' : 'text-white/80'}>{step.icon}</div>
-              <p className={`text-xs font-semibold tracking-wide ${idx >= 2 ? 'text-slate-900' : 'text-white'}`}>
+              <div className={idx >= 1 ? 'text-slate-800' : 'text-white'}>{step.icon}</div>
+              <p className={`text-xs font-semibold tracking-wide ${idx >= 1 ? 'text-slate-900' : 'text-white'}`}>
                 {step.title}
               </p>
-              <p className={`text-[10px] leading-relaxed ${idx >= 2 ? 'text-slate-600' : 'text-white/75'}`}>
+              <p className={`text-[10px] leading-relaxed ${idx >= 1 ? 'text-slate-700' : 'text-white/90'}`}>
                 {step.desc}
               </p>
             </div>
@@ -329,9 +337,8 @@ type ShowcaseItem = {
 
 const SHOWCASE_TABS = [
   { key: 'beauty', label: 'Beauty Box', category: 'beauty' },
-  { key: 'inner', label: 'Inner Beauty', category: 'inner_beauty' },
-  { key: 'hair', label: 'Hair Beauty', category: 'hair_beauty' },
-  { key: 'promo', label: 'Promo', category: 'promo' },
+  { key: 'inner', label: 'Inner Beauty Box', category: 'inner_beauty' },
+  { key: 'hair', label: 'Hair Beauty Box', category: 'hair_beauty' },
 ] as const;
 
 function formatPrice(price: number): string {
@@ -417,9 +424,9 @@ function ProductShowcase() {
           SEMO Box
         </h2>
 
-        {/* 탭 — 주황색 계열 */}
+        {/* 탭 — 세 라인 모두 pill; 모바일 한 줄(clamp + nowrap) */}
         <div
-          className={`mb-10 flex items-center justify-center gap-2 transition-all duration-700 sm:gap-3 ${
+          className={`mb-10 flex w-full items-stretch justify-center gap-1 transition-all duration-700 sm:gap-2 md:gap-3 ${
             visible ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'
           }`}
           style={{ transitionDelay: visible ? '100ms' : '0ms' }}
@@ -429,10 +436,10 @@ function ProductShowcase() {
               key={t.key}
               type="button"
               onClick={() => setActiveTab(t.category)}
-              className={`rounded-full px-5 py-2.5 text-sm font-medium tracking-wide transition-all sm:px-6 ${
+              className={`min-w-0 flex-1 rounded-full border px-1.5 py-2 text-center font-semibold leading-tight tracking-tight transition-all sm:px-4 sm:py-2.5 sm:tracking-wide md:px-6 whitespace-nowrap text-[length:clamp(0.5rem,2.15vw+0.2rem,0.875rem)] sm:text-sm ${
                 activeTab === t.category
-                  ? 'bg-brand text-white shadow-md'
-                  : 'bg-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-700'
+                  ? 'border-brand bg-brand text-white shadow-md'
+                  : 'border-slate-200 bg-white text-slate-600 shadow-sm hover:border-slate-300 hover:text-slate-800'
               }`}
             >
               {t.label}
@@ -503,7 +510,7 @@ function ProductShowcase() {
           style={{ transitionDelay: visible ? '600ms' : '0ms' }}
         >
           <Link
-            to={activeTab === 'beauty' ? '/shop' : activeTab === 'inner_beauty' ? '/inner-beauty' : activeTab === 'hair_beauty' ? '/hair-beauty' : '/promo'}
+            to={activeTab === 'beauty' ? '/shop' : activeTab === 'inner_beauty' ? '/inner-beauty' : '/hair-beauty'}
             className="group inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-slate-200 px-8 py-3 text-sm font-medium tracking-wide text-slate-600 transition-all hover:border-brand hover:text-brand"
           >
             Смотреть все
