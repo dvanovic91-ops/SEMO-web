@@ -241,6 +241,14 @@ const STEP_CLIP_PATHS = [
   'polygon(min(4vw, 22px) 0, 100% 0, 100% 100%, 0 calc(100% - min(1.8vw, 10px)))',
 ] as const;
 
+/* 모바일: 풀폭 세로 스택용 비정형 클립(각 행 좌우 끝까지) */
+const MOBILE_STEP_CLIP_PATHS = [
+  'polygon(0 0, 100% 0, 100% calc(100% - 12px), 12px 100%)',
+  'polygon(0 8px, 100% 0, 100% 100%, 0 calc(100% - 10px))',
+  'polygon(0 0, calc(100% - 10px) 0, 100% 100%, 0 calc(100% - 14px))',
+  'polygon(10px 0, 100% 4px, 100% 100%, 0 100%)',
+] as const;
+
 /* brand #E65427 — 오른쪽으로 갈수록 투명도 ↑; 2번째부터는 글자는 어두운 톤으로 대비 유지 */
 const STEP_COLORS = [
   'rgba(230, 84, 39, 0.97)',
@@ -342,9 +350,9 @@ function OrderProcess() {
         </div>
       </div>
 
-      {/* ── 모바일(<md): 흰 배경 + 심플 카드 ── */}
-      <div className="bg-white px-4 py-12 md:hidden">
-        <div ref={titleMobRef} className="mb-8">
+      {/* ── 모바일: 1→4 세로 풀폭 비정형 띠 + 스크롤 등장 애니메이션 ── */}
+      <div className="bg-white py-12 md:hidden">
+        <div ref={titleMobRef} className="mb-8 px-4">
           <h2
             className={`text-center text-base font-medium normal-case tracking-normal text-slate-800 transition-all duration-700 ${
               titleMobVisible ? 'translate-y-0 opacity-100' : 'translate-y-6 opacity-0'
@@ -353,26 +361,32 @@ function OrderProcess() {
             Как заказать SEMO Box
           </h2>
         </div>
-        <div className="mx-auto grid max-w-sm grid-cols-2 gap-3">
+        <div className="flex w-full flex-col gap-1 bg-white px-0">
           {ORDER_STEPS.map((step, idx) => (
             <OrderStepReveal
               key={step.num}
               staggerIndex={idx}
-              className="relative flex flex-col items-center gap-2 rounded-2xl p-5 text-center"
-              style={{ background: STEP_COLORS[idx] }}
+              className="relative w-full overflow-hidden"
+              style={{
+                clipPath: MOBILE_STEP_CLIP_PATHS[idx],
+                background: STEP_COLORS[idx],
+                minHeight: '9.25rem',
+              }}
             >
-              <span
-                className={`font-serif text-[2rem] font-extralight leading-none tracking-wider ${idx >= 1 ? 'text-slate-800/35' : 'text-white/40'}`}
-              >
-                {step.num}
-              </span>
-              <div className={idx >= 1 ? 'text-slate-800' : 'text-white'}>{step.icon}</div>
-              <p className={`text-xs font-semibold tracking-wide ${idx >= 1 ? 'text-slate-900' : 'text-white'}`}>
-                {step.title}
-              </p>
-              <p className={`text-[10px] leading-relaxed ${idx >= 1 ? 'text-slate-700' : 'text-white/90'}`}>
-                {step.desc}
-              </p>
+              <div className="flex flex-col items-center justify-center gap-2 px-4 py-6 text-center">
+                <span
+                  className={`font-serif text-[2.25rem] font-extralight leading-none tracking-normal ${idx >= 1 ? 'text-slate-800/35' : 'text-white/40'}`}
+                >
+                  {step.num}
+                </span>
+                <div className={idx >= 1 ? 'text-slate-800' : 'text-white'}>{step.icon}</div>
+                <p className={`text-sm font-medium tracking-normal ${idx >= 1 ? 'text-slate-900' : 'text-white'}`}>
+                  {step.title}
+                </p>
+                <p className={`max-w-md text-[11px] leading-relaxed ${idx >= 1 ? 'text-slate-700' : 'text-white/90'}`}>
+                  {step.desc}
+                </p>
+              </div>
             </OrderStepReveal>
           ))}
         </div>
@@ -518,9 +532,9 @@ function ProductShowcase() {
           SEMO Box
         </h2>
 
-        {/* 탭 — pill을 내용 너비에 맞춰 컴팩트하게 */}
+        {/* 탭 — 볼드 제거, 버튼 간격 2배(모바일·데스크톱 공통) */}
         <div
-          className={`mb-10 flex flex-wrap items-center justify-center gap-2 transition-all duration-700 sm:gap-2.5 ${
+          className={`mb-10 flex flex-wrap items-center justify-center gap-4 transition-all duration-700 sm:gap-8 ${
             visible ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'
           }`}
           style={{ transitionDelay: visible ? '100ms' : '0ms' }}
@@ -530,7 +544,7 @@ function ProductShowcase() {
               key={t.key}
               type="button"
               onClick={() => setActiveTab(t.category)}
-              className={`shrink-0 rounded-full border px-3 py-2 text-center text-[length:clamp(0.5625rem,2vw+0.15rem,0.8125rem)] font-semibold leading-tight tracking-normal transition-all sm:px-4 sm:py-2 sm:text-xs md:text-sm whitespace-nowrap max-w-[min(100%,10.5rem)] sm:max-w-none ${
+              className={`shrink-0 rounded-full border px-3 py-2 text-center text-[length:clamp(0.5625rem,2vw+0.15rem,0.8125rem)] font-normal leading-tight tracking-normal transition-all sm:px-4 sm:py-2 sm:text-xs md:text-sm whitespace-nowrap max-w-[min(100%,10.5rem)] sm:max-w-none ${
                 activeTab === t.category
                   ? 'border-brand bg-brand text-white shadow-md'
                   : 'border-slate-200 bg-white text-slate-600 shadow-sm hover:border-slate-300 hover:text-slate-800'

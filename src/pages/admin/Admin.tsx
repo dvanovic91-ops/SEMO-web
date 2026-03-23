@@ -419,6 +419,8 @@ export const Admin: React.FC = () => {
 
   /** 상품관리에서 정의한 슬롯( main_layout_slots 기준). 개수·순서가 카탈로그·테스트 매칭과 동일 */
   const [slots, setSlots] = useState<Slot[]>([]);
+  /** 테스트 매칭 탭 전용: Beauty 슬롯만 (카테고리 분리 후에도 피부→슬롯은 뷰티 기준) */
+  const [skinMatchSlots, setSkinMatchSlots] = useState<Slot[]>([]);
   /** 카탈로그에 노출할 슬롯 개수(1~5). 저장 시 이 개수만큼 main_layout_slots에 insert */
   const [slotCount, setSlotCount] = useState(5);
   const [savingSlots, setSavingSlots] = useState(false);
@@ -978,14 +980,60 @@ export const Admin: React.FC = () => {
           box_theme: p.box_theme ?? 'brand',
         }));
         setProducts(prodList);
+        /* 슬롯은 상품관리 탭 + productCategory 별 useEffect에서 로드 */
+      } catch (e) {
+        setError('관리자 데이터를 불러오지 못했습니다.');
+        console.error(e);
+      }
+    };
 
-        const { data: slotData } = await supabase
+    void load();
+  }, [isAdmin]);
+
+  const categoryProducts = useMemo(
+    () => products.filter((p) => (p.category || 'beauty') === productCategory),
+    [products, productCategory],
+  );
+
+  const displayProductIds = useMemo(() => {
+    const catIds = new Set(categoryProducts.map((p) => p.id));
+    const fromOrder = orderedProductIds.filter((id) => catIds.has(id));
+    const missing = categoryProducts.map((p) => p.id).filter((id) => !fromOrder.includes(id));
+    return [...fromOrder, ...missing];
+  }, [orderedProductIds, categoryProducts]);
+
+  /** 상품관리: 탭·카테고리 변경 시에만 DB 슬롯 재로드 (products 내용 변경만으로는 순서 리셋 방지) */
+  useEffect(() => {
+    if (!supabase || !isAdmin || tab !== 'products') return;
+    const catProds = products.filter((p) => (p.category || 'beauty') === productCategory);
+    (async () => {
+      try {
+        const { data: slotData, error } = await supabase
           .from('main_layout_slots')
-          .select('id, slot_index, title, description, image_url, product_id, link_url');
-        const slotsSorted = ((slotData ?? []) as { id: number; slot_index: number; title: string | null; description: string | null; image_url: string | null; product_id: string | null; link_url: string | null }[]).slice().sort((a, b) => a.slot_index - b.slot_index);
-
+          .select('id, slot_index, title, description, image_url, product_id, link_url, category')
+          .eq('category', productCategory);
+        if (error) {
+          console.warn('[Admin] slots by category:', error.message);
+          setSlots([]);
+          setSlotCount(5);
+          setOrderedProductIds(catProds.map((p) => p.id));
+          return;
+        }
+        const slotsSorted = (
+          (slotData ?? []) as {
+            id: number;
+            slot_index: number;
+            title: string | null;
+            description: string | null;
+            image_url: string | null;
+            product_id: string | null;
+            link_url: string | null;
+          }[]
+        )
+          .slice()
+          .sort((a, b) => a.slot_index - b.slot_index);
         if (slotsSorted.length > 0) {
-          const filled = slotsSorted.map((found, i) => ({
+          const filled: Slot[] = slotsSorted.map((found) => ({
             id: found.id,
             slot_index: found.slot_index,
             title: found.title ?? '',
@@ -995,23 +1043,56 @@ export const Admin: React.FC = () => {
             link_url: found.link_url ?? '',
           }));
           setSlots(filled);
-          setSlotCount(filled.length);
+          setSlotCount(Math.min(5, Math.max(1, filled.length)));
           const slotProductIds = filled.map((s) => s.product_id).filter(Boolean) as string[];
-          const restIds = prodList.map((p) => p.id).filter((id) => !slotProductIds.includes(id));
+          const restIds = catProds.map((p) => p.id).filter((id) => !slotProductIds.includes(id));
           setOrderedProductIds([...slotProductIds, ...restIds]);
         } else {
           setSlots([]);
-          setSlotCount(1);
-          setOrderedProductIds(prodList.map((p) => p.id));
+          setSlotCount(5);
+          setOrderedProductIds(catProds.map((p) => p.id));
         }
       } catch (e) {
-        setError('관리자 데이터를 불러오지 못했습니다.');
         console.error(e);
+        setSlots([]);
+        setOrderedProductIds(catProds.map((p) => p.id));
       }
-    };
+    })();
+  }, [supabase, isAdmin, tab, productCategory, products.length]);
 
-    void load();
-  }, [isAdmin]);
+  /** 테스트 매칭: Beauty 슬롯만 표시 */
+  useEffect(() => {
+    if (!supabase || !isAdmin || tab !== 'skinMatch') return;
+    (async () => {
+      const { data: slotData } = await supabase
+        .from('main_layout_slots')
+        .select('id, slot_index, title, description, image_url, product_id, link_url, category')
+        .eq('category', 'beauty');
+      const slotsSorted = (
+        (slotData ?? []) as {
+          id: number;
+          slot_index: number;
+          title: string | null;
+          description: string | null;
+          image_url: string | null;
+          product_id: string | null;
+          link_url: string | null;
+        }[]
+      )
+        .slice()
+        .sort((a, b) => a.slot_index - b.slot_index);
+      const filled: Slot[] = slotsSorted.map((found) => ({
+        id: found.id,
+        slot_index: found.slot_index,
+        title: found.title ?? '',
+        description: found.description ?? '',
+        image_url: found.image_url ?? null,
+        product_id: found.product_id ?? null,
+        link_url: found.link_url ?? '',
+      }));
+      setSkinMatchSlots(filled);
+    })();
+  }, [supabase, isAdmin, tab]);
 
   // 대시보드 KPI: 매출, 주문 수, 상품별 재고·조회수 (선택 기간: 일/주/월에 따라 필터)
   useEffect(() => {
@@ -1247,10 +1328,10 @@ export const Admin: React.FC = () => {
     void loadKpi();
   }, [isAdmin, tab, dashboardPeriod]);
 
-  // 테스트 매칭 탭: 상품관리 슬롯 개수와 동일하게 DB 매칭 로드 → 슬롯별·미매칭으로 변환
+  // 테스트 매칭 탭: Beauty 슬롯 개수 기준으로 DB 매칭 로드 → 슬롯별·미매칭으로 변환
   useEffect(() => {
     if (tab !== 'skinMatch') return;
-    const slotCount = slots.length;
+    const slotCount = skinMatchSlots.length;
     setSkinMatchLoading(true);
     fetchMapping()
       .then((dbMap) => {
@@ -1276,7 +1357,7 @@ export const Admin: React.FC = () => {
       })
       .catch(() => {})
       .finally(() => setSkinMatchLoading(false));
-  }, [tab, slots]);
+  }, [tab, skinMatchSlots]);
 
   // 히어로 이미지 탭: site_settings에서 JSON array 로드
   useEffect(() => {
@@ -1834,7 +1915,7 @@ export const Admin: React.FC = () => {
       }
       const payload: Record<string, unknown> = {
         name: selectedProduct.name,
-        category: selectedProduct.category,
+        category: (selectedProduct.category && String(selectedProduct.category).trim()) || productCategory,
         description: selectedProduct.description,
         image_url: mainImages[0] ?? null,
         image_urls: mainImages,
@@ -2182,7 +2263,7 @@ export const Admin: React.FC = () => {
     setSavingSlots(true);
     setError(null);
     try {
-      const { data: existing } = await supabase.from('main_layout_slots').select('id');
+      const { data: existing } = await supabase.from('main_layout_slots').select('id').eq('category', productCategory);
       if (existing?.length) {
         const { error: delErr } = await supabase.from('main_layout_slots').delete().in('id', existing.map((r) => r.id));
         if (delErr) throw delErr;
@@ -2198,13 +2279,15 @@ export const Admin: React.FC = () => {
           image_url: null,
           product_id: productId,
           link_url: null,
+          category: productCategory,
         };
       });
       const { error: insErr } = await supabase.from('main_layout_slots').insert(toInsert);
       if (insErr) throw insErr;
       const { data: slotData } = await supabase
         .from('main_layout_slots')
-        .select('id, slot_index, title, description, image_url, product_id, link_url');
+        .select('id, slot_index, title, description, image_url, product_id, link_url, category')
+        .eq('category', productCategory);
       const slotsSortedAfterSave = ((slotData ?? []) as { id: number; slot_index: number; title: string | null; description: string | null; image_url: string | null; product_id: string | null; link_url: string | null }[]).slice().sort((a, b) => a.slot_index - b.slot_index);
       if (slotsSortedAfterSave.length > 0) {
         setSlots(
@@ -3050,7 +3133,7 @@ export const Admin: React.FC = () => {
               </>
             )}
             <p className="mb-2 text-xs text-slate-500">
-              드래그해서 순서를 바꾸면 쇼핑 페이지(세모 박스 메뉴) 노출 순서가 바뀝니다. 아래에서 슬롯 개수를 선택하거나, 슬롯 추가/삭제 시 자동으로 반영됩니다. 위에서 1~{slotCount}개가 카탈로그에 노출됩니다.
+              상단 탭(Beauty / Inner / Hair)마다 슬롯·순서가 따로 저장됩니다. 드래그로 순서 변경 후 「슬롯 순서 저장」하면 해당 카테고리 샵 페이지(/shop, /inner-beauty, /hair-beauty)에 반영됩니다. 위에서 1~{slotCount}개가 카탈로그에 노출됩니다.
             </p>
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <span className="text-xs font-medium text-slate-600">슬롯 개수:</span>
@@ -3072,7 +3155,7 @@ export const Admin: React.FC = () => {
                   setSelectedProduct({
                     id: '',
                     name: '',
-                    category: '',
+                    category: productCategory,
                     description: '',
                     image_url: null,
                     rrp_price: null,
@@ -3089,7 +3172,7 @@ export const Admin: React.FC = () => {
               </button>
             </div>
             <ul className="divide-y divide-slate-100 text-sm">
-              {(orderedProductIds.length ? orderedProductIds : products.map((p) => p.id)).map((productId, index) => {
+              {displayProductIds.map((productId, index) => {
                 const p = products.find((pr) => pr.id === productId);
                 if (!p) return null;
                 const slotNum = index + 1;
@@ -3156,9 +3239,9 @@ export const Admin: React.FC = () => {
                   </li>
                 );
               })}
-              {products.length === 0 && (
+              {categoryProducts.length === 0 && (
                 <li className="px-2 py-4 text-xs text-slate-400">
-                  등록된 상품이 없습니다.
+                  이 카테고리에 등록된 상품이 없습니다.
                   <span className="mt-2 block text-amber-600">
                     쇼핑 페이지에는 보이는데 여기만 비었다면 Supabase → Table Editor → products → RLS에서 &quot;authenticated&quot; 사용자 SELECT 허용 정책을 추가하세요.
                   </span>
@@ -3661,7 +3744,7 @@ export const Admin: React.FC = () => {
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <h2 className="mb-2 text-sm font-semibold text-slate-900">테스트 결과–상품 매칭</h2>
             <p className="mb-4 text-xs text-slate-500">
-              피부 타입을 아래 슬롯으로 드래그하면, 해당 타입 결과일 때 그 슬롯의 상품 상세로 연결됩니다. 슬롯 개수·상품은 상품관리 탭과 동일합니다. 저장 버튼을 눌러 반영하세요.
+              피부 타입을 아래 슬롯으로 드래그하면, 해당 타입 결과일 때 그 슬롯의 상품 상세로 연결됩니다. 슬롯은 <strong>Beauty Box</strong> 카탈로그 기준입니다(상품관리 → Beauty Box 탭 슬롯). 저장 버튼을 눌러 반영하세요.
             </p>
             {skinMatchLoading ? (
               <p className="py-8 text-center text-sm text-slate-500">불러오는 중…</p>
@@ -3709,15 +3792,15 @@ export const Admin: React.FC = () => {
                 </div>
 
                 {/* 슬롯 1~5: 활성 개수만 드롭 가능, 나머지는 회색·비활성 */}
-                {slots.length === 0 ? (
+                {skinMatchSlots.length === 0 ? (
                   <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs text-amber-800">
-                    슬롯이 없습니다. 상품관리 탭에서 슬롯 개수를 선택하고 「슬롯 순서 저장」을 누르면 슬롯이 생성됩니다.
+                    Beauty Box 슬롯이 없습니다. 상품관리에서 Beauty Box 탭을 선택한 뒤 슬롯을 저장하세요.
                   </p>
                 ) : (
                   <div className="mb-4 flex flex-wrap gap-3">
                     {([1, 2, 3, 4, 5] as const).map((slotNum) => {
-                      const isActive = slotNum <= slots.length;
-                      const slotInfo = slots[slotNum - 1];
+                      const isActive = slotNum <= skinMatchSlots.length;
+                      const slotInfo = skinMatchSlots[slotNum - 1];
                       const productName = slotInfo?.product_id ? products.find((p) => p.id === slotInfo.product_id)?.name ?? slotInfo?.title : slotInfo?.title;
                       const slotLabel = productName ? `슬롯 ${slotNum} (${productName})` : `슬롯 ${slotNum}`;
                       return (
@@ -3801,7 +3884,7 @@ export const Admin: React.FC = () => {
                     setSkinMatchSaving(true);
                     setError(null);
                     const slotByType: Record<string, number> = {};
-                    const activeSlotMax = slots.length;
+                    const activeSlotMax = skinMatchSlots.length;
                     Object.keys(skinMatchSlotTypes).forEach((key) => {
                       const slotNum = Number(key);
                       if (!Number.isInteger(slotNum) || slotNum < 1 || slotNum > activeSlotMax) return;
@@ -3827,7 +3910,7 @@ export const Admin: React.FC = () => {
                     setError(null);
                     userClearedSlotsRef.current.clear();
                     fetchMapping().then((dbMap) => {
-                      const slotCount = slots.length;
+                      const slotCount = skinMatchSlots.length;
                       const bySlot: Record<number, string[]> = {};
                       for (let i = 1; i <= slotCount; i++) bySlot[i] = [];
                       // DB에만 있는 매칭 사용(기본값 없음) → 비운 타입이 슬롯으로 복원되지 않음

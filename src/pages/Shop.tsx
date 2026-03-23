@@ -118,12 +118,29 @@ function ShopProductCard({ product, onAddToCart, layout }: ShopProductCardProps)
   );
 }
 
-export const Shop: React.FC = () => {
+/** 관리자 `main_layout_slots.category` 및 상품 `category`와 동일 키 */
+export type ShopLayoutCategory = 'beauty' | 'inner_beauty' | 'hair_beauty';
+
+type ShopCatalogProps = {
+  category: ShopLayoutCategory;
+  pageTitle: string;
+  pageSubtitle?: string;
+};
+
+/**
+ * 카테고리별 샵 페이지 — Beauty / Inner / Hair 동일 레이아웃.
+ * 슬롯은 `main_layout_slots.category` 로 구분됩니다.
+ */
+export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle }: ShopCatalogProps) {
   const { addItem } = useCart();
   const [showAddedToast, setShowAddedToast] = useState(false);
   const [items, setItems] = useState<ShopItem[]>([]);
   const [carouselIndex, setCarouselIndex] = useState(0);
   const touchStartX = useRef(0);
+
+  useEffect(() => {
+    setCarouselIndex(0);
+  }, [layoutCategory]);
 
   useEffect(() => {
     if (!supabase) {
@@ -134,17 +151,18 @@ export const Shop: React.FC = () => {
       try {
         const { data: slotData, error: slotErr } = await supabase
           .from('main_layout_slots')
-          .select('slot_index, title, description, image_url, product_id, link_url');
+          .select('slot_index, title, description, image_url, product_id, link_url, category')
+          .eq('category', layoutCategory);
         if (slotErr) {
-          console.warn('[Shop] main_layout_slots:', slotErr.message);
-          setItems(FALLBACK_SHOP_ITEMS);
+          console.warn('[ShopCatalog] main_layout_slots:', slotErr.message);
+          setItems(layoutCategory === 'beauty' ? FALLBACK_SHOP_ITEMS : []);
           return;
         }
         const slots = ((slotData ?? []) as { slot_index: number; title: string | null; description: string | null; image_url: string | null; product_id: string | null; link_url: string | null }[])
           .slice()
           .sort((a, b) => a.slot_index - b.slot_index);
         if (!slots.length) {
-          setItems(FALLBACK_SHOP_ITEMS);
+          setItems(layoutCategory === 'beauty' ? FALLBACK_SHOP_ITEMS : []);
           return;
         }
 
@@ -210,11 +228,11 @@ export const Shop: React.FC = () => {
         });
         setItems(list);
       } catch (e) {
-        console.warn('[Shop] load error:', e);
-        setItems(FALLBACK_SHOP_ITEMS);
+        console.warn('[ShopCatalog] load error:', e);
+        setItems(layoutCategory === 'beauty' ? FALLBACK_SHOP_ITEMS : []);
       }
     })();
-  }, []);
+  }, [layoutCategory]);
 
   useEffect(() => {
     if (!showAddedToast) return;
@@ -251,77 +269,92 @@ export const Shop: React.FC = () => {
     <main className="mx-auto min-w-0 max-w-6xl px-3 py-5 sm:px-6 sm:py-10 md:py-14">
       <header className="mb-12">
         <h1 className="text-center text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl md:text-5xl">
-          Курация весна/лето 2026
+          {pageTitle}
         </h1>
+        {pageSubtitle ? (
+          <p className="prose-ru mx-auto mt-4 max-w-2xl text-center text-sm leading-relaxed text-slate-600 sm:text-base">
+            {pageSubtitle}
+          </p>
+        ) : null}
       </header>
 
-      {/* 모바일·태블릿(md 미만): 1열 풀폭 카드 — 가독성·터치 영역 */}
-      <section className="w-full min-w-0 md:hidden" aria-label="Каталог — мобильная версия">
-        <div className="flex flex-col gap-6">
-          {items.map((product) => (
-            <div key={product.id} className="w-full min-w-0">
-              <ShopProductCard product={product} onAddToCart={handleAddToCart} layout="mobile-stack" />
+      {items.length === 0 ? (
+        <p className="py-16 text-center text-sm text-slate-500">
+          {layoutCategory === 'beauty'
+            ? 'Каталог временно недоступен.'
+            : 'Подборка скоро появится — следите за обновлениями.'}
+        </p>
+      ) : (
+        <>
+          {/* 모바일·태블릿(md 미만): 1열 풀폭 카드 — 가독성·터치 영역 */}
+          <section className="w-full min-w-0 md:hidden" aria-label="Каталог — мобильная версия">
+            <div className="flex flex-col gap-6">
+              {items.map((product) => (
+                <div key={product.id} className="w-full min-w-0">
+                  <ShopProductCard product={product} onAddToCart={handleAddToCart} layout="mobile-stack" />
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      </section>
+          </section>
 
-      {/* md 이상: 기존 3열 캐러셀 */}
-      <section className="relative hidden min-w-0 px-0 md:block md:px-12 lg:px-16" aria-label="Каталог">
-        <div className="overflow-hidden" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-          <div
-            className="flex transition-[transform] duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1)]"
-            style={{ transform: `translateX(-${carouselIndex * itemWidthPercentDesktop}%)` }}
-          >
-            {items.map((product) => (
-              <div key={product.id} className="flex w-[33.333333%] shrink-0 flex-col px-2 sm:px-3">
-                <ShopProductCard product={product} onAddToCart={handleAddToCart} layout="desktop-carousel" />
+          {/* md 이상: 기존 3열 캐러셀 */}
+          <section className="relative hidden min-w-0 px-0 md:block md:px-12 lg:px-16" aria-label="Каталог">
+            <div className="overflow-hidden" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+              <div
+                className="flex transition-[transform] duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1)]"
+                style={{ transform: `translateX(-${carouselIndex * itemWidthPercentDesktop}%)` }}
+              >
+                {items.map((product) => (
+                  <div key={product.id} className="flex w-[33.333333%] shrink-0 flex-col px-2 sm:px-3">
+                    <ShopProductCard product={product} onAddToCart={handleAddToCart} layout="desktop-carousel" />
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </div>
+            </div>
 
-        {items.length > VISIBLE_DESKTOP && (
-          <>
-            <button
-              type="button"
-              onClick={goPrev}
-              disabled={carouselIndex === 0}
-              className="absolute left-0 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white shadow-md transition hover:bg-slate-50 disabled:opacity-30"
-              aria-label="Предыдущие"
-            >
-              <svg className="h-5 w-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              onClick={goNext}
-              disabled={carouselIndex >= maxIndex}
-              className="absolute right-0 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white shadow-md transition hover:bg-slate-50 disabled:opacity-30"
-              aria-label="Следующие"
-            >
-              <svg className="h-5 w-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-          </>
-        )}
+            {items.length > VISIBLE_DESKTOP && (
+              <>
+                <button
+                  type="button"
+                  onClick={goPrev}
+                  disabled={carouselIndex === 0}
+                  className="absolute left-0 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white shadow-md transition hover:bg-slate-50 disabled:opacity-30"
+                  aria-label="Предыдущие"
+                >
+                  <svg className="h-5 w-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  onClick={goNext}
+                  disabled={carouselIndex >= maxIndex}
+                  className="absolute right-0 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white shadow-md transition hover:bg-slate-50 disabled:opacity-30"
+                  aria-label="Следующие"
+                >
+                  <svg className="h-5 w-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              </>
+            )}
 
-        {items.length > VISIBLE_DESKTOP && (
-          <div className="mt-4 flex justify-center gap-2">
-            {Array.from({ length: maxIndex + 1 }).map((_, i) => (
-              <button
-                key={i}
-                type="button"
-                onClick={() => setCarouselIndex(i)}
-                className={`h-2 rounded-full transition ${i === carouselIndex ? 'w-6 bg-brand' : 'w-2 bg-slate-200'}`}
-                aria-label={`Слайд ${i + 1}`}
-              />
-            ))}
-          </div>
-        )}
-      </section>
+            {items.length > VISIBLE_DESKTOP && (
+              <div className="mt-4 flex justify-center gap-2">
+                {Array.from({ length: maxIndex + 1 }).map((_, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => setCarouselIndex(i)}
+                    className={`h-2 rounded-full transition ${i === carouselIndex ? 'w-6 bg-brand' : 'w-2 bg-slate-200'}`}
+                    aria-label={`Слайд ${i + 1}`}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        </>
+      )}
 
       {showAddedToast && (
         <div
@@ -334,4 +367,8 @@ export const Shop: React.FC = () => {
       )}
     </main>
   );
-};
+}
+
+export const Shop: React.FC = () => (
+  <ShopCatalog category="beauty" pageTitle="Курация весна/лето 2026" />
+);

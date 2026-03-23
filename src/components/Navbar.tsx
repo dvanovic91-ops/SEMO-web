@@ -789,24 +789,24 @@ export const Navbar: React.FC = () => {
         </>
       )}
 
-      {/* 모바일: 맨 앞 샵 아이콘 — SEMO Box 한 열 팝업 */}
+      {/* 모바일: 하단바 바로 위 풀폭 리스트(팝업 카드 대신 구분선 리스트) */}
       {mobileShopMenuOpen && (
         <>
           <div
-            className="fixed inset-0 z-40 bg-black/40 md:hidden"
+            className="fixed inset-0 z-40 bg-black/30 md:hidden"
             aria-hidden
             onClick={() => setMobileShopMenuOpen(false)}
           />
           <div
-            className="fixed left-2 right-2 z-50 flex max-h-[min(70vh,22rem)] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl md:hidden"
+            className="fixed left-0 right-0 z-50 flex max-h-[min(55vh,20rem)] flex-col overflow-hidden border-t border-slate-200 bg-white md:hidden"
             style={{ bottom: 'calc(3.5rem + env(safe-area-inset-bottom, 0px))' }}
             role="menu"
             aria-label="SEMO Box"
           >
-            <div className="shrink-0 border-b border-slate-100 px-4 py-2.5">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">SEMO Box</p>
+            <div className="shrink-0 border-b border-slate-200 bg-slate-50/90 px-4 py-2">
+              <p className="text-[11px] font-medium text-slate-500">SEMO Box</p>
             </div>
-            <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1" aria-label="SEMO Box">
+            <nav className="min-h-0 flex-1 divide-y divide-slate-100 overflow-y-auto overscroll-contain" aria-label="SEMO Box">
               {SEMO_BOX_SUBMENU.map((sub) => (
                 <NavLink
                   key={sub.to}
@@ -814,8 +814,8 @@ export const Navbar: React.FC = () => {
                   role="menuitem"
                   onClick={() => setMobileShopMenuOpen(false)}
                   className={({ isActive }) =>
-                    `block px-4 py-3 text-sm font-medium transition-colors ${
-                      isActive ? 'bg-brand-soft/30 text-brand' : 'text-slate-800 hover:bg-slate-50'
+                    `flex w-full items-center px-4 py-3.5 text-left text-sm font-normal transition-colors ${
+                      isActive ? 'bg-brand-soft/25 text-brand' : 'text-slate-800 active:bg-slate-50'
                     }`
                   }
                 >
@@ -827,11 +827,26 @@ export const Navbar: React.FC = () => {
         </>
       )}
 
-      {/* 모바일 전용: 하단 고정 바 — 맨 앞: 샵(팝업), 이후 햄버거·장바구니… */}
+      {/* 모바일 전용: 하단 고정 바 — 맨 앞: 햄버거, 둘째: 샵(리스트) */}
       <nav
         className="fixed bottom-0 left-0 right-0 z-30 flex items-center justify-around border-t border-slate-200 bg-white/95 backdrop-blur-md md:hidden"
         style={{ paddingTop: '0.25rem', paddingBottom: 'max(0.35rem, env(safe-area-inset-bottom))' }}
       >
+        <button
+          type="button"
+          onClick={() => {
+            setMobileShopMenuOpen(false);
+            setMobileMenuOpen(true);
+          }}
+          aria-label="Open menu"
+          className={`flex h-10 items-center justify-center rounded-full px-3 transition ${
+            isMenuActive ? 'bg-brand-soft/50 text-brand' : 'text-slate-600'
+          }`}
+        >
+          <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth={isMenuActive ? 2.2 : 2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
         <button
           type="button"
           aria-label="SEMO Box"
@@ -849,21 +864,6 @@ export const Navbar: React.FC = () => {
         >
           <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth={mobileShopMenuOpen || isShop ? 2.2 : 2} viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setMobileShopMenuOpen(false);
-            setMobileMenuOpen(true);
-          }}
-          aria-label="Open menu"
-          className={`flex h-10 items-center justify-center rounded-full px-3 transition ${
-            isMenuActive ? 'bg-brand-soft/50 text-brand' : 'text-slate-600'
-          }`}
-        >
-          <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth={isMenuActive ? 2.2 : 2} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
         <button
