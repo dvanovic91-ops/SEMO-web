@@ -83,10 +83,10 @@ function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
           const inner = (
             <>
               {/* 데스크톱 이미지 */}
-              <img src={slide.image_url} alt={`SEMO box ${i + 1}`} className={`h-full w-full object-cover ${slide.mobile_image_url ? 'hidden md:block' : ''}`} draggable={false} />
-              {/* 모바일 전용 이미지 (있을 경우) */}
+              <img src={slide.image_url} alt={`SEMO box ${i + 1}`} className={`h-full w-full object-cover object-center ${slide.mobile_image_url ? 'hidden md:block' : ''}`} draggable={false} />
+              {/* 모바일 전용 — 세로 비율 깨짐 완화: contain + 배경 */}
               {slide.mobile_image_url && (
-                <img src={slide.mobile_image_url} alt={`SEMO box ${i + 1}`} className="h-full w-full object-cover md:hidden" draggable={false} />
+                <img src={slide.mobile_image_url} alt={`SEMO box ${i + 1}`} className="h-full w-full object-contain object-center bg-white md:hidden" draggable={false} />
               )}
             </>
           );
@@ -184,92 +184,96 @@ const ORDER_STEPS = [
   },
 ];
 
-/* 데스크톱: PPT 스타일 사다리꼴 — 겹치며 맞물리는 4개 컬럼 */
-const CLIP_DESKTOP = [
-  'polygon(0% 0%, 30% 0%, 23% 100%, 0% 100%)',
-  'polygon(23% 0%, 55% 0%, 49% 100%, 17% 100%)',
-  'polygon(49% 0%, 80% 0%, 75% 100%, 43% 100%)',
-  'polygon(75% 0%, 100% 0%, 100% 100%, 69% 100%)',
-];
+/* 데스크톱: 사다리꼴 4열 — flex gap으로 겹침 없음 (첨부 1 레퍼런스) */
+const TRAP_CLIP = {
+  first: 'polygon(0 0, 100% 0, calc(100% - 14px) 100%, 0 100%)',
+  mid: 'polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%)',
+  last: 'polygon(14px 0, 100% 0, 100% 100%, 0 100%)',
+} as const;
 
-/* brand #E65427 → 오른쪽으로 갈수록 옅어지는 rgba 투명도 */
+/* brand #E65427 — 오른쪽으로 갈수록 투명도 ↑ (흰 배경과 자연스럽게 합성) */
 const STEP_COLORS = [
-  'rgba(230, 84, 39, 0.92)',   // 01 — 거의 원색
-  'rgba(230, 84, 39, 0.68)',   // 02
-  'rgba(230, 84, 39, 0.45)',   // 03
-  'rgba(230, 84, 39, 0.25)',   // 04 — 아주 옅은
+  'rgba(230, 84, 39, 0.95)',
+  'rgba(230, 84, 39, 0.62)',
+  'rgba(230, 84, 39, 0.28)',
+  'rgba(230, 84, 39, 0.08)',
 ];
 
 function OrderProcess() {
   const { ref: sectionRef, visible } = useScrollFadeIn(0.05);
 
+  const clipFor = (idx: number) => {
+    if (idx === 0) return TRAP_CLIP.first;
+    if (idx === ORDER_STEPS.length - 1) return TRAP_CLIP.last;
+    return TRAP_CLIP.mid;
+  };
+
+  /** 01–02: 진한 주황 위 흰 텍스트 / 03–04: 거의 흰색 배경에 가까워 어두운 글자 */
+  const textOnLight = (idx: number) => idx >= 2;
+
   return (
-    <section ref={sectionRef} className="relative w-full overflow-hidden">
+    <section ref={sectionRef} className="relative w-full overflow-hidden bg-white">
       {/* ── 데스크톱(md+) ── */}
-      <div className="hidden md:block">
-        {/* 타이틀 — 다크 바탕 */}
-        <div className="bg-[#141414] px-4 pt-16 pb-10">
+      <div className="hidden md:block bg-white">
+        <div className="px-4 pt-14 pb-6">
           <h2
-            className={`text-center font-light tracking-[0.18em] uppercase text-white/90 transition-all duration-700 text-2xl lg:text-[1.7rem] ${
+            className={`text-center font-light tracking-[0.18em] uppercase text-slate-900 transition-all duration-700 text-2xl lg:text-[1.7rem] ${
               visible ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0'
             }`}
           >
             Как заказать SEMO Box
           </h2>
           <div
-            className={`mx-auto mt-4 h-px w-10 bg-gradient-to-r from-transparent via-white/30 to-transparent transition-all duration-700 delay-200 ${
+            className={`mx-auto mt-4 h-px w-10 bg-gradient-to-r from-transparent via-brand/35 to-transparent transition-all duration-700 delay-200 ${
               visible ? 'scale-x-100 opacity-100' : 'scale-x-0 opacity-0'
             }`}
           />
         </div>
-        {/* 사선 '띠' 영역 — 다크 배경 위 */}
-        <div className="relative w-full bg-[#141414]" style={{ height: 'clamp(20rem, 38vw, 30rem)' }}>
-          {ORDER_STEPS.map((step, idx) => (
-            <div
-              key={step.num}
-              className={`absolute inset-0 transition-all duration-[900ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
-                visible ? 'translate-x-0 opacity-100' : 'translate-x-[-5%] opacity-0'
-              }`}
-              style={{
-                clipPath: CLIP_DESKTOP[idx],
-                background: STEP_COLORS[idx],
-                transitionDelay: visible ? `${400 + idx * 180}ms` : '0ms',
-                zIndex: idx + 1,
-              }}
-            >
-              {/* 콘텐츠 — 각 사다리꼴 중심 */}
+        <div className="px-4 pb-14">
+          <div
+            className="mx-auto flex w-full max-w-6xl gap-2"
+            style={{ height: 'clamp(18rem, 32vw, 28rem)' }}
+          >
+            {ORDER_STEPS.map((step, idx) => (
               <div
-                className="absolute top-0 bottom-0 flex flex-col items-center justify-center gap-3 text-center"
+                key={step.num}
+                className={`relative min-w-0 flex-1 overflow-hidden transition-all duration-[900ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                  visible ? 'translate-y-0 opacity-100' : 'translate-y-6 opacity-0'
+                }`}
                 style={{
-                  left: `${[14, 37, 62, 86][idx]}%`,
-                  transform: 'translateX(-50%)',
-                  width: 'clamp(8rem, 18vw, 14rem)',
+                  clipPath: clipFor(idx),
+                  background: STEP_COLORS[idx],
+                  transitionDelay: visible ? `${200 + idx * 120}ms` : '0ms',
                 }}
               >
-                <span
-                  className="block font-serif text-[3.5rem] font-extralight leading-none tracking-wider lg:text-[4.5rem]"
-                  style={{ color: idx < 2 ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.12)' }}
-                >
-                  {step.num}
-                </span>
-                <div style={{ color: idx < 2 ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.25)' }}>{step.icon}</div>
-                <p
-                  className="text-sm font-medium tracking-wide sm:text-[0.95rem] lg:text-base"
-                  style={{ color: idx < 2 ? 'rgba(255,255,255,0.95)' : 'rgba(30,30,30,0.7)' }}
-                >
-                  {step.title}
-                </p>
-                <p
-                  className="text-[11px] leading-relaxed sm:text-xs lg:text-[0.8rem]"
-                  style={{ color: idx < 2 ? 'rgba(255,255,255,0.5)' : 'rgba(30,30,30,0.4)' }}
-                >
-                  {step.desc}
-                </p>
+                <div className="flex h-full flex-col items-center justify-center gap-2 px-2 py-4 text-center sm:gap-3 sm:px-3">
+                  <span
+                    className={`block font-serif text-[2.75rem] font-extralight leading-none tracking-wider sm:text-[3.25rem] lg:text-[4rem] ${
+                      textOnLight(idx) ? 'text-slate-800/25' : 'text-white/30'
+                    }`}
+                  >
+                    {step.num}
+                  </span>
+                  <div className={textOnLight(idx) ? 'text-slate-700' : 'text-white/85'}>{step.icon}</div>
+                  <p
+                    className={`text-xs font-medium tracking-wide sm:text-sm lg:text-[0.95rem] ${
+                      textOnLight(idx) ? 'text-slate-900' : 'text-white'
+                    }`}
+                  >
+                    {step.title}
+                  </p>
+                  <p
+                    className={`max-w-[11rem] text-[10px] leading-relaxed sm:text-[11px] lg:text-xs ${
+                      textOnLight(idx) ? 'text-slate-600' : 'text-white/75'
+                    }`}
+                  >
+                    {step.desc}
+                  </p>
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-        <div className="h-16 bg-[#141414]" />
       </div>
 
       {/* ── 모바일(<md): 흰 배경 + 심플 카드 ── */}
@@ -294,22 +298,15 @@ function OrderProcess() {
               }}
             >
               <span
-                className="font-serif text-[2rem] font-extralight leading-none tracking-wider"
-                style={{ color: idx < 2 ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.12)' }}
+                className={`font-serif text-[2rem] font-extralight leading-none tracking-wider ${idx >= 2 ? 'text-slate-800/30' : 'text-white/35'}`}
               >
                 {step.num}
               </span>
-              <div style={{ color: idx < 2 ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.25)' }}>{step.icon}</div>
-              <p
-                className="text-xs font-semibold tracking-wide"
-                style={{ color: idx < 2 ? '#fff' : 'rgba(30,30,30,0.7)' }}
-              >
+              <div className={idx >= 2 ? 'text-slate-700' : 'text-white/80'}>{step.icon}</div>
+              <p className={`text-xs font-semibold tracking-wide ${idx >= 2 ? 'text-slate-900' : 'text-white'}`}>
                 {step.title}
               </p>
-              <p
-                className="text-[10px] leading-relaxed"
-                style={{ color: idx < 2 ? 'rgba(255,255,255,0.6)' : 'rgba(30,30,30,0.4)' }}
-              >
+              <p className={`text-[10px] leading-relaxed ${idx >= 2 ? 'text-slate-600' : 'text-white/75'}`}>
                 {step.desc}
               </p>
             </div>

@@ -397,6 +397,8 @@ export const Admin: React.FC = () => {
   /** 히어로 이미지 관리 (다중 슬라이드 — 데스크톱 + 모바일) */
   type HeroSlide = { image_url: string; mobile_image_url?: string; link_url?: string };
   const [heroSlides, setHeroSlides] = useState<HeroSlide[]>([]);
+  /** 히어로 관리: 하위 탭으로 데스크톱/모바일 이미지를 분리 편집 */
+  const [heroImageViewport, setHeroImageViewport] = useState<'desktop' | 'mobile'>('desktop');
   const [heroSaving, setHeroSaving] = useState(false);
   const [heroUploading, setHeroUploading] = useState<string | null>(null);
   const heroFileRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -2444,7 +2446,32 @@ export const Admin: React.FC = () => {
       {tab === 'heroImage' && (
         <section className="space-y-6">
           <h2 className="text-sm font-semibold text-slate-900">랜딩 페이지 히어로 이미지 (슬라이드)</h2>
-          <p className="text-xs text-slate-500">메인 페이지 최상단에 전체 너비로 표시되는 캐러셀 이미지입니다. 최대 4장까지 등록 가능하며, 5초마다 자동 전환됩니다.<br />모바일 이미지가 없으면 데스크톱 이미지가 모바일에서도 사용됩니다.</p>
+          <p className="text-xs text-slate-500">
+            메인 페이지 최상단 전체 너비 캐러셀입니다. 최대 4장, 5초마다 자동 전환.
+            <br />
+            <span className="text-slate-600">아래 탭에서 데스크톱 / 모바일 이미지를 각각 관리합니다. 모바일 이미지가 없으면 데스크톱 이미지가 모바일에서도 사용됩니다.</span>
+          </p>
+
+          <div className="flex w-full max-w-md rounded-full border border-slate-200 bg-slate-50 p-0.5 text-xs font-medium">
+            <button
+              type="button"
+              onClick={() => setHeroImageViewport('desktop')}
+              className={`min-h-[40px] flex-1 rounded-full px-3 py-2 transition ${
+                heroImageViewport === 'desktop' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              데스크톱
+            </button>
+            <button
+              type="button"
+              onClick={() => setHeroImageViewport('mobile')}
+              className={`min-h-[40px] flex-1 rounded-full px-3 py-2 transition ${
+                heroImageViewport === 'mobile' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              모바일
+            </button>
+          </div>
 
           {heroSlides.map((slide, idx) => (
             <div key={idx} className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
@@ -2459,81 +2486,82 @@ export const Admin: React.FC = () => {
                 </button>
               </div>
 
-              {/* 데스크톱 이미지 */}
-              <div>
-                <label className={labelClass}>🖥️ 데스크톱 이미지</label>
-                <div className="flex items-center gap-3">
-                  <input
-                    ref={(el) => { heroFileRefs.current[`${idx}-desktop`] = el; }}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleHeroImageUpload(file, idx, 'image_url');
-                      e.target.value = '';
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => heroFileRefs.current[`${idx}-desktop`]?.click()}
-                    disabled={heroUploading === `${idx}-image_url`}
-                    className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-brand hover:text-brand disabled:opacity-60"
-                  >
-                    {heroUploading === `${idx}-image_url` ? '업로드 중…' : '이미지 선택'}
-                  </button>
-                  <input
-                    type="text"
-                    className={inputClass}
-                    placeholder="데스크톱 이미지 URL"
-                    value={slide.image_url}
-                    onChange={(e) => setHeroSlides((prev) => {
-                      const next = [...prev];
-                      next[idx] = { ...next[idx], image_url: e.target.value };
-                      return next;
-                    })}
-                  />
+              {heroImageViewport === 'desktop' ? (
+                <div>
+                  <label className={labelClass}>🖥️ 데스크톱 이미지</label>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                    <input
+                      ref={(el) => { heroFileRefs.current[`${idx}-desktop`] = el; }}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleHeroImageUpload(file, idx, 'image_url');
+                        e.target.value = '';
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => heroFileRefs.current[`${idx}-desktop`]?.click()}
+                      disabled={heroUploading === `${idx}-image_url`}
+                      className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-brand hover:text-brand disabled:opacity-60"
+                    >
+                      {heroUploading === `${idx}-image_url` ? '업로드 중…' : '이미지 선택'}
+                    </button>
+                    <input
+                      type="text"
+                      className={inputClass}
+                      placeholder="데스크톱 이미지 URL"
+                      value={slide.image_url}
+                      onChange={(e) => setHeroSlides((prev) => {
+                        const next = [...prev];
+                        next[idx] = { ...next[idx], image_url: e.target.value };
+                        return next;
+                      })}
+                    />
+                  </div>
                 </div>
-              </div>
-
-              {/* 모바일 이미지 */}
-              <div>
-                <label className={labelClass}>📱 모바일 이미지 <span className="font-normal text-slate-400">(선택 — 세로 비율 권장)</span></label>
-                <div className="flex items-center gap-3">
-                  <input
-                    ref={(el) => { heroFileRefs.current[`${idx}-mobile`] = el; }}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleHeroImageUpload(file, idx, 'mobile_image_url');
-                      e.target.value = '';
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => heroFileRefs.current[`${idx}-mobile`]?.click()}
-                    disabled={heroUploading === `${idx}-mobile_image_url`}
-                    className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-brand hover:text-brand disabled:opacity-60"
-                  >
-                    {heroUploading === `${idx}-mobile_image_url` ? '업로드 중…' : '모바일 이미지 선택'}
-                  </button>
-                  <input
-                    type="text"
-                    className={inputClass}
-                    placeholder="모바일 이미지 URL (비워두면 데스크톱 이미지 사용)"
-                    value={slide.mobile_image_url ?? ''}
-                    onChange={(e) => setHeroSlides((prev) => {
-                      const next = [...prev];
-                      next[idx] = { ...next[idx], mobile_image_url: e.target.value || undefined };
-                      return next;
-                    })}
-                  />
+              ) : (
+                <div>
+                  <label className={labelClass}>
+                    📱 모바일 이미지 <span className="font-normal text-slate-400">(선택 — 세로 비율 권장)</span>
+                  </label>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                    <input
+                      ref={(el) => { heroFileRefs.current[`${idx}-mobile`] = el; }}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleHeroImageUpload(file, idx, 'mobile_image_url');
+                        e.target.value = '';
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => heroFileRefs.current[`${idx}-mobile`]?.click()}
+                      disabled={heroUploading === `${idx}-mobile_image_url`}
+                      className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-brand hover:text-brand disabled:opacity-60"
+                    >
+                      {heroUploading === `${idx}-mobile_image_url` ? '업로드 중…' : '모바일 이미지 선택'}
+                    </button>
+                    <input
+                      type="text"
+                      className={inputClass}
+                      placeholder="모바일 이미지 URL (비워두면 데스크톱 이미지 사용)"
+                      value={slide.mobile_image_url ?? ''}
+                      onChange={(e) => setHeroSlides((prev) => {
+                        const next = [...prev];
+                        next[idx] = { ...next[idx], mobile_image_url: e.target.value || undefined };
+                        return next;
+                      })}
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
 
-              {/* 클릭 이동 경로 */}
               <div>
                 <label className="text-xs text-slate-500">클릭 시 이동 경로 (선택)</label>
                 <input
@@ -2549,17 +2577,16 @@ export const Admin: React.FC = () => {
                 />
               </div>
 
-              {/* 미리보기 — 데스크톱 & 모바일 나란히 */}
               <div className="flex gap-3">
-                {slide.image_url && (
-                  <div className="flex-1 rounded-lg border border-slate-200 overflow-hidden">
-                    <p className="bg-slate-50 px-2 py-1 text-[10px] text-slate-400">🖥️ Desktop</p>
+                {heroImageViewport === 'desktop' && slide.image_url && (
+                  <div className="flex-1 overflow-hidden rounded-lg border border-slate-200">
+                    <p className="bg-slate-50 px-2 py-1 text-[10px] text-slate-400">🖥️ Desktop 미리보기</p>
                     <img src={slide.image_url} alt={`슬라이드 ${idx + 1}`} className="w-full object-cover" style={{ maxHeight: '160px' }} />
                   </div>
                 )}
-                {slide.mobile_image_url && (
-                  <div className="w-24 shrink-0 rounded-lg border border-slate-200 overflow-hidden">
-                    <p className="bg-slate-50 px-2 py-1 text-[10px] text-slate-400">📱 Mobile</p>
+                {heroImageViewport === 'mobile' && slide.mobile_image_url && (
+                  <div className="w-24 shrink-0 overflow-hidden rounded-lg border border-slate-200">
+                    <p className="bg-slate-50 px-2 py-1 text-[10px] text-slate-400">📱 Mobile 미리보기</p>
                     <img src={slide.mobile_image_url} alt={`모바일 ${idx + 1}`} className="w-full object-cover" style={{ maxHeight: '160px' }} />
                   </div>
                 )}
