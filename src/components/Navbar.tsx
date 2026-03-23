@@ -633,8 +633,8 @@ export const Navbar: React.FC = () => {
       {/* SEMO Box 서브 네비게이션 바 — 데스크톱: 호버 시 표시, 상단바 바로 아래 횡 메뉴 (틈 없이 경계선만) */}
       {semoBoxOpen && !productDesktopNav?.compact && (
         <div
-          className="fixed left-0 right-0 z-[39] hidden border-t border-b border-t-slate-100 border-b-slate-200/80 bg-white/95 backdrop-blur-md md:block"
-          style={{ top: 'calc(var(--semo-desktop-header-h, 3.2rem) - 1px)' }}
+          className="fixed left-0 right-0 z-[39] hidden border-b border-slate-200/60 bg-white/95 backdrop-blur-md md:block"
+          style={{ top: 'var(--semo-desktop-header-h, 3.2rem)' }}
           onMouseEnter={semoBoxEnter}
           onMouseLeave={semoBoxLeave}
         >
