@@ -2,12 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { BackArrow } from '../components/BackArrow';
 import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../components/SemoPageSpinner';
-import { getSlotIndexForSkinType } from '../lib/skinTypeSlotMapping';
-import { supabase } from '../lib/supabase';
+import { getRecommendedProductIdForSkinType } from '../lib/skinTypeSlotMapping';
 
 /**
- * 피부 타입별 추천 상품 페이지. DB(skin_type_slot_mapping) 우선, 없으면 config.
- * 매칭된 슬롯의 상품이 있으면 즉시 해당 상품 상세로 리다이렉트.
+ * 피부 타입별 추천 상품 페이지. Supabase RPC `get_recommended_product_id_for_skin_type`로
+ * 상품 ID를 결정(봇과 동일 규칙); 실패 시 레거시 슬롯 조합 폴백.
  */
 export const Recommendations: React.FC = () => {
   const { skinType } = useParams<{ skinType?: string }>();
@@ -30,48 +29,7 @@ export const Recommendations: React.FC = () => {
 
     (async () => {
       try {
-        const slotIndex = await getSlotIndexForSkinType(typeLabel);
-        if (cancelled) return;
-        if (slotIndex == null || slotIndex < 1) {
-          setNone(true);
-          setLoading(false);
-          return;
-        }
-        if (!supabase) {
-          setNone(true);
-          setLoading(false);
-          return;
-        }
-
-        const { data: slotRows, error: slotErr } = await supabase
-          .from('main_layout_slots')
-          .select('slot_index, product_id')
-          .order('slot_index', { ascending: true });
-
-        if (cancelled) return;
-        if (slotErr) {
-          console.warn('[Recommendations] main_layout_slots:', slotErr.message);
-          setNone(true);
-          setLoading(false);
-          return;
-        }
-
-        const rows = ((slotRows ?? []) as { slot_index: number; product_id: string | null }[])
-          .slice()
-          .sort((a, b) => a.slot_index - b.slot_index);
-        if (rows.length === 0) {
-          setNone(true);
-          setLoading(false);
-          return;
-        }
-        if (slotIndex > rows.length) {
-          setNone(true);
-          setLoading(false);
-          return;
-        }
-        const row = rows[slotIndex - 1];
-        const pid = row?.product_id ?? null;
-
+        const pid = await getRecommendedProductIdForSkinType(typeLabel);
         if (cancelled) return;
         if (pid) {
           setProductId(pid);
@@ -128,7 +86,7 @@ export const Recommendations: React.FC = () => {
         </h1>
         <p className="mt-1 text-sm text-slate-500">
           {typeLabel
-            ? 'По результату теста типа кожи подобран товар из каталога Beauty Box.'
+            ? 'По результату теста типа кожи подобран товар из каталога SEMO Box.'
             : 'Пройдите тест типа кожи, чтобы увидеть персональную рекомендацию.'}
         </p>
       </header>
@@ -145,7 +103,7 @@ export const Recommendations: React.FC = () => {
       ) : null}
       <p className="mt-8">
         <Link to="/shop" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90">
-          Весь каталог Beauty Box
+          Весь каталог SEMO Box
         </Link>
       </p>
     </main>

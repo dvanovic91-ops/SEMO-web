@@ -23,7 +23,14 @@ interface CartContextValue {
 
 const CartContext = createContext<CartContextValue | null>(null);
 
-const LEGACY_CART_STORAGE_KEY = 'semo_beautybox_cart';
+/** 현재 장바구니 localStorage 접두사 (SEMO Box 브랜딩) */
+const CART_PREFIX = 'semo_box_cart';
+/** 예전 키 — 첫 로드 시 새 키로 이전 후 삭제 */
+const LEGACY_CART_PREFIX = 'semo_beautybox_cart';
+
+function scopedKey(prefix: string, userId: string | null): string {
+  return `${prefix}:${userId ?? 'anon'}`;
+}
 
 function loadCartFromStorage(key: string): CartItem[] {
   if (typeof window === 'undefined') return [];
@@ -48,33 +55,56 @@ function loadCartFromStorage(key: string): CartItem[] {
   }
 }
 
+/**
+ * 새 키 → 레거시 스코프 키 → (비로그인만) 예전 단일 키 순으로 읽고,
+ * 레거시에서 찾았으면 새 키에 저장 후 레거시 키 제거.
+ */
+function loadCartWithMigration(userId: string | null): CartItem[] {
+  const newKey = scopedKey(CART_PREFIX, userId);
+  const fromNew = loadCartFromStorage(newKey);
+  if (fromNew.length > 0) return fromNew;
+
+  const legacyScoped = scopedKey(LEGACY_CART_PREFIX, userId);
+  const fromLegacyScoped = loadCartFromStorage(legacyScoped);
+  if (fromLegacyScoped.length > 0) {
+    try {
+      localStorage.setItem(newKey, JSON.stringify(fromLegacyScoped));
+      localStorage.removeItem(legacyScoped);
+    } catch {
+      // ignore
+    }
+    return fromLegacyScoped;
+  }
+
+  if (!userId) {
+    const fromLegacyGlobal = loadCartFromStorage(LEGACY_CART_PREFIX);
+    if (fromLegacyGlobal.length > 0) {
+      try {
+        localStorage.setItem(newKey, JSON.stringify(fromLegacyGlobal));
+        localStorage.removeItem(LEGACY_CART_PREFIX);
+      } catch {
+        // ignore
+      }
+      return fromLegacyGlobal;
+    }
+  }
+
+  return [];
+}
+
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const { userId } = useAuth();
-  const storageKey = `semo_beautybox_cart:${userId ?? 'anon'}`;
+  const storageKey = scopedKey(CART_PREFIX, userId);
   const [items, setItems] = useState<CartItem[]>([]);
 
   useEffect(() => {
-    // 계정 전환 시 계정별 장바구니만 로드
-    const scoped = loadCartFromStorage(storageKey);
-    if (scoped.length > 0) {
-      setItems(scoped);
-      return;
-    }
-    // 레거시 단일 키가 남아 있으면 anon 세션에만 1회 마이그레이션
-    if (!userId) {
-      const legacy = loadCartFromStorage(LEGACY_CART_STORAGE_KEY);
-      if (legacy.length > 0) setItems(legacy);
-      else setItems([]);
-    } else {
-      setItems([]);
-    }
+    setItems(loadCartWithMigration(userId));
   }, [storageKey, userId]);
 
   useEffect(() => {
-    // 레거시 단일 키는 더 이상 사용하지 않으므로 로그인 시 정리
     if (!userId) return;
     try {
-      localStorage.removeItem(LEGACY_CART_STORAGE_KEY);
+      localStorage.removeItem(LEGACY_CART_PREFIX);
     } catch {
       // ignore
     }

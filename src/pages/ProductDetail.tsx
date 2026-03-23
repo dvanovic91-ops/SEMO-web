@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useProductNavReplacement } from '../context/ProductNavReplacementContext';
@@ -36,6 +36,40 @@ function getComponentImageUrls(comp: Component): string[] {
   return comp.image_url ? [comp.image_url] : [];
 }
 
+/**
+ * products.image_urls — 배열·JSON 문자열·단일 URL 등 Supabase 형태 통일.
+ * 배열이 아닌 문자열로만 들어오면 한 장만 보이던 문제가 생길 수 있음.
+ */
+function normalizeProductImageUrls(row: { image_url?: string | null; image_urls?: unknown }): string[] {
+  const raw = row.image_urls;
+  if (Array.isArray(raw) && raw.length > 0) {
+    const out = raw
+      .filter((u): u is string => typeof u === 'string' && u.trim().length > 0)
+      .map((s) => s.trim());
+    if (out.length) return [...new Set(out)];
+  }
+  if (typeof raw === 'string') {
+    const t = raw.trim();
+    if (t.startsWith('[')) {
+      try {
+        const p = JSON.parse(t) as unknown;
+        if (Array.isArray(p)) {
+          const out = p
+            .filter((u) => typeof u === 'string' && String(u).trim())
+            .map((s) => String(s).trim());
+          if (out.length) return [...new Set(out)];
+        }
+      } catch {
+        /* fallthrough */
+      }
+    } else if (t) {
+      return [t];
+    }
+  }
+  if (row.image_url && String(row.image_url).trim()) return [String(row.image_url).trim()];
+  return [];
+}
+
 /** 주문에 해당 상품(product_id)이 포함되어 있는지 확인 (orders.items / snapshot_items 기준) */
 function orderContainsProduct(
   order: { items?: { id?: string | null }[] | null; snapshot_items?: { id?: string | null }[] | null },
@@ -69,7 +103,7 @@ function isUuid(s: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
 }
 
-/** 뷰티박스 폴백 상품 (DB에 슬롯/상품 없을 때 Shop에서 링크하는 ID용) */
+/** 세모 박스 폴백 상품 (DB에 슬롯/상품 없을 때 Shop에서 링크하는 ID용) */
 const FALLBACK_PRODUCTS: Record<string, Product> = {
   'type-1': { id: 'type-1', name: 'Тип 1', description: null, detail_description: null, image_url: null, rrp_price: 12000, prp_price: 11000, stock: null },
   'type-2': { id: 'type-2', name: 'Тип 2', description: null, detail_description: null, image_url: null, rrp_price: 12000, prp_price: 11000, stock: null },
@@ -107,6 +141,9 @@ export const ProductDetail: React.FC = () => {
   const [reviewInfoOpen, setReviewInfoOpen] = useState(false);
   /** 장바구니 담기 성공 토스트 — useEffect보다 먼저 선언 (TDZ 오류·흰 화면 방지) */
   const [cartToast, setCartToast] = useState(false);
+  /** 메인 상품 사진 여러 장 — 가로 스와이프 시 현재 슬라이드 */
+  const [galleryIndex, setGalleryIndex] = useState(0);
+  const galleryScrollRef = useRef<HTMLDivElement | null>(null);
 
   const reviewFileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -178,8 +215,12 @@ export const ProductDetail: React.FC = () => {
   const loadingTimeoutRef = useRef<number | null>(null);
   /** 모바일: 본문 «В корзину»이 화면에서 사라지면 상단 고정 바 표시 */
   const addToCartBtnRef = useRef<HTMLButtonElement | null>(null);
+  /** max-md: 미니바용 (getBoundingClientRect) */
   const [stickyAddBar, setStickyAddBar] = useState(false);
-  const { setProductStickyReplacesNav } = useProductNavReplacement();
+  /** md+: 가격 블록이 뷰포트에서 사라지면 Navbar 컴팩트(Intersection Observer) */
+  const [desktopPriceSticky, setDesktopPriceSticky] = useState(false);
+  const productPriceBlockIoRef = useRef<HTMLDivElement | null>(null);
+  const { setProductStickyReplacesNav, setProductDesktopNav } = useProductNavReplacement();
 
   /** 모바일: 스크롤 미니바 표시 시 Navbar 헤더 대체 */
   useEffect(() => {
@@ -252,13 +293,14 @@ export const ProductDetail: React.FC = () => {
           return;
         }
         const row = prodData as Product & { detail_description?: string | null; image_urls?: string[] | null; stock?: number | null };
+        const imgs = normalizeProductImageUrls(row);
         const productRow: Product = {
           id: row.id,
           name: row.name,
           description: row.description,
           detail_description: row.detail_description ?? null,
           image_url: row.image_url,
-          image_urls: Array.isArray(row.image_urls) ? row.image_urls : (row.image_url ? [row.image_url] : []),
+          image_urls: imgs.length ? imgs : row.image_url ? [String(row.image_url)] : [],
           rrp_price: row.rrp_price,
           prp_price: row.prp_price,
           stock: row.stock ?? null,
@@ -397,6 +439,7 @@ export const ProductDetail: React.FC = () => {
     let cleaned = false;
 
     const updateFromRect = (el: HTMLButtonElement) => {
+      if (typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches) return;
       const bottom = el.getBoundingClientRect().bottom;
       setStickyAddBar((prev) => {
         if (!prev && bottom < -6) return true;
@@ -469,6 +512,57 @@ export const ProductDetail: React.FC = () => {
       cleanupListeners();
     };
   }, [product?.id]);
+
+  /** md+ 리사이즈 시 모바일 스티키 초기화 */
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)');
+    const onMq = () => {
+      if (mq.matches) setStickyAddBar(false);
+    };
+    mq.addEventListener('change', onMq);
+    return () => mq.removeEventListener('change', onMq);
+  }, []);
+
+  /**
+   * 데스크톱: 상품 가격 행(이미지 하단 블록)이 뷰포트와 겹치지 않으면 상단 Navbar를 가격+CTA 바로 전환.
+   * Intersection Observer — 스크롤을 다시 올려 가격 블록이 보이면 메뉴 복귀.
+   */
+  useEffect(() => {
+    if (!product?.id) return;
+    let io: IntersectionObserver | null = null;
+    const mq = window.matchMedia('(min-width: 768px)');
+    let cancelled = false;
+
+    const attach = () => {
+      io?.disconnect();
+      if (!mq.matches) {
+        setDesktopPriceSticky(false);
+        return;
+      }
+      const el = productPriceBlockIoRef.current;
+      if (!el) {
+        requestAnimationFrame(() => {
+          if (!cancelled) attach();
+        });
+        return;
+      }
+      io = new IntersectionObserver(
+        ([entry]) => {
+          setDesktopPriceSticky(!entry.isIntersecting);
+        },
+        { root: null, threshold: 0, rootMargin: '0px' },
+      );
+      io.observe(el);
+    };
+
+    attach();
+    mq.addEventListener('change', attach);
+    return () => {
+      cancelled = true;
+      mq.removeEventListener('change', attach);
+      io?.disconnect();
+    };
+  }, [product?.id, id]);
 
   const handleSubmitReview = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -588,8 +682,88 @@ export const ProductDetail: React.FC = () => {
     setCartToast(true);
   };
 
-  /* 제미나이 제안: setLoading 제거, !product && !loadError 일 때만 로딩 UI (단순 조건 하나) */
+  /* setLoading 없음: !product && !loadError → 로딩. 단, return 전에 갤러리 훅을 두어 훅 순서 고정 (로딩 시 return으로 훅 생략 시 크래시). */
   const isLoading = id?.trim() && !product && !loadError;
+
+  const price = product?.prp_price ?? product?.rrp_price ?? null;
+  const mainImages: string[] = useMemo(() => {
+    if (!product) return [];
+    const urls = product.image_urls;
+    if (urls && Array.isArray(urls) && urls.length > 0) return urls;
+    return product.image_url ? [product.image_url] : [];
+  }, [product]);
+
+  const scrollGalleryTo = useCallback(
+    (i: number) => {
+      const el = galleryScrollRef.current;
+      if (!el) return;
+      const max = Math.max(0, mainImages.length - 1);
+      const idx = Math.min(Math.max(0, i), max);
+      const w = el.clientWidth;
+      el.scrollTo({ left: idx * w, behavior: 'smooth' });
+      setGalleryIndex(idx);
+    },
+    [mainImages.length],
+  );
+
+  const onGalleryScroll = useCallback(() => {
+    const el = galleryScrollRef.current;
+    if (!el || mainImages.length <= 1) return;
+    const w = el.clientWidth;
+    if (w <= 0) return;
+    const idx = Math.round(el.scrollLeft / w);
+    setGalleryIndex(Math.min(Math.max(0, idx), mainImages.length - 1));
+  }, [mainImages.length]);
+
+  /** Десктоп: Shift + вертикальное колесо → горизонтальная прокрутка (passive: false только через addEventListener) */
+  useEffect(() => {
+    if (mainImages.length <= 1) return;
+    const el = galleryScrollRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.shiftKey) return;
+      e.preventDefault();
+      el.scrollLeft += e.deltaY;
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [id, product?.id, mainImages.length]);
+
+  useEffect(() => {
+    setGalleryIndex(0);
+    const el = galleryScrollRef.current;
+    if (el) el.scrollLeft = 0;
+  }, [id, product?.id]);
+
+  useEffect(() => {
+    if (galleryIndex >= mainImages.length) setGalleryIndex(0);
+  }, [galleryIndex, mainImages.length]);
+
+  const stickyThumb = mainImages[galleryIndex] ?? mainImages[0];
+  const hasDiscount = (product?.prp_price != null) && (product?.rrp_price != null);
+
+  const addToCartNavRef = useRef(handleAddToCart);
+  addToCartNavRef.current = handleAddToCart;
+
+  /** md+: Navbar 고정·컴팩트 슬롯 — 본문 장바구니 버튼 스크롤 아웃 시 compact */
+  useEffect(() => {
+    const pid = String(id ?? '').trim();
+    if (!product || String(product.id) !== pid) {
+      setProductDesktopNav(null);
+      return;
+    }
+    setProductDesktopNav({
+      compact: desktopPriceSticky,
+      rrp: product.rrp_price != null ? Number(product.rrp_price) : null,
+      prp: product.prp_price != null ? Number(product.prp_price) : null,
+      onAddToCart: () => addToCartNavRef.current(),
+    });
+  }, [product, id, desktopPriceSticky, setProductDesktopNav]);
+
+  useEffect(() => {
+    return () => setProductDesktopNav(null);
+  }, [setProductDesktopNav]);
+
   if (!product && (loadError || !id?.trim())) {
     return (
       <main className="mx-auto max-w-3xl px-4 py-12">
@@ -613,15 +787,6 @@ export const ProductDetail: React.FC = () => {
     );
   }
 
-  const price = product?.prp_price ?? product?.rrp_price ?? null;
-  const mainImages: string[] = (() => {
-    const urls = product?.image_urls;
-    if (urls && Array.isArray(urls) && urls.length > 0) return urls;
-    const single = product?.image_url;
-    return single ? [single] : [];
-  })();
-  const hasDiscount = (product?.prp_price != null) && (product?.rrp_price != null);
-
   return (
     <main className="relative mx-auto min-w-0 max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
       {/* 모바일: 스크롤 시 상단 고정 — 이전가격·최종가격·В корзину */}
@@ -636,21 +801,21 @@ export const ProductDetail: React.FC = () => {
         >
           {/* 모바일 고정바: 대표 썸네일 + 가격 + 버튼 (~20% 축소) */}
           <div className="flex h-9 w-9 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-50">
-            {mainImages.length > 0 ? (
-              <img src={mainImages[0]} alt="" className="h-full w-full object-cover" />
+            {stickyThumb ? (
+              <img src={stickyThumb} alt="" className="h-full w-full object-cover" />
             ) : (
               <span className="flex h-full w-full items-center justify-center text-[9px] text-slate-400">—</span>
             )}
           </div>
-          <div className="min-w-0 flex-1 text-center">
+          <div className="flex min-w-0 flex-1 items-center justify-center gap-1.5 overflow-hidden whitespace-nowrap">
             {product?.rrp_price != null && (
               <span
-                className={`block text-[10px] leading-tight ${hasDiscount ? 'text-slate-500 line-through' : 'text-slate-500'}`}
+                className={`shrink truncate text-[10px] leading-none tabular-nums ${hasDiscount ? 'text-slate-500 line-through' : 'text-slate-500'}`}
               >
                 {formatPrice(Number(product.rrp_price))}
               </span>
             )}
-            <span className="text-xs font-semibold tabular-nums text-slate-900">
+            <span className="shrink-0 text-xs font-semibold tabular-nums text-slate-900">
               {price != null ? formatPrice(Number(price)) : '—'}
             </span>
           </div>
@@ -670,7 +835,7 @@ export const ProductDetail: React.FC = () => {
           className="fixed left-1/2 z-50 max-w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-slate-200 bg-slate-900 px-4 py-3 text-center text-sm font-medium text-white shadow-lg max-md:bottom-[calc(4.25rem+env(safe-area-inset-bottom,0px))] md:bottom-8"
           role="status"
         >
-          Товар добавлен в корзину
+          Добавлен в корзину
         </div>
       )}
 
@@ -684,49 +849,148 @@ export const ProductDetail: React.FC = () => {
             {product?.name ?? '—'}
           </h1>
 
-          {/* 썸네일 대표 이미지 */}
-          <div className="mt-6">
-            <div
-              className="relative aspect-[4/3] w-full max-w-xl overflow-hidden rounded-2xl bg-slate-100 ring-1 ring-slate-200/50"
-            >
-              {mainImages.length > 0 ? (
-                <img
-                  src={mainImages[0]}
-                  alt={product?.name ?? ''}
-                  className="h-full w-full object-contain p-4 sm:p-6"
-                />
-              ) : (
-                <div className="absolute right-3 top-3 text-right text-[10px] text-slate-400 sm:text-xs">
-                  Изображение не загружено
+          {/* 메인 상품 사진 + 가격 행: 본문 열 전체 너비(Состав набора·Подробнее о составе와 동일) */}
+          <div className="mt-6 w-full min-w-0">
+            {mainImages.length > 1 ? (
+              <div
+                className="outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:ring-offset-2 rounded-2xl"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (mainImages.length <= 1) return;
+                  if (e.key === 'ArrowLeft') {
+                    e.preventDefault();
+                    scrollGalleryTo(galleryIndex - 1);
+                  }
+                  if (e.key === 'ArrowRight') {
+                    e.preventDefault();
+                    scrollGalleryTo(galleryIndex + 1);
+                  }
+                }}
+              >
+                <div className="relative">
+                  <div
+                    ref={galleryScrollRef}
+                    onScroll={onGalleryScroll}
+                    className="flex snap-x snap-mandatory overflow-x-auto scroll-smooth [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                    role="region"
+                    aria-label="Фото товара"
+                  >
+                    {mainImages.map((src, i) => (
+                      <div
+                        key={`${i}-${src.slice(-32)}`}
+                        className="w-full min-w-0 flex-[0_0_100%] snap-center"
+                      >
+                        <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl bg-slate-100 ring-1 ring-slate-200/50">
+                          <img
+                            src={src}
+                            alt={i === 0 ? product?.name ?? '' : ''}
+                            className="h-full w-full object-contain p-4 sm:p-6"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Десктоп: мышь — стрелки по краям; тачпад обычно свайпает контейнер */}
+                  <button
+                    type="button"
+                    aria-label="Предыдущее фото"
+                    disabled={galleryIndex <= 0}
+                    onClick={() => scrollGalleryTo(galleryIndex - 1)}
+                    className="absolute left-1 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200/80 bg-white/95 text-slate-700 shadow-sm backdrop-blur-sm transition hover:bg-white disabled:pointer-events-none disabled:opacity-35 md:left-2"
+                  >
+                    <span className="sr-only">Назад</span>
+                    <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Следующее фото"
+                    disabled={galleryIndex >= mainImages.length - 1}
+                    onClick={() => scrollGalleryTo(galleryIndex + 1)}
+                    className="absolute right-1 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200/80 bg-white/95 text-slate-700 shadow-sm backdrop-blur-sm transition hover:bg-white disabled:pointer-events-none disabled:opacity-35 md:right-2"
+                  >
+                    <span className="sr-only">Вперёд</span>
+                    <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                    </svg>
+                  </button>
                 </div>
-              )}
-            </div>
-          </div>
+                <div className="mt-3 flex justify-center gap-2">
+                  {mainImages.map((_, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => scrollGalleryTo(i)}
+                      className={`h-2 rounded-full transition ${i === galleryIndex ? 'w-6 bg-brand' : 'w-2 bg-slate-300'}`}
+                      aria-label={`Фото ${i + 1} из ${mainImages.length}`}
+                      aria-pressed={i === galleryIndex}
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div
+                className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl bg-slate-100 ring-1 ring-slate-200/50"
+              >
+                {mainImages.length > 0 ? (
+                  <img
+                    src={mainImages[0]}
+                    alt={product?.name ?? ''}
+                    className="h-full w-full object-contain p-4 sm:p-6"
+                  />
+                ) : (
+                  <div className="absolute right-3 top-3 text-right text-[10px] text-slate-400 sm:text-xs">
+                    Изображение не загружено
+                  </div>
+                )}
+              </div>
+            )}
 
-          {/* 가격 + 장바구니 — 모바일도 가격 전부 가운데 정렬 */}
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0 flex-1 text-center sm:w-full sm:text-left md:text-center">
-              <div className="flex w-full flex-col items-center gap-0.5 text-center sm:items-start md:items-center">
+            {/* 가격 + 장바구니 — 모바일: md:hidden 열만 유지. 데스크톱: 단일 ref 버튼 + 중앙 가격 오버레이 + 우측 CTA */}
+            <div
+              ref={productPriceBlockIoRef}
+              className="mt-6 flex flex-col gap-3 md:relative md:min-h-[3.75rem] md:w-full md:gap-0 md:py-0 lg:min-h-[3.5rem]"
+            >
+              <div className="flex flex-col items-center gap-0.5 text-center md:hidden">
                 {product?.rrp_price != null && (
                   <span
-                    className={`block w-full text-sm ${hasDiscount ? 'text-slate-500 line-through' : 'text-slate-500'}`}
+                    className={`text-sm tabular-nums ${hasDiscount ? 'text-slate-500 line-through' : 'text-slate-500'}`}
                   >
                     {formatPrice(Number(product.rrp_price))}
                   </span>
                 )}
-                <p className="w-full text-center text-lg font-semibold tracking-tight text-slate-900 sm:text-xl">
+                <p className="text-lg font-semibold tabular-nums tracking-tight text-slate-900">
                   {price != null ? formatPrice(Number(price)) : '—'}
                 </p>
               </div>
+              <div className="pointer-events-none absolute inset-0 hidden items-center justify-center md:flex">
+                <div className="pointer-events-auto relative inline-block max-w-[min(70vw,26rem)]">
+                  {product?.rrp_price != null && (
+                    <span
+                      className={`absolute right-full top-1/2 mr-2 max-w-[min(22vw,7rem)] -translate-y-1/2 truncate text-left text-sm tabular-nums sm:max-w-[min(28vw,9rem)] sm:whitespace-nowrap sm:text-base ${
+                        hasDiscount ? 'text-slate-500 line-through' : 'text-slate-500'
+                      }`}
+                    >
+                      {formatPrice(Number(product.rrp_price))}
+                    </span>
+                  )}
+                  <p className="text-center text-lg font-semibold tabular-nums text-slate-900 sm:text-xl min-w-0 max-w-[min(48vw,14rem)] truncate sm:max-w-[min(42vw,16rem)]">
+                    {price != null ? formatPrice(Number(price)) : '—'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex w-full justify-end md:absolute md:right-0 md:top-1/2 md:z-[2] md:max-w-[min(42%,11rem)] md:-translate-y-1/2 md:pl-3">
+                <button
+                  ref={addToCartBtnRef}
+                  type="button"
+                  onClick={handleAddToCart}
+                  className="min-h-11 w-full shrink-0 rounded-full bg-brand py-2.5 px-6 text-base font-semibold text-white transition hover:bg-brand/90 md:min-h-10 md:w-full md:px-4 md:py-2 md:text-xs lg:px-5 lg:text-sm whitespace-nowrap"
+                >
+                  В корзину
+                </button>
+              </div>
             </div>
-            <button
-              ref={addToCartBtnRef}
-              type="button"
-              onClick={handleAddToCart}
-              className="min-h-11 w-full shrink-0 rounded-full bg-brand py-2.5 px-6 text-base font-semibold text-white transition hover:bg-brand/90 sm:w-auto sm:text-sm"
-            >
-              В корзину
-            </button>
           </div>
 
           {/* 구성품 그리드가 있으면 같은 카드 안에 */}

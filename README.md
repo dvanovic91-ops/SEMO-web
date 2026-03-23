@@ -1,6 +1,6 @@
-# Beauty Box Korea → Russia
+# SEMO Box Korea → Russia
 
-React + TypeScript + Vite + Tailwind CSS 기반의 뷰티박스 수출(러시아) 서비스 웹사이트 뼈대입니다.
+React + TypeScript + Vite + Tailwind CSS 기반의 세모 박스 수출(러시아) 서비스 웹사이트 뼈대입니다.
 
 ## Tech stack
 

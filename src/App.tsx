@@ -2,7 +2,8 @@ import React, { useRef, useEffect } from 'react';
 import { Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
-import { ProductNavReplacementProvider } from './context/ProductNavReplacementContext';
+import { ProductNavReplacementProvider, useProductNavReplacement } from './context/ProductNavReplacementContext';
+import { AddItemFromQuery } from './components/AddItemFromQuery';
 import { Footer } from './components/Footer';
 import { Navbar } from './components/Navbar';
 import { supabase } from './lib/supabase';
@@ -80,18 +81,21 @@ function ProductDetailWithKey() {
   return <ProductDetail key={id ?? 'empty'} />;
 }
 
-const App: React.FC = () => {
+/** 상품 상세(md+)에서 Navbar 고정 시 본문이 헤더에 가리지 않도록 상단 패딩 */
+function AppLayout() {
+  const { productDesktopNav } = useProductNavReplacement();
+  const mdProductPad =
+    productDesktopNav != null ? 'md:pt-[var(--semo-desktop-header-h)]' : 'md:pt-0';
   return (
-    <div className="flex min-h-screen min-w-0 flex-col overflow-x-hidden bg-white">
-      <AuthProvider>
-        <CartProvider>
-          <ProductNavReplacementProvider>
-          <Navbar />
-          <TrackVisit />
-          <ScrollToTop />
-          {/* 모바일에서 하단 고정 바 때문에 본문이 가려지지 않도록 패딩 */}
-          <div className="min-w-0 flex-1 overflow-x-hidden pb-16 pt-[var(--semo-mobile-header-h)] md:pt-0 md:pb-0">
-            <Routes>
+    <>
+      <AddItemFromQuery />
+      <Navbar />
+      <TrackVisit />
+      <ScrollToTop />
+      <div
+        className={`min-w-0 flex-1 overflow-x-hidden pb-16 pt-[var(--semo-mobile-header-h)] md:pb-0 ${mdProductPad}`}
+      >
+        <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/about" element={<About />} />
               <Route path="/journey" element={<Journey />} />
@@ -120,8 +124,19 @@ const App: React.FC = () => {
               <Route path="/register" element={<Register />} />
               <Route path="/register/shipping" element={<RegisterShipping />} />
             </Routes>
-          </div>
-          <Footer />
+      </div>
+      <Footer />
+    </>
+  );
+}
+
+const App: React.FC = () => {
+  return (
+    <div className="flex min-h-screen min-w-0 flex-col overflow-x-hidden bg-white">
+      <AuthProvider>
+        <CartProvider>
+          <ProductNavReplacementProvider>
+            <AppLayout />
           </ProductNavReplacementProvider>
         </CartProvider>
       </AuthProvider>

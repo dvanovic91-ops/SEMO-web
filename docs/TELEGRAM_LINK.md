@@ -69,3 +69,36 @@ const { data, error } = await supabase.rpc('link_telegram', {
 | `telegram_users` | 봇 전용: 봇에서 테스트 완료한 유저의 포인트 등 |
 | `link_tokens` | 웹에서 발급한 일회용 토큰 (봇이 연동 시 사용) |
 | RPC `link_telegram(p_token, p_telegram_id)` | 토큰 + telegram_id 로 연동 처리 및 포인트 병합 |
+
+---
+
+## 5. Первое сообщение в Telegram после привязки
+
+웹에서는 긴 предупреждение не показывается. Приветствие пользователь видит **в чате бота** сразу после успешного `link_telegram`.
+
+**Текст (рус., константа в коде):** `src/lib/telegramLinkNoticeRu.ts` → `TELEGRAM_LINK_SUCCESS_GREETING_RU`
+
+```
+Привет! Ваш аккаунт успешно привязан. 🔐
+Для вашей безопасности используйте этот чат только на личном телефоне.
+```
+
+**Вариант A — бот сам:** после `data.ok === true` вызвать `sendMessage` с этим текстом (скопировать из константы выше).
+
+**Вариант B — Edge Function:** `telegram-link-welcome` (тот же текст внутри функции — при смене текста синхронизировать с `telegramLinkNoticeRu.ts`).
+
+```bash
+supabase functions deploy telegram-link-welcome
+```
+
+Secrets: `TELEGRAM_USER_BOT_TOKEN`, `TELEGRAM_LINK_WELCOME_SECRET`.
+
+```http
+POST /functions/v1/telegram-link-welcome
+Content-Type: application/json
+x-telegram-bot-secret: <TELEGRAM_LINK_WELCOME_SECRET>
+
+{"telegram_id": "123456789"}
+```
+
+Бот вызывает этот endpoint сразу после успешного RPC `link_telegram`.

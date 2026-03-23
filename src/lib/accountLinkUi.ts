@@ -17,3 +17,11 @@ export const accountLinkTwoColGridClass = 'grid grid-cols-2 gap-x-2 gap-y-2 sm:g
  */
 export const accountCardSubtextClass =
   'prose-ru mx-auto mt-3 max-w-none text-center font-normal tracking-tight text-[#6B7280] text-[7px] leading-tight sm:text-[9px] sm:leading-snug md:text-[10px]';
+
+/** Теглайн сразу под кнопкой «Привязать Telegram». */
+export const accountTelegramLinkTaglineClass =
+  'prose-ru mx-auto mt-3 max-w-none text-center font-normal tracking-tight text-slate-700 text-[7px] leading-tight sm:text-[9px] sm:leading-snug md:text-[10px]';
+
+/** Строка про +200 баллов (под теглайном). */
+export const accountTelegramLinkOfferClass =
+  'prose-ru mx-auto mt-1.5 max-w-none text-center font-normal tracking-tight text-[#6B7280] text-[7px] leading-tight sm:text-[9px] sm:leading-snug md:text-[10px]';

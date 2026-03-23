@@ -19,7 +19,7 @@ const NAV_LINKS: { to: string; label: string }[] = [
   { to: '/about', label: 'About SEMO' },
   { to: '/skin-test', label: 'Skin Type Test' },
   { to: '/journey', label: 'Journey to SEMO' },
-  { to: '/shop', label: 'Beauty Box' },
+  { to: '/shop', label: 'SEMO Box' },
   { to: '/promo', label: 'Promo' },
   { to: '/support', label: 'FAQ' },
 ];
@@ -42,7 +42,7 @@ function formatNotificationDate(iso: string): string {
 }
 
 export const Navbar: React.FC = () => {
-  const { productStickyReplacesNav } = useProductNavReplacement();
+  const { productStickyReplacesNav, productDesktopNav } = useProductNavReplacement();
   const location = useLocation();
   const navigate = useNavigate();
   const { items, total, totalCount, updateQuantity } = useCart();
@@ -213,16 +213,22 @@ export const Navbar: React.FC = () => {
           <ul className="space-y-3">
             {items.map((it) => (
               <li key={it.id} className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
-                {/* Cart.tsx 모바일과 동일: 사진(좌) | 제목 → 수량(좌)+가격(우, clamp) */}
+                {/* Cart.tsx 모바일과 동일: 사진(좌) | 제목 → 수량(좌)+가격(우, clamp) — 상품명·이미지 클릭 시 상세 */}
                 <div className="grid grid-cols-[3.5rem_1fr] gap-x-3 gap-y-2">
-                  <div className="row-span-2 flex h-14 w-14 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-white">
-                    {it.imageUrl ? (
-                      <img src={it.imageUrl} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      <span className="flex h-full w-full items-center justify-center text-[10px] text-slate-400">Слот</span>
-                    )}
-                  </div>
-                  <p className="min-w-0 text-sm font-medium leading-snug text-slate-900 line-clamp-2">{it.name}</p>
+                  <Link
+                    to={`/product/${it.id}`}
+                    className="contents"
+                    onClick={() => setCartPopoverOpen(false)}
+                  >
+                    <div className="row-span-2 flex h-14 w-14 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-white">
+                      {it.imageUrl ? (
+                        <img src={it.imageUrl} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        <span className="flex h-full w-full items-center justify-center text-[10px] text-slate-400">Слот</span>
+                      )}
+                    </div>
+                    <p className="min-w-0 text-sm font-medium leading-snug text-slate-900 line-clamp-2">{it.name}</p>
+                  </Link>
                   <div className="flex min-w-0 items-center justify-between gap-2">
                     <div className="flex shrink-0 items-center gap-0.5">
                       <button
@@ -289,39 +295,86 @@ export const Navbar: React.FC = () => {
       {/* 웹: 로고(좌) · 가운데 텍스트 메뉴 · 우측 아이콘(장바구니·알림·Telegram·프로필). 모바일: 로고만 가운데 */}
       {/* 모바일: 상품 상세 스크롤 미니바가 켜지면 이 헤더 숨김 — 미니바가 동일 위치 대체 */}
       <header
-        className={`fixed left-0 right-0 top-0 z-40 w-full border-b border-slate-100 bg-white/80 backdrop-blur-md md:static md:z-20 ${
-          productStickyReplacesNav ? 'max-md:hidden' : ''
+        className={`fixed left-0 right-0 top-0 z-40 w-full border-b ${
+          productDesktopNav?.compact
+            ? 'border-slate-200/90 bg-white shadow-[0_4px_14px_-4px_rgba(0,0,0,0.1),0_2px_6px_-2px_rgba(0,0,0,0.06)]'
+            : 'border-slate-100 bg-white/80 backdrop-blur-md'
+        } ${productStickyReplacesNav ? 'max-md:hidden' : ''} ${
+          productDesktopNav != null ? 'md:fixed md:z-40' : 'md:static md:z-20'
         }`}
       >
         <div
           className="relative mx-auto flex h-11 w-full min-w-0 max-w-7xl items-center px-4 sm:h-[3.2rem]"
           style={{ paddingTop: 'max(0.2rem, env(safe-area-inset-top))' }}
         >
-          <div className="flex w-full flex-1 items-center justify-center md:w-auto md:justify-start">
+          {/* md+ 컴팩트: 상세 본문과 동일 — 뷰포트 가운데 max-w-3xl 열 안에 가격(중앙) + В корзину(열 오른쪽) */}
+          {productDesktopNav?.compact && (
+            <div className="pointer-events-none absolute inset-0 z-[15] hidden justify-center px-4 sm:px-6 md:flex">
+              <div className="pointer-events-auto relative flex h-full w-full max-w-3xl items-center">
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="relative inline-block max-w-[min(58vw,22rem)]">
+                    {productDesktopNav.rrp != null &&
+                      productDesktopNav.prp != null &&
+                      productDesktopNav.rrp !== productDesktopNav.prp && (
+                        <span className="absolute right-full top-1/2 mr-1.5 max-w-[28vw] -translate-y-1/2 truncate text-left text-xs tabular-nums text-slate-500 line-through sm:mr-2 sm:max-w-none sm:text-sm sm:whitespace-nowrap">
+                          {formatPrice(productDesktopNav.rrp)}
+                        </span>
+                      )}
+                    <span className="block min-w-0 max-w-[42vw] truncate text-center text-sm font-semibold tabular-nums text-slate-900 sm:max-w-[min(50vw,16rem)] sm:text-base">
+                      {formatPrice(productDesktopNav.prp ?? productDesktopNav.rrp ?? 0)}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => productDesktopNav?.onAddToCart()}
+                  className="relative z-[2] ml-auto shrink-0 rounded-full bg-brand px-2.5 py-1.5 text-[10px] font-semibold leading-tight text-white transition hover:bg-brand/90 sm:px-3 sm:py-2 sm:text-xs"
+                >
+                  В корзину
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* 모바일: 로고만 가운데 */}
+          <div className="flex w-full flex-1 items-center justify-center md:hidden">
             <Link to="/" className="flex shrink-0 items-center" aria-label="SEMO box">
               <span className="font-semibold tracking-[0.2em] text-brand">SEMO </span>
               <span className="font-semibold tracking-[0.2em] text-slate-700">box</span>
             </Link>
           </div>
-          {/* 데스크톱: 화면 가운데 정렬된 텍스트 메뉴 (Telegram은 우측 아이콘으로만) */}
-          <nav
-            className="absolute left-1/2 top-1/2 hidden min-w-0 max-w-[min(100%,52rem)] -translate-x-1/2 -translate-y-1/2 flex-wrap items-center justify-center gap-x-[calc(0.75rem*1.1)] text-sm md:flex lg:gap-x-[calc(1.25rem*1.1)]"
-            aria-label="Main"
-          >
-            {NAV_LINKS.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) =>
-                  `${navLinkBase} whitespace-nowrap ${isActive ? activeClass : inactiveClass}`
-                }
-              >
-                {item.label}
-              </NavLink>
-            ))}
-          </nav>
-          {/* 데스크톱: 우측 유틸 아이콘 — 스크린샷과 동일 순서 */}
-          <div className="hidden flex-1 items-center justify-end gap-0.5 md:flex">
+
+          {/* md+: 로고 | 가운데(텍스트 메뉴 또는 상품 가격+В корзину) | 아이콘 */}
+          <div className="hidden min-w-0 flex-1 items-center gap-3 md:flex">
+            <Link to="/" className="relative z-20 flex shrink-0 items-center" aria-label="SEMO box">
+              <span className="font-semibold tracking-[0.2em] text-brand">SEMO </span>
+              <span className="font-semibold tracking-[0.2em] text-slate-700">box</span>
+            </Link>
+            <div className="flex min-w-0 flex-1 items-center justify-center px-1">
+              {!productDesktopNav?.compact ? (
+                <nav
+                  className="flex min-w-0 max-w-[min(100%,52rem)] flex-wrap items-center justify-center gap-x-[calc(0.75rem*1.1)] text-sm lg:gap-x-[calc(1.25rem*1.1)]"
+                  aria-label="Main"
+                >
+                  {NAV_LINKS.map((item) => (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      className={({ isActive }) =>
+                        `${navLinkBase} whitespace-nowrap ${isActive ? activeClass : inactiveClass}`
+                      }
+                    >
+                      {item.label}
+                    </NavLink>
+                  ))}
+                </nav>
+              ) : (
+                /* 컴팩트 시 가격·CTA는 absolute 오버레이(본문 max-w-3xl 열 정렬) — 여기는 레이아웃용 빈 칸 */
+                <div className="min-h-[2.75rem] w-full min-w-0" aria-hidden />
+              )}
+            </div>
+            {/* 데스크톱: 유틸 아이콘 (컴팩트 시 В корзину는 오버레이 안) */}
+            <div className="relative z-20 flex min-w-0 shrink-0 items-center gap-0.5">
             <div ref={cartDesktopRef} className="relative">
               <button
                 type="button"
@@ -502,6 +555,7 @@ export const Navbar: React.FC = () => {
             </Link>
           </div>
         </div>
+        </div>
       </header>
 
       {/* 모바일: 하단 탭 장바구니 — 팝업 시트 (스크롤·내용 잘림 방지) */}
@@ -640,7 +694,7 @@ export const Navbar: React.FC = () => {
         </button>
         <Link
           to="/shop"
-          aria-label="Beauty Box"
+          aria-label="SEMO Box"
           className={`flex h-10 items-center justify-center rounded-full px-3 transition ${
             isShop ? 'bg-brand-soft/50 text-brand' : 'text-slate-600'
           }`}

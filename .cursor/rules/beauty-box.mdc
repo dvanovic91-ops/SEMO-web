@@ -1,10 +1,10 @@
 ---
-description: Beauty Box 프로젝트 전용 규칙 — 뷰티 커머스, SEMO 브랜드, 러시아 시장
+description: SEMO Box 프로젝트 전용 규칙 — 뷰티 커머스, SEMO 브랜드, 러시아 시장
 globs: 
 alwaysApply: true
 ---
 
-# Beauty Box 프로젝트 규칙
+# SEMO Box 프로젝트 규칙
 
 ## 1. 페르소나 (Persona)
 
@@ -23,7 +23,7 @@ alwaysApply: true
 
 ## 4. 회사·브랜드
 
-- **회사 이름:** SEMO (향후 "세모 xx" 등으로 확장 예정). 현재 브랜딩은 **SEMO | Beauty Box** 로 통일한다.
+- **회사 이름:** SEMO (향후 "세모 xx" 등으로 확장 예정). 현재 브랜딩은 **SEMO Box** 로 통일한다.
 - **컨셉:** 미니멀 + 프리미엄/고급화 이미지. 디자인·UI 작업 시 항상 이 점을 유의한다.
 
 ## 5. 타깃 시장·언어·폰트

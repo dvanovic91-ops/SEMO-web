@@ -3,10 +3,17 @@ import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { BackArrow } from '../../components/BackArrow';
 import { AuthInitializingScreen, SemoPageSpinner, SEMO_SECTION_LOADING_CLASS } from '../../components/SemoPageSpinner';
 import { useAuth } from '../../context/AuthContext';
+import {
+  carrierLabelRu,
+  fulfillmentEventsSortedNewestFirst,
+  parseFulfillmentTracking,
+  resolveTrackingUrl,
+  type FulfillmentTracking,
+} from '../../lib/fulfillmentTracking';
+import { normalizeOrderStatus, ORDER_STATUS_LABEL_RU, type OrderShipmentStatus } from '../../lib/orderStatusRu';
 import { supabase } from '../../lib/supabase';
 
 export type OrderItem = { id: string; name: string; quantity: number; price: number };
-export type ShipmentTracking = { status: string; message: string; date?: string };
 export interface Order {
   id: string;
   /** 고객 노출용 주문번호 (알파벳 1자 + 숫자 6자). 없으면 id 앞 8자 폴백 */
@@ -14,40 +21,18 @@ export interface Order {
   date: string;
   total: number;
   /** 결제·배송 단계: pending → completed → product_preparing → shipping_soon → shipped → delivered/confirmed */
-  status: 'pending' | 'completed' | 'canceled' | 'failed' | 'product_preparing' | 'shipping_soon' | 'shipped' | 'delivered' | 'confirmed';
+  status: OrderShipmentStatus;
   items: OrderItem[];
-  tracking?: ShipmentTracking[];
-  /** SDEK/우체국 등 배송 추적 URL. 배송중·배송완료 시 표시 */
+  /** SDEK/우체국 등 배송 추적 URL(legacy). `fulfillment_tracking.tracking_url` 우선 */
   tracking_url?: string | null;
+  /** СДЭК / Почта — события и трек-номер (orders.fulfillment_tracking) */
+  fulfillmentTracking?: FulfillmentTracking | null;
   /** 결제 시점 스냅샷. 고객이 배송 전에 수정 가능 */
   receiver_name?: string | null;
   receiver_phone?: string | null;
   shipping_address?: string | null;
   /** 테스트 주문 여부 (가짜 결제 ?test=1). 목록에는 그대로 노출 */
   is_test?: boolean;
-}
-
-/** 고객 노출용 배송 단계 라벨 (러시아어) */
-const statusLabel: Record<Order['status'], string> = {
-  pending: 'Ожидает оплаты',
-  completed: 'Оплачен',
-  failed: 'Ошибка оплаты',
-  canceled: 'Отменён',
-  product_preparing: 'Готовим заказ',
-  shipping_soon: 'Готовим к отправке',
-  shipped: 'В пути',
-  delivered: 'Доставлен',
-  confirmed: 'Заказ получен',
-};
-
-/** DB 레거시 값(paid, cancelled)을 PG 표준으로 정규화 */
-function normalizeOrderStatus(s: string | undefined): Order['status'] {
-  if (!s) return 'pending';
-  const v = s.toLowerCase();
-  if (v === 'paid') return 'completed';
-  if (v === 'cancelled') return 'canceled';
-  const allowed: Order['status'][] = ['pending', 'completed', 'canceled', 'failed', 'product_preparing', 'shipping_soon', 'shipped', 'delivered', 'confirmed'];
-  return allowed.includes(v as Order['status']) ? (v as Order['status']) : 'pending';
 }
 
 type DbOrder = {
@@ -58,6 +43,7 @@ type DbOrder = {
   status?: string;
   items?: OrderItem[];
   tracking_url?: string | null;
+  fulfillment_tracking?: unknown;
   receiver_name?: string | null;
   receiver_phone?: string | null;
   shipping_address?: string | null;
@@ -86,40 +72,60 @@ export const ProfileOrders: React.FC = () => {
       return;
     }
     const mapRows = (rows: DbOrder[] | null): Order[] =>
-      (rows ?? []).map((row: DbOrder) => ({
-        id: row.id,
-        order_number: row.order_number ?? null,
-        date: row.created_at ? new Date(row.created_at).toLocaleDateString('ru-RU') : '',
-        total: (row.total_cents ?? 0) / 100,
-        status: normalizeOrderStatus(row.status),
-        items: Array.isArray(row.items) ? row.items : [],
-        receiver_name: row.receiver_name ?? null,
-        receiver_phone: row.receiver_phone ?? null,
-        shipping_address: row.shipping_address ?? null,
-        tracking_url: row.tracking_url ?? null,
-        is_test: (row as DbOrder).is_test ?? false,
-      }));
+      (rows ?? []).map((row: DbOrder) => {
+        const ft = parseFulfillmentTracking(row.fulfillment_tracking);
+        return {
+          id: row.id,
+          order_number: row.order_number ?? null,
+          date: row.created_at ? new Date(row.created_at).toLocaleDateString('ru-RU') : '',
+          total: (row.total_cents ?? 0) / 100,
+          status: normalizeOrderStatus(row.status),
+          items: Array.isArray(row.items) ? row.items : [],
+          receiver_name: row.receiver_name ?? null,
+          receiver_phone: row.receiver_phone ?? null,
+          shipping_address: row.shipping_address ?? null,
+          tracking_url: row.tracking_url ?? null,
+          fulfillmentTracking: ft,
+          is_test: row.is_test ?? false,
+        };
+      });
 
     supabase
       .from('orders')
-      .select('id, order_number, created_at, total_cents, status, items, receiver_name, receiver_phone, shipping_address, tracking_url, is_test')
+      .select(
+        'id, order_number, created_at, total_cents, status, items, receiver_name, receiver_phone, shipping_address, tracking_url, fulfillment_tracking, is_test',
+      )
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .then(({ data, error }) => {
         if (error) {
-          console.warn('[ProfileOrders] select error (retry without items/order_number):', error.message);
+          console.warn('[ProfileOrders] select error (retry without fulfillment_tracking):', error.message);
           supabase
             .from('orders')
-            .select('id, created_at, total_cents, status, receiver_name, receiver_phone, shipping_address')
+            .select(
+              'id, order_number, created_at, total_cents, status, items, receiver_name, receiver_phone, shipping_address, tracking_url, is_test',
+            )
             .eq('user_id', userId)
             .order('created_at', { ascending: false })
             .then(({ data: data2, error: err2 }) => {
               if (err2) {
-                console.warn('[ProfileOrders] retry error:', err2.message);
-                setOrders([]);
-              } else {
-                setOrders(mapRows(data2 as DbOrder[]));
+                console.warn('[ProfileOrders] retry minimal:', err2.message);
+                supabase
+                  .from('orders')
+                  .select('id, created_at, total_cents, status, receiver_name, receiver_phone, shipping_address')
+                  .eq('user_id', userId)
+                  .order('created_at', { ascending: false })
+                  .then(({ data: data3, error: err3 }) => {
+                    if (err3) {
+                      console.warn('[ProfileOrders] retry error:', err3.message);
+                      setOrders([]);
+                    } else {
+                      setOrders(mapRows(data3 as DbOrder[]));
+                    }
+                  });
+                return;
               }
+              setOrders(mapRows(data2 as DbOrder[]));
             });
           return;
         }
@@ -211,7 +217,7 @@ export const ProfileOrders: React.FC = () => {
             {/* 주문 상태·금액 */}
             <div className="px-5 py-3 sm:px-6 flex flex-wrap items-center justify-between gap-2 border-b border-slate-100">
               <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass[order.status]}`}>
-                {statusLabel[order.status]}
+                {ORDER_STATUS_LABEL_RU[order.status]}
               </span>
               <span className="text-sm font-semibold text-slate-900 tabular-nums">
                 {order.total.toLocaleString('ru-RU')} ₽
@@ -236,23 +242,57 @@ export const ProfileOrders: React.FC = () => {
               </div>
             )}
 
-            {/* 배송 추적 링크 (배송중·배송완료이고 URL 있으면 표시) */}
-            {['shipped', 'delivered', 'confirmed'].includes(order.status) && order.tracking_url && (
-              <div className="px-5 py-3 sm:px-6 border-b border-slate-100">
-                <a
-                  href={order.tracking_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 text-sm font-medium text-brand hover:underline"
-                >
-                  <svg className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                  Отслеживание доставки
-                </a>
-              </div>
-            )}
+            {/* События доставки (API СДЭК/Почты → fulfillment_tracking.events) */}
+            {(() => {
+              const ft = order.fulfillmentTracking;
+              const evs = fulfillmentEventsSortedNewestFirst(ft, 6);
+              const carrierRu = carrierLabelRu(ft?.carrier ?? null);
+              if (!ft?.tracking_number && evs.length === 0 && !carrierRu) return null;
+              return (
+                <div className="border-b border-slate-100 px-5 py-3 sm:px-6">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Доставка</p>
+                  {carrierRu && (
+                    <p className="mt-1 text-sm text-slate-700">
+                      Перевозчик: <span className="font-medium">{carrierRu}</span>
+                    </p>
+                  )}
+                  {ft?.tracking_number?.trim() && (
+                    <p className="mt-1 text-sm text-slate-700 tabular-nums">
+                      Трек-номер: {ft.tracking_number.trim()}
+                    </p>
+                  )}
+                  {evs.length > 0 && (
+                    <ul className="mt-2 space-y-1.5 text-sm text-slate-600">
+                      {evs.map((ev, idx) => (
+                        <li key={`${ev.at}-${idx}`}>
+                          {ev.at ? new Date(ev.at).toLocaleString('ru-RU') : ''} — {ev.label_ru}
+                          {ev.location ? <span className="text-slate-500"> · {ev.location}</span> : null}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* 배송 추적 링к (fulfillment_tracking.tracking_url ?? legacy tracking_url) */}
+            {['shipped', 'delivered', 'confirmed'].includes(order.status) &&
+              resolveTrackingUrl(order.fulfillmentTracking ?? null, order.tracking_url) && (
+                <div className="px-5 py-3 sm:px-6 border-b border-slate-100">
+                  <a
+                    href={resolveTrackingUrl(order.fulfillmentTracking ?? null, order.tracking_url)!}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 text-sm font-medium text-brand hover:underline"
+                  >
+                    <svg className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    Отслеживание доставки
+                  </a>
+                </div>
+              )}
 
             {/* 하단: 배송 정보 수정 + 해당 주문 문의하기(텔레그램) */}
             <div className="px-5 py-3 sm:px-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -363,16 +403,6 @@ export const ProfileOrders: React.FC = () => {
                   </button>
                 </div>
               </div>
-              </div>
-            )}
-            {order.tracking && order.tracking.length > 0 && (
-              <div className="px-5 py-3 sm:px-6 border-t border-slate-100">
-                <p className="text-xs font-medium text-slate-500">Отслеживание</p>
-                <ul className="mt-1 space-y-1 text-sm text-slate-600">
-                  {order.tracking.map((t, i) => (
-                    <li key={i}>{t.date} — {t.message}</li>
-                  ))}
-                </ul>
               </div>
             )}
           </li>

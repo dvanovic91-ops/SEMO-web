@@ -6,6 +6,42 @@ import { getRecommendationSlotIndex } from '../config/skinTypeRecommendations';
 
 const TABLE = 'skin_type_slot_mapping';
 
+/**
+ * 피부 타입에 맞는 추천 상품 UUID.
+ * Supabase RPC `get_recommended_product_id_for_skin_type` 우선(봇·웹 동일 규칙),
+ * 실패·null 시 main_layout_slots + 슬롯 매핑으로 클라이언트 계산(레거시 폴백).
+ */
+export async function getRecommendedProductIdForSkinType(skinType: string | null): Promise<string | null> {
+  const normalized = (skinType ?? '').trim().toUpperCase();
+  if (!normalized) return null;
+
+  if (supabase) {
+    const { data, error } = await supabase.rpc('get_recommended_product_id_for_skin_type', {
+      p_skin_type: normalized,
+    });
+    if (!error && data != null) {
+      const id = String(data).trim();
+      if (id) return id;
+    }
+  }
+
+  const slotIndex = await getSlotIndexForSkinType(normalized);
+  if (slotIndex == null || slotIndex < 1 || !supabase) return null;
+
+  const { data: slotRows, error: slotErr } = await supabase
+    .from('main_layout_slots')
+    .select('slot_index, product_id')
+    .order('slot_index', { ascending: true });
+
+  if (slotErr) return null;
+  const rows = ((slotRows ?? []) as { slot_index: number; product_id: string | null }[])
+    .slice()
+    .sort((a, b) => a.slot_index - b.slot_index);
+  if (rows.length === 0 || slotIndex > rows.length) return null;
+  const row = rows[slotIndex - 1];
+  return row?.product_id ?? null;
+}
+
 /** DB에서 해당 피부타입의 슬롯 번호(1~5) 조회. 없으면 config 값 반환. 오류 시 null */
 export async function getSlotIndexForSkinType(skinType: string | null): Promise<number | null> {
   try {

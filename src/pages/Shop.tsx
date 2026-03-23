@@ -329,7 +329,7 @@ export const Shop: React.FC = () => {
           role="status"
           aria-live="polite"
         >
-          Добавлено в корзину
+          Добавлен в корзину
         </div>
       )}
     </main>

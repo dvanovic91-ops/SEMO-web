@@ -237,7 +237,7 @@ function localYmdRangeBoundsIso(startYmd: string, endYmd: string): { startIso: s
   return { startIso: b.startIso, endIso: a.endIso };
 }
 
-/** 쇼핑(Beauty Box) 카드 박스 색상: brand=주황, sky=연하늘(패밀리) */
+/** 쇼핑(SEMO Box) 카드 박스 색상: brand=주황, sky=연하늘(패밀리) */
 type Product = {
   id: string;
   name: string;
@@ -2765,7 +2765,7 @@ export const Admin: React.FC = () => {
               </>
             )}
             <p className="mb-2 text-xs text-slate-500">
-              드래그해서 순서를 바꾸면 쇼핑 페이지(뷰티박스 메뉴) 노출 순서가 바뀝니다. 아래에서 슬롯 개수를 선택하거나, 슬롯 추가/삭제 시 자동으로 반영됩니다. 위에서 1~{slotCount}개가 카탈로그에 노출됩니다.
+              드래그해서 순서를 바꾸면 쇼핑 페이지(세모 박스 메뉴) 노출 순서가 바뀝니다. 아래에서 슬롯 개수를 선택하거나, 슬롯 추가/삭제 시 자동으로 반영됩니다. 위에서 1~{slotCount}개가 카탈로그에 노출됩니다.
             </p>
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <span className="text-xs font-medium text-slate-600">슬롯 개수:</span>
@@ -3043,7 +3043,7 @@ export const Admin: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className={labelClass}>제품 박스 색상 (Beauty Box 메뉴 카드)</label>
+                    <label className={labelClass}>제품 박스 색상 (SEMO Box 메뉴 카드)</label>
                     <select
                       className={inputClass}
                       value={selectedProduct.box_theme ?? 'brand'}
