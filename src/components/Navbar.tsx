@@ -328,7 +328,7 @@ export const Navbar: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => productDesktopNav?.onAddToCart()}
-                  className="relative z-[2] ml-auto shrink-0 rounded-full bg-brand px-2.5 py-1.5 text-[10px] font-semibold leading-tight text-white transition hover:bg-brand/90 sm:px-3 sm:py-2 sm:text-xs"
+                  className="relative z-[2] ml-auto mr-[15%] shrink-0 rounded-full bg-brand px-2.5 py-1.5 text-[10px] font-semibold leading-tight text-white transition hover:bg-brand/90 sm:px-3 sm:py-2 sm:text-xs"
                 >
                   В корзину
                 </button>
