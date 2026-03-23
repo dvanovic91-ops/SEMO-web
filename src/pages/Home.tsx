@@ -137,12 +137,55 @@ function useScrollFadeIn(threshold = 0.15) {
   return { ref, visible };
 }
 
+/** 각 도형/카드마다 뷰포트 진입 시 한 번 등장 (스크롤에 반응). staggerIndex로 동시에 보일 때 순차 딜레이 */
+function OrderStepReveal({
+  children,
+  className = '',
+  style,
+  staggerIndex = 0,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  style?: React.CSSProperties;
+  staggerIndex?: number;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      ([e]) => setShown(e.isIntersecting),
+      { threshold: 0.12, rootMargin: '0px 0px -6% 0px' },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  return (
+    <div
+      ref={ref}
+      className={`transform-gpu transition-[opacity,transform] duration-[800ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform ${
+        shown ? 'translate-y-0 opacity-100 scale-100' : 'translate-y-9 opacity-0 scale-[0.97]'
+      } ${className}`}
+      style={{
+        ...style,
+        transitionDelay: shown ? `${staggerIndex * 95}ms` : '0ms',
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
 /* ─── 주문 과정 — PPT 스타일 비정형 사선 '띠' (clip-path) ─── */
 const ORDER_STEPS = [
   {
     num: '01',
     title: 'Тест кожи',
     desc: 'Пройдите тест и узнайте свой тип кожи',
+    /** md+ 호버 시 짧은 설명 대신 표시 */
+    hoverDetail:
+      'Ответьте на вопросы о типе кожи, чувствительности и целях ухода — мы подберём состав и рекомендации именно под вас.',
     icon: (
       <svg className="h-8 w-8 sm:h-10 sm:w-10" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
         <circle cx="24" cy="17" r="7" /><path d="M13 38c0-6 5-11 11-11s11 5 11 11" />
@@ -153,6 +196,8 @@ const ORDER_STEPS = [
     num: '02',
     title: 'Заказ и оплата',
     desc: 'Выберите бокс и оплатите удобным способом',
+    hoverDetail:
+      'Добавьте бокс в корзину и оплатите картой или другим доступным способом. После оплаты заказ переходит в обработку.',
     icon: (
       <svg className="h-8 w-8 sm:h-10 sm:w-10" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
         <rect x="8" y="14" width="32" height="22" rx="2" /><path d="M8 22h32" /><path d="M16 30h8" />
@@ -163,6 +208,8 @@ const ORDER_STEPS = [
     num: '03',
     title: 'Доставка',
     desc: 'Из Кореи в Россию — таможня на нас',
+    hoverDetail:
+      'Сборка и отправка из Кореи, таможенное оформление и доставка до вашего адреса — мы сопровождаем процесс и держим вас в курсе.',
     icon: (
       <svg className="h-8 w-8 sm:h-10 sm:w-10" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M6 30h28V14H6z" /><path d="M34 22h6l4 8v6h-10" />
@@ -175,6 +222,8 @@ const ORDER_STEPS = [
     num: '04',
     title: 'Получение',
     desc: 'Распакуйте свой персональный бокс!',
+    hoverDetail:
+      'Получите посылку курьером или в пункте выдачи. Внутри — подобранные под ваш профиль средства и понятные подсказки по уходу.',
     icon: (
       <svg className="h-8 w-8 sm:h-10 sm:w-10" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
         <rect x="10" y="16" width="28" height="22" rx="1.5" />
@@ -201,26 +250,27 @@ const STEP_COLORS = [
 ];
 
 function OrderProcess() {
-  const { ref: sectionRef, visible } = useScrollFadeIn(0.05);
+  const { ref: titleDeskRef, visible: titleDeskVisible } = useScrollFadeIn(0.08);
+  const { ref: titleMobRef, visible: titleMobVisible } = useScrollFadeIn(0.08);
 
   /** 01: 흰 글자 / 02~04: 배경이 옅어져 slate 계열 */
   const textOnLight = (idx: number) => idx >= 1;
 
   return (
-    <section ref={sectionRef} className="relative w-full overflow-hidden bg-white">
+    <section className="relative w-full overflow-hidden bg-white">
       {/* ── 데스크톱(md+) ── */}
       <div className="hidden md:block bg-white">
-        <div className="px-4 pt-14 pb-6">
+        <div ref={titleDeskRef} className="px-4 pt-14 pb-6">
           <h2
-            className={`text-center font-light tracking-[0.18em] uppercase text-slate-900 transition-all duration-700 text-2xl lg:text-[1.7rem] ${
-              visible ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0'
+            className={`text-center text-lg font-medium normal-case tracking-normal text-slate-900 transition-all duration-700 lg:text-xl ${
+              titleDeskVisible ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0'
             }`}
           >
             Как заказать SEMO Box
           </h2>
           <div
             className={`mx-auto mt-4 h-px w-10 bg-gradient-to-r from-transparent via-brand/35 to-transparent transition-all duration-700 delay-200 ${
-              visible ? 'scale-x-100 opacity-100' : 'scale-x-0 opacity-0'
+              titleDeskVisible ? 'scale-x-100 opacity-100' : 'scale-x-0 opacity-0'
             }`}
           />
         </div>
@@ -231,24 +281,22 @@ function OrderProcess() {
             style={{ height: 'clamp(17rem, 30vw, 27rem)' }}
           >
             {ORDER_STEPS.map((step, idx) => (
-              <div
+              <OrderStepReveal
                 key={step.num}
-                className={`relative min-w-0 flex-1 overflow-hidden transition-all duration-[900ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
-                  visible ? 'translate-y-0 opacity-100' : 'translate-y-6 opacity-0'
-                }`}
+                staggerIndex={idx}
+                className="relative min-w-0 flex-1 overflow-hidden"
                 style={{
                   clipPath: STEP_CLIP_PATHS[idx],
                   background: STEP_COLORS[idx],
-                  transitionDelay: visible ? `${200 + idx * 120}ms` : '0ms',
                 }}
               >
                 <div
-                  className={`flex h-full flex-col items-center justify-center gap-1.5 px-1.5 py-3 text-center sm:gap-2 sm:px-3 md:gap-3 ${
+                  className={`group/step flex h-full flex-col items-center justify-center gap-1.5 px-1.5 py-3 text-center sm:gap-2 sm:px-3 md:gap-3 ${
                     textOnLight(idx) ? '' : '[&_svg]:drop-shadow-[0_1px_2px_rgba(0,0,0,0.25)]'
                   }`}
                 >
                   <span
-                    className={`block font-serif text-[2.35rem] font-extralight leading-none tracking-wider sm:text-[3rem] lg:text-[3.75rem] ${
+                    className={`block font-serif text-[2.35rem] font-extralight leading-none tracking-normal sm:text-[3rem] lg:text-[3.75rem] ${
                       textOnLight(idx) ? 'text-slate-800/35' : 'text-white/40 [text-shadow:0_1px_3px_rgba(0,0,0,0.2)]'
                     }`}
                   >
@@ -264,21 +312,31 @@ function OrderProcess() {
                     {step.icon}
                   </div>
                   <p
-                    className={`text-[11px] font-semibold tracking-wide sm:text-sm lg:text-[0.95rem] ${
+                    className={`text-[11px] font-semibold tracking-normal sm:text-sm lg:text-[0.95rem] ${
                       textOnLight(idx) ? 'text-slate-900' : 'text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.25)]'
                     }`}
                   >
                     {step.title}
                   </p>
-                  <p
-                    className={`max-w-[11.5rem] text-[9px] leading-snug sm:text-[10px] lg:text-xs ${
-                      textOnLight(idx) ? 'text-slate-700' : 'text-white/90 [text-shadow:0_1px_2px_rgba(0,0,0,0.2)]'
-                    }`}
-                  >
-                    {step.desc}
-                  </p>
+                  {/* md+: 호버 시 짧은 문구 → 상세 문구 교체 */}
+                  <div className="relative mx-auto min-h-[3.25rem] w-full max-w-[13rem] px-0.5">
+                    <p
+                      className={`text-[9px] leading-snug sm:text-[10px] lg:text-[11px] md:transition-opacity md:duration-300 md:ease-out md:group-hover/step:pointer-events-none md:group-hover/step:opacity-0 ${
+                        textOnLight(idx) ? 'text-slate-700' : 'text-white/90 [text-shadow:0_1px_2px_rgba(0,0,0,0.2)]'
+                      } max-md:static md:absolute md:inset-x-0 md:top-0`}
+                    >
+                      {step.desc}
+                    </p>
+                    <p
+                      className={`hidden text-[9px] leading-snug lg:text-[10px] md:absolute md:inset-x-0 md:top-0 md:block md:opacity-0 md:transition-opacity md:duration-300 md:ease-out md:group-hover/step:opacity-100 ${
+                        textOnLight(idx) ? 'text-slate-800' : 'text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.2)]'
+                      }`}
+                    >
+                      {step.hoverDetail}
+                    </p>
+                  </div>
                 </div>
-              </div>
+              </OrderStepReveal>
             ))}
           </div>
         </div>
@@ -286,24 +344,22 @@ function OrderProcess() {
 
       {/* ── 모바일(<md): 흰 배경 + 심플 카드 ── */}
       <div className="bg-white px-4 py-12 md:hidden">
-        <h2
-          className={`mb-8 text-center text-lg font-light tracking-[0.12em] uppercase text-slate-800 transition-all duration-700 ${
-            visible ? 'translate-y-0 opacity-100' : 'translate-y-6 opacity-0'
-          }`}
-        >
-          Как заказать SEMO Box
-        </h2>
+        <div ref={titleMobRef} className="mb-8">
+          <h2
+            className={`text-center text-base font-medium normal-case tracking-normal text-slate-800 transition-all duration-700 ${
+              titleMobVisible ? 'translate-y-0 opacity-100' : 'translate-y-6 opacity-0'
+            }`}
+          >
+            Как заказать SEMO Box
+          </h2>
+        </div>
         <div className="mx-auto grid max-w-sm grid-cols-2 gap-3">
           {ORDER_STEPS.map((step, idx) => (
-            <div
+            <OrderStepReveal
               key={step.num}
-              className={`relative flex flex-col items-center gap-2 rounded-2xl p-5 text-center transition-all duration-700 ${
-                visible ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0'
-              }`}
-              style={{
-                background: STEP_COLORS[idx],
-                transitionDelay: visible ? `${200 + idx * 120}ms` : '0ms',
-              }}
+              staggerIndex={idx}
+              className="relative flex flex-col items-center gap-2 rounded-2xl p-5 text-center"
+              style={{ background: STEP_COLORS[idx] }}
             >
               <span
                 className={`font-serif text-[2rem] font-extralight leading-none tracking-wider ${idx >= 1 ? 'text-slate-800/35' : 'text-white/40'}`}
@@ -317,11 +373,49 @@ function OrderProcess() {
               <p className={`text-[10px] leading-relaxed ${idx >= 1 ? 'text-slate-700' : 'text-white/90'}`}>
                 {step.desc}
               </p>
-            </div>
+            </OrderStepReveal>
           ))}
         </div>
       </div>
     </section>
+  );
+}
+
+/** 쇼케이스 카드: 스크롤로 구간 진입 시 아래에서 위로 한 번 등장 */
+function ShowcaseItemReveal({
+  children,
+  staggerIndex,
+}: {
+  children: React.ReactNode;
+  staggerIndex: number;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      ([e]) => {
+        if (e.isIntersecting) {
+          setShown(true);
+          io.disconnect();
+        }
+      },
+      { threshold: 0.08, rootMargin: '0px 0px -4% 0px' },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  return (
+    <div
+      ref={ref}
+      className={`transform-gpu transition-[opacity,transform] duration-[780ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
+        shown ? 'translate-y-0 opacity-100' : 'translate-y-14 opacity-0'
+      }`}
+      style={{ transitionDelay: shown ? `${staggerIndex * 95}ms` : '0ms' }}
+    >
+      {children}
+    </div>
   );
 }
 
@@ -417,16 +511,16 @@ function ProductShowcase() {
     <section ref={sectionRef} className="w-full py-16 sm:py-20">
       <div className="mx-auto max-w-6xl px-4">
         <h2
-          className={`mb-8 text-center text-xl font-light tracking-wide text-slate-800 transition-all duration-700 sm:text-2xl lg:text-3xl ${
+          className={`mb-8 text-center text-lg font-medium tracking-normal text-slate-800 transition-all duration-700 sm:text-xl ${
             visible ? 'translate-y-0 opacity-100' : 'translate-y-6 opacity-0'
           }`}
         >
           SEMO Box
         </h2>
 
-        {/* 탭 — 세 라인 모두 pill; 모바일 한 줄(clamp + nowrap) */}
+        {/* 탭 — pill을 내용 너비에 맞춰 컴팩트하게 */}
         <div
-          className={`mb-10 flex w-full items-stretch justify-center gap-1 transition-all duration-700 sm:gap-2 md:gap-3 ${
+          className={`mb-10 flex flex-wrap items-center justify-center gap-2 transition-all duration-700 sm:gap-2.5 ${
             visible ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'
           }`}
           style={{ transitionDelay: visible ? '100ms' : '0ms' }}
@@ -436,7 +530,7 @@ function ProductShowcase() {
               key={t.key}
               type="button"
               onClick={() => setActiveTab(t.category)}
-              className={`min-w-0 flex-1 rounded-full border px-1.5 py-2 text-center font-semibold leading-tight tracking-tight transition-all sm:px-4 sm:py-2.5 sm:tracking-wide md:px-6 whitespace-nowrap text-[length:clamp(0.5rem,2.15vw+0.2rem,0.875rem)] sm:text-sm ${
+              className={`shrink-0 rounded-full border px-3 py-2 text-center text-[length:clamp(0.5625rem,2vw+0.15rem,0.8125rem)] font-semibold leading-tight tracking-normal transition-all sm:px-4 sm:py-2 sm:text-xs md:text-sm whitespace-nowrap max-w-[min(100%,10.5rem)] sm:max-w-none ${
                 activeTab === t.category
                   ? 'border-brand bg-brand text-white shadow-md'
                   : 'border-slate-200 bg-white text-slate-600 shadow-sm hover:border-slate-300 hover:text-slate-800'
@@ -457,47 +551,45 @@ function ProductShowcase() {
         ) : (
           <div className="grid grid-cols-2 gap-5 sm:grid-cols-4 sm:gap-8">
             {currentItems.slice(0, 4).map((item, idx) => (
-              <Link
-                key={item.id}
-                to={`/product/${item.id}`}
-                className={`group flex flex-col items-center rounded-3xl border border-slate-100/80 bg-white p-5 shadow-[0_2px_20px_-4px_rgba(0,0,0,0.05)] transition-all duration-700 hover:shadow-[0_8px_30px_-6px_rgba(0,0,0,0.1)] sm:p-6 ${
-                  visible ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0'
-                }`}
-                style={{ transitionDelay: visible ? `${200 + idx * 100}ms` : '0ms' }}
-              >
-                {/* 이미지 — hover 시 두번째 이미지로 전환 */}
-                <div className="relative mb-4 flex h-40 w-full items-center justify-center overflow-hidden rounded-2xl bg-slate-50/80 sm:h-52">
-                  {item.imageUrl ? (
-                    <>
-                      <img
-                        src={item.imageUrl}
-                        alt={item.name}
-                        className={`absolute inset-0 h-full w-full object-contain transition-opacity duration-500 ${
-                          item.secondImageUrl ? 'group-hover:opacity-0' : ''
-                        }`}
-                      />
-                      {item.secondImageUrl && (
+              <ShowcaseItemReveal key={`${activeTab}-${item.id}`} staggerIndex={idx}>
+                <Link
+                  to={`/product/${item.id}`}
+                  className="group flex flex-col items-center rounded-3xl border border-slate-100/80 bg-white p-5 shadow-[0_2px_20px_-4px_rgba(0,0,0,0.05)] transition-shadow duration-500 hover:shadow-[0_8px_30px_-6px_rgba(0,0,0,0.1)] sm:p-6"
+                >
+                  {/* 이미지 — hover 시 두번째 이미지로 전환 */}
+                  <div className="relative mb-4 flex h-40 w-full items-center justify-center overflow-hidden rounded-2xl bg-slate-50/80 sm:h-52">
+                    {item.imageUrl ? (
+                      <>
                         <img
-                          src={item.secondImageUrl}
+                          src={item.imageUrl}
                           alt={item.name}
-                          className="absolute inset-0 h-full w-full object-contain opacity-0 transition-opacity duration-500 group-hover:opacity-100"
+                          className={`absolute inset-0 h-full w-full object-contain transition-opacity duration-500 ${
+                            item.secondImageUrl ? 'group-hover:opacity-0' : ''
+                          }`}
                         />
-                      )}
-                    </>
-                  ) : (
-                    <span className="text-xs text-slate-300">Нет фото</span>
-                  )}
-                </div>
-                <p className="mb-3 line-clamp-2 text-center text-sm font-medium tracking-wide text-slate-700 transition-colors group-hover:text-brand sm:text-base">
-                  {item.name}
-                </p>
-                <div className="flex flex-col items-center gap-0.5">
-                  {item.originalPrice != null && (
-                    <span className="text-xs text-slate-300 line-through">{formatPrice(item.originalPrice)}</span>
-                  )}
-                  <span className="text-sm font-semibold text-slate-800">{formatPrice(item.price)}</span>
-                </div>
-              </Link>
+                        {item.secondImageUrl && (
+                          <img
+                            src={item.secondImageUrl}
+                            alt={item.name}
+                            className="absolute inset-0 h-full w-full object-contain opacity-0 transition-opacity duration-500 group-hover:opacity-100"
+                          />
+                        )}
+                      </>
+                    ) : (
+                      <span className="text-xs text-slate-300">Нет фото</span>
+                    )}
+                  </div>
+                  <p className="mb-3 line-clamp-2 text-center text-sm font-medium tracking-normal text-slate-700 transition-colors group-hover:text-brand sm:text-base">
+                    {item.name}
+                  </p>
+                  <div className="flex flex-col items-center gap-0.5">
+                    {item.originalPrice != null && (
+                      <span className="text-xs text-slate-300 line-through">{formatPrice(item.originalPrice)}</span>
+                    )}
+                    <span className="text-sm font-semibold text-slate-800">{formatPrice(item.price)}</span>
+                  </div>
+                </Link>
+              </ShowcaseItemReveal>
             ))}
           </div>
         )}
@@ -511,7 +603,7 @@ function ProductShowcase() {
         >
           <Link
             to={activeTab === 'beauty' ? '/shop' : activeTab === 'inner_beauty' ? '/inner-beauty' : '/hair-beauty'}
-            className="group inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-slate-200 px-8 py-3 text-sm font-medium tracking-wide text-slate-600 transition-all hover:border-brand hover:text-brand"
+            className="group inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-slate-200 px-8 py-3 text-sm font-medium tracking-normal text-slate-600 transition-all hover:border-brand hover:text-brand"
           >
             Смотреть все
             <svg className="h-4 w-4 transition-transform group-hover:translate-x-0.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
