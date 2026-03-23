@@ -394,12 +394,20 @@ export const Admin: React.FC = () => {
   const [stickyHeaderVisible, setStickyHeaderVisible] = useState(false);
   const headerRef = useRef<HTMLElement>(null);
 
-  /** 히어로 이미지 관리 */
-  const [heroImageUrl, setHeroImageUrl] = useState('');
-  const [heroLinkUrl, setHeroLinkUrl] = useState('');
+  /** 히어로 이미지 관리 (다중 슬라이드) */
+  type HeroSlide = { image_url: string; link_url?: string };
+  const [heroSlides, setHeroSlides] = useState<HeroSlide[]>([]);
   const [heroSaving, setHeroSaving] = useState(false);
-  const [heroUploading, setHeroUploading] = useState(false);
-  const heroFileRef = useRef<HTMLInputElement>(null);
+  const [heroUploading, setHeroUploading] = useState<number | null>(null);
+  const heroFileRefs = useRef<Record<number, HTMLInputElement | null>>({});
+
+  /** 상품관리 카테고리 선택 (뷰티박스/이너뷰티/헤어뷰티) */
+  const PRODUCT_CATEGORIES = [
+    { key: 'beauty', label: 'Beauty Box' },
+    { key: 'inner_beauty', label: 'Inner Beauty Box' },
+    { key: 'hair_beauty', label: 'Hair Beauty Box' },
+  ] as const;
+  const [productCategory, setProductCategory] = useState<string>('beauty');
 
   const [products, setProducts] = useState<Product[]>([]);
   /** 상품 목록 표시 순서 (앞에서 5개가 쇼핑 슬롯 1~5). 드래그로 순서 변경 후 저장 시 main_layout_slots에 반영 */
@@ -1268,26 +1276,27 @@ export const Admin: React.FC = () => {
       .finally(() => setSkinMatchLoading(false));
   }, [tab, slots]);
 
-  // 히어로 이미지 탭: site_settings에서 로드
+  // 히어로 이미지 탭: site_settings에서 JSON array 로드
   useEffect(() => {
     if (tab !== 'heroImage' || !supabase) return;
     supabase
       .from('site_settings')
       .select('key, value')
-      .in('key', ['hero_image_url', 'hero_link_url'])
+      .eq('key', 'hero_images')
+      .maybeSingle()
       .then(({ data }) => {
-        if (data) {
-          for (const row of data as { key: string; value: string }[]) {
-            if (row.key === 'hero_image_url') setHeroImageUrl(row.value ?? '');
-            if (row.key === 'hero_link_url') setHeroLinkUrl(row.value ?? '');
-          }
+        if (data?.value) {
+          try {
+            const parsed = JSON.parse(data.value);
+            if (Array.isArray(parsed)) setHeroSlides(parsed);
+          } catch { /* invalid JSON */ }
         }
       });
   }, [tab]);
 
-  const handleHeroImageUpload = async (file: File) => {
+  const handleHeroImageUpload = async (file: File, slideIdx: number) => {
     if (!supabase) return;
-    setHeroUploading(true);
+    setHeroUploading(slideIdx);
     try {
       const ext = (file.name.split('.').pop() ?? 'jpg').toLowerCase();
       const safeExt = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext) ? ext : 'jpg';
@@ -1302,9 +1311,13 @@ export const Admin: React.FC = () => {
         return;
       }
       const { data } = supabase.storage.from(BUCKET_PROMOS).getPublicUrl(path);
-      setHeroImageUrl(data.publicUrl);
+      setHeroSlides((prev) => {
+        const next = [...prev];
+        next[slideIdx] = { ...next[slideIdx], image_url: data.publicUrl };
+        return next;
+      });
     } finally {
-      setHeroUploading(false);
+      setHeroUploading(null);
     }
   };
 
@@ -1312,14 +1325,9 @@ export const Admin: React.FC = () => {
     if (!supabase) return;
     setHeroSaving(true);
     try {
-      // upsert hero_image_url
+      const validSlides = heroSlides.filter((s) => s.image_url);
       await supabase.from('site_settings').upsert(
-        { key: 'hero_image_url', value: heroImageUrl },
-        { onConflict: 'key' }
-      );
-      // upsert hero_link_url
-      await supabase.from('site_settings').upsert(
-        { key: 'hero_link_url', value: heroLinkUrl },
+        { key: 'hero_images', value: JSON.stringify(validSlides) },
         { onConflict: 'key' }
       );
       window.alert('히어로 이미지 저장 완료');
@@ -2430,93 +2438,112 @@ export const Admin: React.FC = () => {
         </div>
       )}
 
-      {/* ── 히어로 이미지 관리 탭 ── */}
+      {/* ── 히어로 이미지 관리 탭 (다중 슬라이드) ── */}
       {tab === 'heroImage' && (
         <section className="space-y-6">
-          <h2 className="text-sm font-semibold text-slate-900">랜딩 페이지 히어로 이미지</h2>
-          <p className="text-xs text-slate-500">메인 페이지 최상단에 전체 너비로 표시되는 이미지입니다. 이미지를 업로드하고 저장하면 즉시 반영됩니다.</p>
+          <h2 className="text-sm font-semibold text-slate-900">랜딩 페이지 히어로 이미지 (슬라이드)</h2>
+          <p className="text-xs text-slate-500">메인 페이지 최상단에 전체 너비로 표시되는 캐러셀 이미지입니다. 최대 4장까지 등록 가능하며, 3초마다 자동 전환됩니다.</p>
 
-          <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
-            {/* 이미지 업로드 */}
-            <div>
-              <label className={labelClass}>이미지 업로드</label>
-              <input
-                ref={heroFileRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleHeroImageUpload(file);
-                  e.target.value = '';
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => heroFileRef.current?.click()}
-                disabled={heroUploading}
-                className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-brand hover:text-brand disabled:opacity-60"
-              >
-                {heroUploading ? '업로드 중…' : '이미지 선택'}
-              </button>
-            </div>
-
-            {/* 이미지 URL 직접 입력 */}
-            <div>
-              <label className={labelClass}>이미지 URL</label>
-              <input
-                type="text"
-                className={inputClass}
-                placeholder="https://..."
-                value={heroImageUrl}
-                onChange={(e) => setHeroImageUrl(e.target.value)}
-              />
-            </div>
-
-            {/* 클릭 시 이동 링크 (선택) */}
-            <div>
-              <label className={labelClass}>클릭 시 이동 경로 (선택)</label>
-              <input
-                type="text"
-                className={inputClass}
-                placeholder="/shop 또는 /promo 등"
-                value={heroLinkUrl}
-                onChange={(e) => setHeroLinkUrl(e.target.value)}
-              />
-              <p className="mt-1 text-xs text-slate-400">비워두면 클릭 불가. /shop, /promo, /skin-test 등 내부 경로를 입력하세요.</p>
-            </div>
-
-            {/* 미리보기 */}
-            {heroImageUrl && (
-              <div>
-                <label className={labelClass}>미리보기</label>
-                <div className="rounded-lg border border-slate-200 overflow-hidden">
-                  <img src={heroImageUrl} alt="히어로 미리보기" className="w-full object-cover" style={{ maxHeight: '300px' }} />
-                </div>
+          {heroSlides.map((slide, idx) => (
+            <div key={idx} className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold text-slate-700">슬라이드 {idx + 1}</span>
+                <button
+                  type="button"
+                  onClick={() => setHeroSlides((prev) => prev.filter((_, i) => i !== idx))}
+                  className="text-xs text-red-500 hover:underline"
+                >
+                  삭제
+                </button>
               </div>
-            )}
 
-            {/* 저장 + 삭제 */}
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={handleHeroSave}
-                disabled={heroSaving}
-                className="rounded-full bg-brand px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-brand/90 disabled:opacity-60"
-              >
-                {heroSaving ? '저장 중…' : '저장'}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setHeroImageUrl('');
-                  setHeroLinkUrl('');
-                }}
-                className="rounded-full border border-slate-200 px-6 py-2.5 text-sm font-medium text-slate-600 transition hover:border-red-300 hover:text-red-500"
-              >
-                이미지 제거
-              </button>
+              {/* 이미지 업로드 */}
+              <div className="flex items-center gap-3">
+                <input
+                  ref={(el) => { heroFileRefs.current[idx] = el; }}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleHeroImageUpload(file, idx);
+                    e.target.value = '';
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => heroFileRefs.current[idx]?.click()}
+                  disabled={heroUploading === idx}
+                  className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-brand hover:text-brand disabled:opacity-60"
+                >
+                  {heroUploading === idx ? '업로드 중…' : '이미지 선택'}
+                </button>
+                <input
+                  type="text"
+                  className={inputClass}
+                  placeholder="이미지 URL"
+                  value={slide.image_url}
+                  onChange={(e) => setHeroSlides((prev) => {
+                    const next = [...prev];
+                    next[idx] = { ...next[idx], image_url: e.target.value };
+                    return next;
+                  })}
+                />
+              </div>
+
+              {/* 클릭 이동 경로 */}
+              <div>
+                <label className="text-xs text-slate-500">클릭 시 이동 경로 (선택)</label>
+                <input
+                  type="text"
+                  className={inputClass}
+                  placeholder="/shop, /promo 등"
+                  value={slide.link_url ?? ''}
+                  onChange={(e) => setHeroSlides((prev) => {
+                    const next = [...prev];
+                    next[idx] = { ...next[idx], link_url: e.target.value };
+                    return next;
+                  })}
+                />
+              </div>
+
+              {/* 미리보기 */}
+              {slide.image_url && (
+                <div className="rounded-lg border border-slate-200 overflow-hidden">
+                  <img src={slide.image_url} alt={`슬라이드 ${idx + 1}`} className="w-full object-cover" style={{ maxHeight: '200px' }} />
+                </div>
+              )}
             </div>
+          ))}
+
+          {/* 슬라이드 추가 */}
+          {heroSlides.length < 4 && (
+            <button
+              type="button"
+              onClick={() => setHeroSlides((prev) => [...prev, { image_url: '', link_url: '' }])}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 py-4 text-sm font-medium text-slate-500 transition hover:border-brand hover:text-brand"
+            >
+              + 슬라이드 추가 ({heroSlides.length}/4)
+            </button>
+          )}
+
+          {/* 저장 */}
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={handleHeroSave}
+              disabled={heroSaving}
+              className="rounded-full bg-brand px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-brand/90 disabled:opacity-60"
+            >
+              {heroSaving ? '저장 중…' : '저장'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setHeroSlides([])}
+              className="rounded-full border border-slate-200 px-6 py-2.5 text-sm font-medium text-slate-600 transition hover:border-red-300 hover:text-red-500"
+            >
+              전체 삭제
+            </button>
           </div>
         </section>
       )}
@@ -2825,7 +2852,25 @@ export const Admin: React.FC = () => {
       )}
 
       {tab === 'products' && (
-        <section className="mt-4 grid gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+        <section className="mt-4 space-y-4">
+          {/* 카테고리 선택 */}
+          <div className="flex flex-wrap items-center gap-2">
+            {PRODUCT_CATEGORIES.map((cat) => (
+              <button
+                key={cat.key}
+                type="button"
+                onClick={() => setProductCategory(cat.key)}
+                className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                  productCategory === cat.key
+                    ? 'bg-brand text-white shadow-sm'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {cat.label}
+              </button>
+            ))}
+          </div>
+          <div className="grid gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
           <div className="relative rounded-xl border border-slate-200 bg-white p-4">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-sm font-semibold text-slate-900">상품 목록</h2>
@@ -3528,6 +3573,7 @@ export const Admin: React.FC = () => {
 
               </div>
             )}
+          </div>
           </div>
         </section>
       )}

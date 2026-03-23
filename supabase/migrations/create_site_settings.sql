@@ -29,3 +29,6 @@ CREATE POLICY "site_settings: admin delete" ON site_settings
   FOR DELETE USING (
     EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND is_admin = true)
   );
+
+-- main_layout_slots에 카테고리 컬럼 추가 (기존 데이터는 'beauty'로 기본값)
+ALTER TABLE main_layout_slots ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'beauty';
