@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { useAuth, ADMIN_DUMMY_USER_ID } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { resendSignupConfirmationEmail } from '../lib/authSignupResend';
@@ -37,7 +37,6 @@ function writeTelegramCache(userId: string, linked: boolean) {
  * Telegram 연동 여부만 세션 스토리지로 깜빡임 완화(0/1 플래그, 개인정보 아님).
  */
 export const Profile: React.FC = () => {
-  const navigate = useNavigate();
   const {
     userEmail,
     userId,
@@ -48,7 +47,13 @@ export const Profile: React.FC = () => {
     isEmailConfirmed,
     refreshEmailConfirmationFromServer,
   } = useAuth();
-  const [dbProfile, setDbProfile] = useState<{ name: string | null; grade: string; points: number; telegram_id: string | null } | null>(null);
+  const [dbProfile, setDbProfile] = useState<{
+    name: string | null;
+    grade: string;
+    points: number;
+    telegram_id: string | null;
+    phone: string | null;
+  } | null>(null);
   /** 연동 성공 시 토스트 (다른 탭에서 연동 후 돌아왔을 때) */
   const [telegramLinkedToast, setTelegramLinkedToast] = useState(false);
   /** 회원 등급: basic(일반) / premium(프리미엄) / family(가족) — 주문 누계 기준으로 계산 */
@@ -57,6 +62,8 @@ export const Profile: React.FC = () => {
   const [verifyEmailSending, setVerifyEmailSending] = useState(false);
   const [verifyEmailMessage, setVerifyEmailMessage] = useState<string | null>(null);
   const [verifyEmailError, setVerifyEmailError] = useState<string | null>(null);
+  const [telegramLinkLoading, setTelegramLinkLoading] = useState(false);
+  const [telegramLinkError, setTelegramLinkError] = useState<string | null>(null);
   /** 헤더 배지: 사용 가능 쿠폰 수만 (목록은 /profile/coupons) */
   const [activeCouponCount, setActiveCouponCount] = useState<number | null>(null);
   const [couponCountLoading, setCouponCountLoading] = useState(false);
@@ -76,6 +83,7 @@ export const Profile: React.FC = () => {
       grade?: string | null;
       points?: number | null;
       telegram_id?: string | null;
+      phone?: string | null;
     } | null) => {
       if (currentUserIdRef.current !== requestedUserId) return;
       const nextTelegramId = data?.telegram_id ?? null;
@@ -102,6 +110,7 @@ export const Profile: React.FC = () => {
               grade: data.grade ?? 'Обычный участник',
               points: data.points ?? 0,
               telegram_id: nextTelegramId,
+              phone: data.phone ?? null,
             }
           : null,
       );
@@ -111,7 +120,7 @@ export const Profile: React.FC = () => {
       try {
         const res = await supabase
           .from('profiles')
-          .select('name, grade, points, telegram_id, telegram_reward_given')
+          .select('name, grade, points, phone, telegram_id, telegram_reward_given')
           .eq('id', userId)
           .single();
 
@@ -121,7 +130,7 @@ export const Profile: React.FC = () => {
           } else {
             const r2 = await supabase
               .from('profiles')
-              .select('name, grade, points, telegram_id, telegram_reward_given')
+              .select('name, grade, points, phone, telegram_id, telegram_reward_given')
               .eq('id', userId)
               .single();
             if (!r2.error) applyRow(r2.data);
@@ -325,6 +334,34 @@ export const Profile: React.FC = () => {
     // 완전히 새로고침하여 세션·상태를 초기화
     window.location.href = '/login';
   };
+
+  const handleStartTelegramLink = useCallback(async () => {
+    if (!supabase || !userId) return;
+    setTelegramLinkError(null);
+    setTelegramLinkLoading(true);
+    try {
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+      const { data, error } = await supabase
+        .from('link_tokens')
+        .insert({ user_id: userId, expires_at: expiresAt })
+        .select('token')
+        .single();
+      if (error || !data?.token) {
+        setTelegramLinkError('Не удалось создать ссылку Telegram. Попробуйте ещё раз.');
+        return;
+      }
+      const opened = window.open(`https://t.me/My_SEMO_Beautybot?start=link_${data.token}`, '_blank');
+      if (!opened) {
+        setTelegramLinkError('Браузер заблокировал переход. Разрешите всплывающее окно и повторите.');
+        return;
+      }
+      setTimeout(() => void refreshProfile(), 1200);
+    } catch {
+      setTelegramLinkError('Не удалось открыть Telegram. Проверьте интернет и повторите.');
+    } finally {
+      setTelegramLinkLoading(false);
+    }
+  }, [userId, refreshProfile]);
 
   return (
     <main className="mx-auto w-full max-w-3xl px-3 py-5 sm:px-6 sm:py-10 md:py-14">
@@ -606,17 +643,24 @@ export const Profile: React.FC = () => {
                   </button>
                 )}
                 {telegramButtonState === 'unlinked' && (
-                  <Link
-                    to="/profile/edit?focus=phone"
+                  <button
+                    type="button"
+                    onClick={() => void handleStartTelegramLink()}
+                    disabled={telegramLinkLoading}
                     className={accountPrimaryCtaClass}
                   >
-                    Привязать Telegram
-                  </Link>
+                    {telegramLinkLoading ? 'Открываем…' : 'Привязать Telegram'}
+                  </button>
                 )}
               </div>
               {telegramButtonState === 'unlinked' && (
                 <p className={accountCardSubtextClass}>
-                  Привяжите Telegram и получите 200 баллов.
+                  В Telegram спросим согласие на привязку номера и уведомления о новинках/скидках. Настройки можно изменить позже в профиле.
+                </p>
+              )}
+              {telegramButtonState === 'unlinked' && telegramLinkError && (
+                <p className="mt-2 text-xs text-red-600" role="alert">
+                  {telegramLinkError}
                 </p>
               )}
             </div>

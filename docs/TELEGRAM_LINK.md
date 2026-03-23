@@ -48,6 +48,37 @@ const { data, error } = await supabase.rpc('link_telegram', {
 
 - 봇은 **service_role key**로 Supabase에 접속해 이 RPC를 호출하는 것을 권장합니다 (anon으로는 `telegram_users` 등 제한이 있을 수 있음).
 
+### 권장: 동의 + 전화번호 저장까지 한 번에 처리
+
+신규 Edge Function: `telegram-link-consent`
+
+- 역할:
+  1) 토큰 검증
+  2) `link_telegram` 호출(연동)
+  3) Telegram 공유 전화번호를 `profiles.phone`/`phone_verified`에 저장
+  4) 알림 동의(`telegram_notify_orders`, `telegram_notify_marketing`) 저장
+
+요청 헤더:
+
+- `x-telegram-bot-secret: <TELEGRAM_LINK_CONSENT_SECRET>`
+
+요청 바디 예시:
+
+```json
+{
+  "token": "a1b2c3d4-e5f6-....",
+  "telegram_id": "123456789",
+  "phone": "+7 900 222 7818",
+  "consent_orders": true,
+  "consent_marketing": true
+}
+```
+
+봇 동의 문구 예시(러시아어):
+
+- «Подтвердить привязку Telegram и номер телефона?»
+- «Получать уведомления о новинках и скидках? (Можно изменить позже в профиле.)»
+
 ---
 
 ## 3. 봇이 해 둘 일

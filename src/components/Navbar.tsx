@@ -755,12 +755,18 @@ export const Navbar: React.FC = () => {
           )}
         </button>
         <a
-          href={TELEGRAM_BOT_URL}
-          target="_blank"
-          rel="noopener noreferrer"
+          href={telegramLinkedNav === true ? TELEGRAM_BOT_URL : undefined}
+          target={telegramLinkedNav === true ? '_blank' : undefined}
+          rel={telegramLinkedNav === true ? 'noopener noreferrer' : undefined}
           aria-label="Telegram"
+          aria-disabled={telegramLinkedNav !== true}
+          onClick={(e) => {
+            if (telegramLinkedNav !== true) e.preventDefault();
+          }}
           className={`flex h-10 items-center justify-center rounded-full px-3 transition ${
-            telegramLinkedNav === true ? 'bg-[#26A5E4]/15 text-[#26A5E4]' : 'text-slate-600'
+            telegramLinkedNav === true
+              ? 'bg-[#26A5E4]/15 text-[#26A5E4]'
+              : 'cursor-not-allowed text-slate-300'
           }`}
         >
           <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor" aria-hidden>

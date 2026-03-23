@@ -325,20 +325,30 @@ export const ProfileEdit: React.FC = () => {
         if (pollingRef.current) clearInterval(pollingRef.current);
         pollingRef.current = null;
         setPollingForTelegram(false);
+        setPhoneError('Связать Telegram не удалось вовремя. Откройте бота и нажмите «Подтвердить» ещё раз.');
         return;
       }
-      supabase.from('profiles').select('telegram_id').eq('id', userId).single().then(({ data }) => {
-        if (data?.telegram_id) {
-          if (pollingRef.current) clearInterval(pollingRef.current);
-          pollingRef.current = null;
-          setPollingForTelegram(false);
-          setPhoneUnlinkRequested(false);
-          setTelegramLinked(true);
-          setTelegramLinkedToast(true);
-          setTimeout(() => setTelegramLinkedToast(false), 3000);
-          loadProfileFromDb();
-        }
-      });
+      supabase
+        .from('profiles')
+        .select('telegram_id')
+        .eq('id', userId)
+        .single()
+        .then(({ data, error }) => {
+          if (error) {
+            setPhoneError('Не удалось проверить статус Telegram. Проверьте интернет и попробуйте снова.');
+            return;
+          }
+          if (data?.telegram_id) {
+            if (pollingRef.current) clearInterval(pollingRef.current);
+            pollingRef.current = null;
+            setPollingForTelegram(false);
+            setPhoneUnlinkRequested(false);
+            setTelegramLinked(true);
+            setTelegramLinkedToast(true);
+            setTimeout(() => setTelegramLinkedToast(false), 3000);
+            loadProfileFromDb();
+          }
+        });
     };
     tick();
     pollingRef.current = setInterval(tick, 3000);
@@ -472,10 +482,6 @@ export const ProfileEdit: React.FC = () => {
 
   const handleTelegramVerify = async () => {
     setPhoneError('');
-    if (!form?.phone) {
-      setPhoneError('Укажите номер телефона.');
-      return;
-    }
     if (!supabase || !userId) return;
     try {
       await supabase
@@ -855,7 +861,7 @@ export const ProfileEdit: React.FC = () => {
                     {!telegramLinked && (
                       <button
                         type="button"
-                        disabled={(form?.phone ?? '').replace(/\D/g, '').length < 10 || pollingForTelegram}
+                        disabled={pollingForTelegram}
                         onClick={() => void handleTelegramVerify()}
                         className={`${accountPrimaryCtaClass} w-full shrink-0 sm:w-auto sm:px-5`}
                       >
