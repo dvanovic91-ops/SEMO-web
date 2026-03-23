@@ -63,6 +63,18 @@ export const Navbar: React.FC = () => {
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [cartPopoverOpen, setCartPopoverOpen] = useState(false);
   const semoBoxDesktopRef = useRef<HTMLDivElement>(null);
+  const semoBoxCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** SEMO Box hover 영역 진입 — 타이머 취소 후 열기 */
+  const semoBoxEnter = useCallback(() => {
+    if (semoBoxCloseTimer.current) { clearTimeout(semoBoxCloseTimer.current); semoBoxCloseTimer.current = null; }
+    setSemoBoxOpen(true);
+  }, []);
+  /** SEMO Box hover 영역 이탈 — 딜레이 후 닫기 (서브바로 이동 시 취소됨) */
+  const semoBoxLeave = useCallback(() => {
+    if (semoBoxCloseTimer.current) clearTimeout(semoBoxCloseTimer.current);
+    semoBoxCloseTimer.current = setTimeout(() => { setSemoBoxOpen(false); semoBoxCloseTimer.current = null; }, 200);
+  }, []);
   /** 데스크톱: FAB + 팝오버 / 모바일: 하단 시트 — 외부 클릭 감지용 */
   const cartDesktopRef = useRef<HTMLDivElement>(null);
   const cartMobileRef = useRef<HTMLDivElement>(null);
@@ -200,7 +212,22 @@ export const Navbar: React.FC = () => {
     };
   }, [notificationOpen]);
 
-  // SEMO Box: 데스크톱은 호버로 관리되므로 별도 닫기 불필요
+  // SEMO Box: 데스크톱 — 외부 클릭 시 닫기
+  useEffect(() => {
+    if (!semoBoxOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (semoBoxDesktopRef.current?.contains(t)) return;
+      setSemoBoxOpen(false);
+    };
+    const timer = setTimeout(() => document.addEventListener('click', onDocClick), 0);
+    return () => { clearTimeout(timer); document.removeEventListener('click', onDocClick); };
+  }, [semoBoxOpen]);
+
+  // 타이머 클린업
+  useEffect(() => {
+    return () => { if (semoBoxCloseTimer.current) clearTimeout(semoBoxCloseTimer.current); };
+  }, []);
 
   // 라우트 변경 시 SEMO Box 드롭다운 닫기
   useEffect(() => {
@@ -317,9 +344,7 @@ export const Navbar: React.FC = () => {
           productDesktopNav?.compact
             ? 'border-slate-200/90 bg-white shadow-[0_4px_14px_-4px_rgba(0,0,0,0.1),0_2px_6px_-2px_rgba(0,0,0,0.06)]'
             : 'border-slate-100 bg-white/80 backdrop-blur-md'
-        } ${productStickyReplacesNav ? 'max-md:hidden' : ''} ${
-          productDesktopNav != null ? 'md:fixed md:z-40' : 'md:static md:z-20'
-        }`}
+        } ${productStickyReplacesNav ? 'max-md:hidden' : ''} md:fixed md:z-40`}
       >
         <div
           className="relative mx-auto flex h-11 w-full min-w-0 max-w-7xl items-center px-4 sm:h-[3.2rem]"
@@ -394,8 +419,8 @@ export const Navbar: React.FC = () => {
                   <div
                     ref={semoBoxDesktopRef}
                     className="relative flex items-center"
-                    onMouseEnter={() => setSemoBoxOpen(true)}
-                    onMouseLeave={() => setSemoBoxOpen(false)}
+                    onMouseEnter={semoBoxEnter}
+                    onMouseLeave={semoBoxLeave}
                   >
                     <NavLink
                       to="/shop"
@@ -605,13 +630,13 @@ export const Navbar: React.FC = () => {
         </div>
       </header>
 
-      {/* SEMO Box 서브 네비게이션 바 — 데스크톱: 호버 시 표시, 상단바 바로 아래 횡 메뉴 */}
+      {/* SEMO Box 서브 네비게이션 바 — 데스크톱: 호버 시 표시, 상단바 바로 아래 횡 메뉴 (틈 없이 경계선만) */}
       {semoBoxOpen && !productDesktopNav?.compact && (
         <div
-          className="fixed left-0 right-0 z-[39] hidden border-b border-slate-200/80 bg-white/95 shadow-sm backdrop-blur-md md:block"
-          style={{ top: 'var(--semo-desktop-header-h, 3.2rem)' }}
-          onMouseEnter={() => setSemoBoxOpen(true)}
-          onMouseLeave={() => setSemoBoxOpen(false)}
+          className="fixed left-0 right-0 z-[39] hidden border-t border-b border-t-slate-100 border-b-slate-200/80 bg-white/95 backdrop-blur-md md:block"
+          style={{ top: 'calc(var(--semo-desktop-header-h, 3.2rem) - 1px)' }}
+          onMouseEnter={semoBoxEnter}
+          onMouseLeave={semoBoxLeave}
         >
           <nav className="mx-auto flex max-w-7xl items-center justify-center gap-x-8 px-4 py-2 lg:gap-x-12">
             {SEMO_BOX_SUBMENU.map((sub) => (

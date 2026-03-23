@@ -87,8 +87,8 @@ function ProductDetailWithKey() {
 /** 상품 상세(md+)에서 Navbar 고정 시 본문이 헤더에 가리지 않도록 상단 패딩 */
 function AppLayout() {
   const { productDesktopNav } = useProductNavReplacement();
-  const mdProductPad =
-    productDesktopNav != null ? 'md:pt-[var(--semo-desktop-header-h)]' : 'md:pt-0';
+  // 네비게이션이 항상 fixed이므로 항상 상단 패딩 필요
+  const mdProductPad = 'md:pt-[var(--semo-desktop-header-h)]';
   return (
     <>
       <AddItemFromQuery />
