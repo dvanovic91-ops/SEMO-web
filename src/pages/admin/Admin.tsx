@@ -15,7 +15,18 @@ import { useAuth } from '../../context/AuthContext';
 type DashboardPeriodType = 'day' | 'week' | 'month' | 'range';
 import { deleteMappingForTypes, fetchMapping, saveMapping } from '../../lib/skinTypeSlotMapping';
 import { supabase } from '../../lib/supabase';
-import { CATALOG_ROOM_SLOTS_TABLE, type CatalogSlotRoom } from '../../lib/catalogSlotRooms';
+import {
+  BOX_HISTORY_SEASON_LABELS_KEY,
+  CATALOG_ROOM_SLOTS_TABLE,
+  CATALOG_SLOT_ROW_PERSIST,
+  CATALOG_SLOT_VISIBLE_BY_ROOM_KEY,
+  HISTORY_SEASON_COUNT,
+  HISTORY_SEASON_MAX_PRODUCTS,
+  clampCatalogVisibleCount,
+  parseCatalogVisibleByRoom,
+  type CatalogSlotRoom,
+} from '../../lib/catalogSlotRooms';
+import { PROMO_ARCHIVE_SORT_OFFSET } from '../../lib/promoSortOrder';
 import { sendMarketingTelegramBroadcast } from '../../lib/telegramBroadcast';
 import { ALL_SKIN_TYPES, SKIN_TEST_CATALOG_CATEGORY } from '../../config/skinTypeRecommendations';
 import { PromoImageCropModal } from '../../components/PromoImageCropModal';
@@ -271,6 +282,12 @@ type Product = {
   stock?: number | null;
   detail_description?: string | null;
   box_theme?: 'brand' | 'sky' | null;
+  /** 뷰티박스만: 과거 시즌 — 메인 /shop 에서 숨김, /shop/box-history 전용 */
+  box_history?: boolean | null;
+  /** 과거 박스 시즌 버킷 1=N-1(상단) … 3=N-3(하단) */
+  history_season_index?: number | null;
+  /** 같은 시즌 내 정렬 */
+  history_order?: number | null;
 };
 
 type ProductComponent = {
@@ -364,6 +381,8 @@ type Promo = {
   image_url: string | null;
   end_at: string | null;
   sort_order: number;
+  /** true: 사이트 «Архив» 탭·관리자 아카이브 목록 */
+  is_archived?: boolean | null;
 };
 
 const emptySlot = (index: number): Slot => ({
@@ -440,7 +459,7 @@ export const Admin: React.FC = () => {
   const [productCategory, setProductCategory] = useState<string>('beauty');
 
   const [products, setProducts] = useState<Product[]>([]);
-  /** 상품 목록 표시 순서 (앞에서 5개가 쇼핑 슬롯 1~5). 드래그로 순서 변경 후 저장 시 카탈로그 전용 룸 테이블에 반영 */
+  /** 상품 목록 표시 순서 (뷰티: 앞 7개가 쇼핑 슬롯 1~7, box_history 상품 제외). 드래그 후 「슬롯 순서 저장」 시 룸 테이블 반영 */
   const [orderedProductIds, setOrderedProductIds] = useState<string[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [savingProduct, setSavingProduct] = useState(false);
@@ -449,9 +468,16 @@ export const Admin: React.FC = () => {
   const [slots, setSlots] = useState<Slot[]>([]);
   /** 테스트 매칭 탭 전용: Beauty 슬롯만 (카테고리 분리 후에도 피부→슬롯은 뷰티 기준) */
   const [skinMatchSlots, setSkinMatchSlots] = useState<Slot[]>([]);
-  /** 카탈로그에 노출할 슬롯 개수(1~5). 저장 시 해당 룸 테이블에 insert */
+  /** 카탈로그에 노출할 슬롯 개수(1~7). 저장 시 해당 룸 테이블에 insert */
   const [slotCount, setSlotCount] = useState(5);
   const [savingSlots, setSavingSlots] = useState(false);
+  /** 뷰티 과거 박스: N-1~N-3 표기 대신 쇼핑 히스토리 페이지에 쓸 시즌명(러시아어 등) */
+  const [historySeasonLabels, setHistorySeasonLabels] = useState<Record<string, string>>({
+    '1': 'N-1',
+    '2': 'N-2',
+    '3': 'N-3',
+  });
+  const [savingHistoryLabels, setSavingHistoryLabels] = useState(false);
 
   /** 탭 전환 시 다른 룸 상품이 선택된 채 이미지 업로드·저장되면 동일 UUID가 여러 카탈로그에 보이는 섞임 방지 */
   useEffect(() => {
@@ -543,7 +569,9 @@ export const Admin: React.FC = () => {
   const [promosLoading, setPromosLoading] = useState(false);
   const [promosSaving, setPromosSaving] = useState(false);
   const [selectedPromo, setSelectedPromo] = useState<Promo | null>(null);
-  const [promoForm, setPromoForm] = useState({ title: '', image_url: '', end_at: '' });
+  const [promoForm, setPromoForm] = useState({ title: '', image_url: '', end_at: '', is_archived: false });
+  /** 프로모 관리: 진행 중 / 아카이브 목록·드래그 순서 분리 */
+  const [promoAdminSubTab, setPromoAdminSubTab] = useState<'active' | 'archive'>('active');
   const [uploadingPromoImage, setUploadingPromoImage] = useState(false);
   const promoImageInputRef = useRef<HTMLInputElement>(null);
   const [promoCropOpen, setPromoCropOpen] = useState(false);
@@ -986,25 +1014,30 @@ export const Admin: React.FC = () => {
         setError(null);
         // 기본 스키마 + image_urls, box_theme 조회. 실패 시(없는 컬럼 등) Shop과 동일 컬럼으로 재시도
         const selectFull =
-          'id, name, category, description, image_url, image_urls, rrp_price, prp_price, is_active, box_theme';
+          'id, name, category, description, image_url, image_urls, rrp_price, prp_price, is_active, box_theme, box_history, history_season_index, history_order';
         let { data: prodData, error: prodError } = await supabase
           .from('products')
           .select(selectFull);
         if (prodError) {
           console.warn('[Admin] products select 실패:', prodError.code, prodError.message);
-          // 컬럼 없음(42703) 등이면 box_theme 제외하고 재시도
+          // 컬럼 없음(42703) 등이면 box_theme 제외 후 재시도, 그다음 box_history 없이 재시도
           const selectFallback =
-            'id, name, category, description, image_url, image_urls, rrp_price, prp_price, is_active';
-          const fallback = await supabase.from('products').select(selectFallback);
-          if (fallback.error) {
+            'id, name, category, description, image_url, image_urls, rrp_price, prp_price, is_active, box_history, history_season_index, history_order';
+          let fb = await supabase.from('products').select(selectFallback);
+          if (fb.error) {
+            fb = await supabase
+              .from('products')
+              .select('id, name, category, description, image_url, image_urls, rrp_price, prp_price, is_active');
+          }
+          if (fb.error) {
             setError(
               '상품 목록을 불러오지 못했습니다. Supabase products 테이블 RLS에서 "authenticated" 사용자 SELECT를 허용했는지, 콘솔(F12) 오류를 확인하세요.'
             );
-            console.error('[Admin] products fallback 실패:', fallback.error);
+            console.error('[Admin] products fallback 실패:', fb.error);
             setProducts([]);
             return;
           }
-          prodData = fallback.data as (Product & { image_urls?: string[]; stock?: number; detail_description?: string | null; box_theme?: 'brand' | 'sky' | null })[];
+          prodData = fb.data as (Product & { image_urls?: string[]; stock?: number; detail_description?: string | null; box_theme?: 'brand' | 'sky' | null })[];
         }
         const raw =
           (prodData as (Product & {
@@ -1019,6 +1052,9 @@ export const Admin: React.FC = () => {
           stock: p.stock ?? null,
           detail_description: p.detail_description ?? null,
           box_theme: p.box_theme ?? 'brand',
+          box_history: p.box_history ?? false,
+          history_season_index: p.history_season_index ?? null,
+          history_order: p.history_order ?? 0,
         }));
         setProducts(prodList);
         /* 슬롯은 상품관리 탭 + productCategory 별 useEffect에서 로드 */
@@ -1036,12 +1072,67 @@ export const Admin: React.FC = () => {
     [products, productCategory],
   );
 
+  /** 뷰티: 메인 슬롯 순서에는 box_history 상품 제외(과거 박스 섹션 전용) */
   const displayProductIds = useMemo(() => {
+    const catKey = normalizeProductCategory(productCategory);
     const catIds = new Set(categoryProducts.map((p) => p.id));
-    const fromOrder = orderedProductIds.filter((id) => catIds.has(id));
-    const missing = categoryProducts.map((p) => p.id).filter((id) => !fromOrder.includes(id));
+    if (catKey !== 'beauty') {
+      const fromOrder = orderedProductIds.filter((id) => catIds.has(id));
+      const missing = categoryProducts.map((p) => p.id).filter((id) => !fromOrder.includes(id));
+      return [...fromOrder, ...missing];
+    }
+    const nonHistory = categoryProducts.filter((p) => !p.box_history);
+    const nhIds = new Set(nonHistory.map((p) => p.id));
+    const fromOrder = orderedProductIds.filter((id) => nhIds.has(id));
+    const missing = nonHistory.map((p) => p.id).filter((id) => !fromOrder.includes(id));
     return [...fromOrder, ...missing];
-  }, [orderedProductIds, categoryProducts]);
+  }, [orderedProductIds, categoryProducts, productCategory]);
+
+  /** 뷰티 과거 박스: 시즌 1→3 (N-1 상단 … N-3 하단), 시즌 내 history_order */
+  const historyProductsBySeason = useMemo(() => {
+    if (normalizeProductCategory(productCategory) !== 'beauty') {
+      return { 1: [] as Product[], 2: [] as Product[], 3: [] as Product[] };
+    }
+    const g = { 1: [] as Product[], 2: [] as Product[], 3: [] as Product[] };
+    categoryProducts
+      .filter((p) => p.box_history)
+      .forEach((p) => {
+        const s = Math.min(3, Math.max(1, Number(p.history_season_index) || 1)) as 1 | 2 | 3;
+        g[s].push(p);
+      });
+    (['1', '2', '3'] as const).forEach((k) => {
+      const si = Number(k) as 1 | 2 | 3;
+      g[si].sort((a, b) => (a.history_order ?? 0) - (b.history_order ?? 0));
+    });
+    return g;
+  }, [categoryProducts, productCategory]);
+
+  /** 뷰티: 히스토리 페이지 시즌 제목(N-1 대신 «2026 S/S» 등) */
+  useEffect(() => {
+    if (!supabase || tab !== 'products' || normalizeProductCategory(productCategory) !== 'beauty') return;
+    void (async () => {
+      const { data } = await supabase
+        .from('site_settings')
+        .select('value')
+        .eq('key', BOX_HISTORY_SEASON_LABELS_KEY)
+        .maybeSingle();
+      if (data?.value == null) return;
+      try {
+        const raw = data.value;
+        const v = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (v && typeof v === 'object') {
+          const o = v as Record<string, unknown>;
+          setHistorySeasonLabels((prev) => ({
+            '1': String(o['1'] ?? prev['1']),
+            '2': String(o['2'] ?? prev['2']),
+            '3': String(o['3'] ?? prev['3']),
+          }));
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, [supabase, tab, productCategory]);
 
   /** 상품관리: 탭·카테고리 변경 시에만 DB 슬롯 재로드 (products 내용 변경만으로는 순서 리셋 방지) */
   useEffect(() => {
@@ -1054,11 +1145,19 @@ export const Admin: React.FC = () => {
           .from(CATALOG_ROOM_SLOTS_TABLE)
           .select('id, slot_index, title, description, image_url, product_id, link_url')
           .eq('catalog_room', room);
+        const { data: visRow } = await supabase
+          .from('site_settings')
+          .select('value')
+          .eq('key', CATALOG_SLOT_VISIBLE_BY_ROOM_KEY)
+          .maybeSingle();
+        const visMap = parseCatalogVisibleByRoom(visRow?.value);
         if (error) {
           console.warn('[Admin] slots by category:', error.message);
           setSlots([]);
           setSlotCount(5);
-          setOrderedProductIds(catProds.map((p) => p.id));
+          setOrderedProductIds(
+            room === 'beauty' ? catProds.filter((p) => !p.box_history).map((p) => p.id) : catProds.map((p) => p.id),
+          );
           return;
         }
         const slotsSorted = (
@@ -1085,19 +1184,35 @@ export const Admin: React.FC = () => {
             link_url: found.link_url ?? '',
           }));
           setSlots(filled);
-          setSlotCount(Math.min(5, Math.max(1, filled.length)));
+          const fallbackVisible = Math.min(CATALOG_SLOT_ROW_PERSIST, Math.max(1, filled.length));
+          const savedVis = visMap[room];
+          setSlotCount(clampCatalogVisibleCount(savedVis ?? fallbackVisible, fallbackVisible));
           const slotProductIds = filled.map((s) => s.product_id).filter(Boolean) as string[];
-          const restIds = catProds.map((p) => p.id).filter((id) => !slotProductIds.includes(id));
-          setOrderedProductIds([...slotProductIds, ...restIds]);
+          const slotIdsFiltered =
+            room === 'beauty'
+              ? slotProductIds.filter((id) => {
+                  const p = catProds.find((x) => x.id === id);
+                  return p != null && !p.box_history;
+                })
+              : slotProductIds;
+          const restBase = room === 'beauty' ? catProds.filter((p) => !p.box_history) : catProds;
+          const restIds = restBase.map((p) => p.id).filter((id) => !slotIdsFiltered.includes(id));
+          setOrderedProductIds([...slotIdsFiltered, ...restIds]);
         } else {
           setSlots([]);
           setSlotCount(5);
-          setOrderedProductIds(catProds.map((p) => p.id));
+          setOrderedProductIds(
+            room === 'beauty' ? catProds.filter((p) => !p.box_history).map((p) => p.id) : catProds.map((p) => p.id),
+          );
         }
       } catch (e) {
         console.error(e);
         setSlots([]);
-        setOrderedProductIds(catProds.map((p) => p.id));
+        setOrderedProductIds(
+          normalizeProductCategory(productCategory) === 'beauty'
+            ? catProds.filter((p) => !p.box_history).map((p) => p.id)
+            : catProds.map((p) => p.id),
+        );
       }
     })();
   }, [supabase, isAdmin, tab, productCategory, products.length]);
@@ -1493,24 +1608,44 @@ export const Admin: React.FC = () => {
     }
   };
 
-  // 프로모 탭: promos 테이블 로드 (Supabase에 promos 테이블 필요: id, title, image_url, end_at, sort_order)
+  // 프로모 탭: promos 테이블 로드 (is_archived 컬럼 없으면 폴백)
   useEffect(() => {
     if (tab !== 'promo' || !supabase) return;
     setPromosLoading(true);
-    supabase
-      .from('promos')
-      .select('id, title, image_url, end_at, sort_order')
-      .order('sort_order', { ascending: true })
-      .then(({ data, error }) => {
-        if (error) {
-          console.warn('[Admin] promos load:', error.message);
-          setPromos([]);
-          return;
-        }
-        setPromos((data as Promo[]) ?? []);
-      })
-      .finally(() => setPromosLoading(false));
+    void (async () => {
+      const full = await supabase
+        .from('promos')
+        .select('id, title, image_url, end_at, sort_order, is_archived')
+        .order('sort_order', { ascending: true });
+      if (!full.error && full.data) {
+        setPromos(
+          (full.data as Promo[]).map((p) => ({
+            ...p,
+            is_archived: p.is_archived ?? false,
+          })),
+        );
+        setPromosLoading(false);
+        return;
+      }
+      if (full.error) console.warn('[Admin] promos load:', full.error.message);
+      const min = await supabase
+        .from('promos')
+        .select('id, title, image_url, end_at, sort_order')
+        .order('sort_order', { ascending: true });
+      setPromos(
+        ((min.data as Omit<Promo, 'is_archived'>[]) ?? []).map((p) => ({ ...p, is_archived: false })),
+      );
+      setPromosLoading(false);
+    })();
   }, [tab]);
+
+  const promosFilteredForAdmin = useMemo(() => {
+    const arch = promoAdminSubTab === 'archive';
+    return promos
+      .filter((p) => Boolean(p.is_archived) === arch)
+      .slice()
+      .sort((a, b) => a.sort_order - b.sort_order);
+  }, [promos, promoAdminSubTab]);
 
   // 주문 탭: orders 목록 로드 (최신순). 개인정보(inn·여권)는 가능한 한 포함해 조회
   useEffect(() => {
@@ -1945,7 +2080,7 @@ export const Admin: React.FC = () => {
   if (!isLoggedIn) return <Navigate to="/login" replace />;
   if (!isAdmin) return <Navigate to="/" replace />;
 
-  const handleProductField = (key: keyof Product, value: string | number | null) => {
+  const handleProductField = (key: keyof Product, value: string | number | null | boolean) => {
     setSelectedProduct((prev) => {
       if (!prev) return prev;
       if (key === 'rrp_price' || key === 'prp_price') {
@@ -1953,6 +2088,21 @@ export const Admin: React.FC = () => {
       }
       if (key === 'stock') {
         return { ...prev, stock: value !== '' && value != null ? Number(value) : null } as Product;
+      }
+      if (key === 'box_history' && typeof value === 'boolean') {
+        return {
+          ...prev,
+          box_history: value,
+          history_season_index: value ? (prev.history_season_index ?? 1) : null,
+          history_order: value ? prev.history_order : 0,
+        } as Product;
+      }
+      if (key === 'history_season_index') {
+        const n = typeof value === 'number' ? value : Number(value);
+        return {
+          ...prev,
+          history_season_index: Number.isFinite(n) ? Math.min(3, Math.max(1, Math.floor(n))) : 1,
+        } as Product;
       }
       return { ...prev, [key]: value } as Product;
     });
@@ -1983,11 +2133,30 @@ export const Admin: React.FC = () => {
       if (!mainImages.length) {
         mainImages = [];
       }
+      const normalizedCat = normalizeProductCategory(
+        (selectedProduct.category && String(selectedProduct.category).trim()) || productCategory,
+      );
+      const beautyHistory = normalizedCat === 'beauty' && Boolean(selectedProduct.box_history);
+      const historySeason = Math.min(3, Math.max(1, Number(selectedProduct.history_season_index) || 1));
+      let historyOrder = 0;
+      if (beautyHistory) {
+        const existingOrder = Number(selectedProduct.history_order ?? 0);
+        if (selectedProduct.id && existingOrder > 0) {
+          historyOrder = existingOrder;
+        } else {
+          const siblings = products.filter(
+            (p) =>
+              p.box_history &&
+              p.id !== selectedProduct.id &&
+              (p.history_season_index ?? 1) === historySeason,
+          );
+          const maxO = siblings.reduce((m, p) => Math.max(m, p.history_order ?? 0), -1);
+          historyOrder = maxO + 1;
+        }
+      }
       const payload: Record<string, unknown> = {
         name: selectedProduct.name,
-        category: normalizeProductCategory(
-          (selectedProduct.category && String(selectedProduct.category).trim()) || productCategory,
-        ),
+        category: normalizedCat,
         description: selectedProduct.description,
         detail_description: ingredientInfographicUrl.trim() || null,
         image_url: mainImages[0] ?? null,
@@ -1996,6 +2165,9 @@ export const Admin: React.FC = () => {
         prp_price: selectedProduct.prp_price,
         is_active: selectedProduct.is_active ?? true,
         box_theme: 'brand',
+        box_history: normalizedCat === 'beauty' ? Boolean(selectedProduct.box_history) : false,
+        history_season_index: beautyHistory ? historySeason : null,
+        history_order: beautyHistory ? historyOrder : 0,
       };
       let productId = selectedProduct.id;
       if (selectedProduct.id) {
@@ -2005,10 +2177,20 @@ export const Admin: React.FC = () => {
         const { data, error: insErr } = await supabase.from('products').insert(payload).select('id').single();
         if (insErr) throw insErr;
         productId = data.id;
-        setSelectedProduct({ ...selectedProduct, id: data.id });
-        setOrderedProductIds((prev) => (prev.includes(productId) ? prev : [...prev, productId]));
+        setSelectedProduct({ ...selectedProduct, id: data.id, history_order: beautyHistory ? historyOrder : 0 });
+        if (!beautyHistory) {
+          setOrderedProductIds((prev) => (prev.includes(productId) ? prev : [...prev, productId]));
+        }
       }
-      const slotRoom = normalizeProductCategory(payload.category) as CatalogSlotRoom;
+      if (normalizedCat === 'beauty') {
+        const wasHistory = products.find((p) => p.id === productId)?.box_history;
+        if (beautyHistory) {
+          setOrderedProductIds((prev) => prev.filter((id) => id !== productId));
+        } else if (wasHistory) {
+          setOrderedProductIds((prev) => (prev.includes(productId) ? prev : [...prev, productId]));
+        }
+      }
+      const slotRoom = normalizedCat as CatalogSlotRoom;
       const { error: slotRmErr } = await supabase
         .from(CATALOG_ROOM_SLOTS_TABLE)
         .delete()
@@ -2053,19 +2235,25 @@ export const Admin: React.FC = () => {
       setIngredientBriefsMap(nextBriefsMap);
       const { data: prodData } = await supabase
         .from('products')
-        .select('id, name, category, description, image_url, image_urls, rrp_price, prp_price, is_active, box_theme');
+        .select('id, name, category, description, image_url, image_urls, rrp_price, prp_price, is_active, box_theme, box_history, history_season_index, history_order');
       if (prodData && Array.isArray(prodData)) {
         const raw = prodData as (Product & {
           image_urls?: string[];
           stock?: number;
           detail_description?: string | null;
           box_theme?: 'brand' | 'sky' | null;
+          box_history?: boolean | null;
+          history_season_index?: number | null;
+          history_order?: number | null;
         })[];
         const list = raw.slice().sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')).map((p) => ({
           ...p,
           image_urls: p.image_urls ?? (p.image_url ? [p.image_url] : []),
           stock: p.stock ?? null,
           detail_description: p.detail_description ?? null,
+          box_history: p.box_history ?? false,
+          history_season_index: p.history_season_index ?? null,
+          history_order: p.history_order ?? 0,
         })) as Product[];
         setProducts(list);
       }
@@ -2275,7 +2463,7 @@ export const Admin: React.FC = () => {
     }
   };
 
-  /** 구성품 이미지 파일 선택 시 새 구성품 항목으로 추가 (최대 6장). */
+  /** 구성품 이미지 파일 선택 시 새 구성품 항목으로 추가 (최대 8장). */
   const onComponentImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const input = e.target;
     const files = input.files ? Array.from(input.files) : [];
@@ -2293,10 +2481,10 @@ export const Admin: React.FC = () => {
     // 구성품 업로드 시작: 인덱스를 0으로 두고 로딩 오버레이 표시
     setUploadingComponentIndex(0);
     try {
-      const maxImages = 6;
+      const maxImages = 8;
       const currentCount = components.length;
       if (currentCount >= maxImages) {
-        window.alert('구성품 이미지는 최대 6장까지입니다.');
+        window.alert('구성품 이미지는 최대 8장까지입니다.');
         return;
       }
       const toAdd = Math.min(files.length, maxImages - currentCount);
@@ -2382,15 +2570,106 @@ export const Admin: React.FC = () => {
     });
   };
 
-  /** 상품 목록 순서(orderedProductIds) 기준으로 슬롯 1~5 저장 — catalog_room_slots 에서 해당 catalog_room 만 덮어씀 */
+  const saveHistorySeasonLabelsToDb = async () => {
+    if (!supabase || !canGrantPermission) return;
+    setSavingHistoryLabels(true);
+    setError(null);
+    try {
+      const { error } = await supabase.from('site_settings').upsert(
+        { key: BOX_HISTORY_SEASON_LABELS_KEY, value: JSON.stringify(historySeasonLabels) },
+        { onConflict: 'key' },
+      );
+      if (error) throw error;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '시즌 이름 저장 실패');
+    } finally {
+      setSavingHistoryLabels(false);
+    }
+  };
+
+  const reorderHistoryInSeason = async (season: 1 | 2 | 3, productId: string, delta: -1 | 1) => {
+    if (!supabase || !canGrantPermission) return;
+    const arr = historyProductsBySeason[season].map((p) => p.id);
+    const i = arr.indexOf(productId);
+    if (i < 0) return;
+    const j = i + delta;
+    if (j < 0 || j >= arr.length) return;
+    const next = [...arr];
+    [next[i], next[j]] = [next[j], next[i]];
+    try {
+      await Promise.all(
+        next.map((id, order) =>
+          supabase.from('products').update({ history_order: order, history_season_index: season }).eq('id', id),
+        ),
+      );
+      const orderMap = new Map(next.map((id, idx) => [id, idx]));
+      setProducts((prev) =>
+        prev.map((p) => {
+          if (!p.box_history) return p;
+          const si = Math.min(3, Math.max(1, p.history_season_index ?? 1));
+          if (si !== season) return p;
+          const o = orderMap.get(p.id);
+          if (o === undefined) return p;
+          return { ...p, history_order: o, history_season_index: season };
+        }),
+      );
+    } catch (e) {
+      console.warn('[Admin] reorderHistoryInSeason', e);
+    }
+  };
+
+  const moveHistoryToSeason = async (productId: string, targetSeason: 1 | 2 | 3) => {
+    if (!supabase || !canGrantPermission) return;
+    const p = products.find((x) => x.id === productId);
+    if (!p?.box_history) return;
+    const from = Math.min(3, Math.max(1, p.history_season_index ?? 1)) as 1 | 2 | 3;
+    if (from === targetSeason) return;
+    const targetList = historyProductsBySeason[targetSeason];
+    if (targetList.length >= HISTORY_SEASON_MAX_PRODUCTS) {
+      setError(`한 시즌 버킷당 최대 ${HISTORY_SEASON_MAX_PRODUCTS}개까지입니다.`);
+      return;
+    }
+    const newOrder = targetList.length;
+    const fromIds = historyProductsBySeason[from].filter((x) => x.id !== productId).map((x) => x.id);
+    try {
+      await supabase
+        .from('products')
+        .update({ history_season_index: targetSeason, history_order: newOrder })
+        .eq('id', productId);
+      await Promise.all(
+        fromIds.map((id, order) => supabase.from('products').update({ history_order: order }).eq('id', id)),
+      );
+      setProducts((prev) =>
+        prev.map((x) => {
+          if (x.id === productId) {
+            return { ...x, history_season_index: targetSeason, history_order: newOrder };
+          }
+          if (
+            x.box_history &&
+            Math.min(3, Math.max(1, x.history_season_index ?? 1)) === from &&
+            fromIds.includes(x.id)
+          ) {
+            return { ...x, history_order: fromIds.indexOf(x.id) };
+          }
+          return x;
+        }),
+      );
+    } catch (e) {
+      console.warn('[Admin] moveHistoryToSeason', e);
+    }
+  };
+
+  /** 상품 목록 순서(orderedProductIds) 기준으로 슬롯 1~7 저장 — catalog_room_slots 에서 해당 catalog_room 만 덮어씀 */
   const handleSaveSlotOrder = async () => {
     if (!supabase || !canGrantPermission) return;
     setSavingSlots(true);
     setError(null);
     try {
       const room = normalizeProductCategory(productCategory) as CatalogSlotRoom;
-      const count = Math.min(5, Math.max(1, slotCount));
-      const candidateIds = orderedProductIds.slice(0, count).filter(Boolean) as string[];
+      /** 카탈로그에 보여 줄 슬롯 수(1~7) — DB에는 항상 0..6 행까지 유지 */
+      const visibleCount = Math.min(CATALOG_SLOT_ROW_PERSIST, Math.max(1, slotCount));
+      const persistRows = CATALOG_SLOT_ROW_PERSIST;
+      const candidateIds = orderedProductIds.slice(0, persistRows).filter(Boolean) as string[];
       if (candidateIds.length > 0) {
         const { error: stripOtherRoomsErr } = await supabase
           .from(CATALOG_ROOM_SLOTS_TABLE)
@@ -2401,25 +2680,50 @@ export const Admin: React.FC = () => {
       }
       const { error: delRoomErr } = await supabase.from(CATALOG_ROOM_SLOTS_TABLE).delete().eq('catalog_room', room);
       if (delRoomErr) throw delRoomErr;
+      /**
+       * 슬롯 커버 이미지·설명·링크는 product_id 기준으로 보존.
+       * 상품 목록만 드래그하면 orderedProductIds는 바뀌는데 slots[].slot_index는 예전 순서라
+       * (이전 로직: 같은 인덱스·같은 product_id일 때만 image 유지) 저장 시 URL이 전부 날아갔음.
+       */
+      const slotMetaByProductId = new Map<
+        string,
+        { image_url: string | null; description: string; link_url: string; title: string }
+      >();
+      for (const s of slots) {
+        if (!s.product_id) continue;
+        const prevM = slotMetaByProductId.get(s.product_id);
+        const img = s.image_url?.trim();
+        const prevImg = prevM?.image_url?.trim();
+        if (!prevM || (img && !prevImg)) {
+          slotMetaByProductId.set(s.product_id, {
+            image_url: s.image_url,
+            description: s.description ?? '',
+            link_url: s.link_url ?? '',
+            title: s.title ?? '',
+          });
+        }
+      }
       // 슬롯에 배치될 상품 중 카테고리 불일치 → 자동 보정
       const mismatchIds: string[] = [];
-      const toInsert = Array.from({ length: count }, (_, i) => {
+      const toInsert = Array.from({ length: persistRows }, (_, i) => {
         const pid = orderedProductIds[i] ?? null;
         const prod = pid ? products.find((p) => p.id === pid) : null;
         if (pid && prod && normalizeProductCategory(prod.category) !== room) {
           mismatchIds.push(pid);
         }
-        const prevAtIndex = slots.find((s) => s.slot_index === i);
-        const keepSlotImage =
-          prevAtIndex && prevAtIndex.product_id === pid && prevAtIndex.image_url?.trim();
+        const meta = pid ? slotMetaByProductId.get(pid) : undefined;
+        const customImg = meta?.image_url?.trim();
+        const desc = meta?.description?.trim();
+        const link = meta?.link_url?.trim();
+        const customTitle = meta?.title?.trim();
         return {
           catalog_room: room,
           slot_index: i,
-          title: prod?.name ?? null,
-          description: null,
-          image_url: keepSlotImage ? prevAtIndex!.image_url : null,
+          title: prod?.name ?? customTitle ?? null,
+          description: desc || null,
+          image_url: customImg || null,
           product_id: pid,
-          link_url: null,
+          link_url: link || null,
         };
       });
       // 카테고리 불일치 상품 → DB의 products.category를 현재 룸으로 자동 수정
@@ -2440,6 +2744,18 @@ export const Admin: React.FC = () => {
       }
       const { error: insErr } = await supabase.from(CATALOG_ROOM_SLOTS_TABLE).insert(toInsert);
       if (insErr) throw insErr;
+      const { data: visRowAfter } = await supabase
+        .from('site_settings')
+        .select('value')
+        .eq('key', CATALOG_SLOT_VISIBLE_BY_ROOM_KEY)
+        .maybeSingle();
+      const visPrev = parseCatalogVisibleByRoom(visRowAfter?.value);
+      const visNext = { ...visPrev, [room]: visibleCount };
+      const { error: visErr } = await supabase.from('site_settings').upsert(
+        { key: CATALOG_SLOT_VISIBLE_BY_ROOM_KEY, value: JSON.stringify(visNext) },
+        { onConflict: 'key' },
+      );
+      if (visErr) console.warn('[Admin] catalog 노출 개수 저장 실패:', visErr.message);
       const { data: slotData } = await supabase
         .from(CATALOG_ROOM_SLOTS_TABLE)
         .select('id, slot_index, title, description, image_url, product_id, link_url')
@@ -2457,7 +2773,8 @@ export const Admin: React.FC = () => {
             link_url: found.link_url ?? '',
           }))
         );
-        setSlotCount(slotsSortedAfterSave.length);
+        const fallbackAfter = Math.min(CATALOG_SLOT_ROW_PERSIST, Math.max(1, slotsSortedAfterSave.length));
+        setSlotCount(clampCatalogVisibleCount(visibleCount, fallbackAfter));
         const slotProductIds = slotsSortedAfterSave.map((s) => s.product_id).filter(Boolean) as string[];
         const catProdsAfter = products.filter(
           (p) => normalizeProductCategory(p.category) === normalizeProductCategory(productCategory),
@@ -3262,7 +3579,7 @@ export const Admin: React.FC = () => {
                     ) : (
                       <div
                         className="grid gap-2 sm:gap-3"
-                        style={{ gridTemplateColumns: `repeat(${Math.min(slotCount, 5)}, minmax(0, 1fr))` }}
+                        style={{ gridTemplateColumns: `repeat(${Math.min(slotCount, CATALOG_SLOT_ROW_PERSIST)}, minmax(0, 1fr))` }}
                       >
                         {displayProductIds
                           .slice(0, slotCount)
@@ -3316,11 +3633,15 @@ export const Admin: React.FC = () => {
               </>
             )}
             <p className="mb-2 text-xs text-slate-500">
-              상단 탭(Beauty / Inner / Hair)마다 <strong>슬롯·순서가 DB에서 완전히 분리</strong>되어 저장됩니다. 「슬롯 순서 저장」 시 해당 카테고리 페이지만 갱신됩니다. 피부 테스트 매칭은 <strong>뷰티박스 탭</strong>과 «테스트 매칭» 메뉴만 사용합니다. 위에서 1~{slotCount}개가 카탈로그에 노출됩니다.
+              상단 탭마다 슬롯·순서가 DB에서 분리되어 저장됩니다. 「슬롯 순서 저장」 시{' '}
+              <strong>슬롯 0~6번(최대 7칸) 데이터는 DB에 유지</strong>되고, 아래 «슬롯 개수»는{' '}
+              <strong>쇼핑몰·메인에 보이는 칸 수만</strong> 조절합니다. 뷰티박스는 <strong>메인 목록 7칸까지</strong>가
+              현재 카탈로그 슬롯이며, «В истории боксов» 체크한 상품은 아래 <strong>과거 박스</strong> 섹션으로만 옵니다.
+              피부 테스트 매칭은 <strong>뷰티박스</strong>·«테스트 매칭»만 사용합니다.
             </p>
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <span className="text-xs font-medium text-slate-600">슬롯 개수:</span>
-              {[1, 2, 3, 4, 5].map((n) => (
+              {[1, 2, 3, 4, 5, 6, 7].map((n) => (
                 <button
                   key={n}
                   type="button"
@@ -3346,6 +3667,9 @@ export const Admin: React.FC = () => {
                     is_active: true,
                     stock: 0,
                     detail_description: null,
+                    box_history: false,
+                    history_season_index: 1,
+                    history_order: 0,
                   })
                 }
                 className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 hover:border-brand hover:text-brand"
@@ -3353,90 +3677,334 @@ export const Admin: React.FC = () => {
                 새 상품
               </button>
             </div>
-            <ul className="divide-y divide-slate-100 text-sm">
-              {displayProductIds.map((productId, index) => {
-                const p = products.find((pr) => pr.id === productId);
-                if (!p) return null;
-                const slotNum = index + 1;
-                const isSlot = slotNum <= slotCount;
-                return (
-                  <li
-                    key={p.id}
-                    draggable
-                    onDragStart={(e) => {
-                      e.dataTransfer.setData('text/plain', String(index));
-                      e.dataTransfer.effectAllowed = 'move';
-                    }}
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = 'move';
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      const fromIdx = Number(e.dataTransfer.getData('text/plain'));
-                      if (fromIdx === index) return;
-                      const toSlotNum = index + 1;
-                      setOrderedProductIds((prev) => {
-                        const list = [...prev];
-                        const [moved] = list.splice(fromIdx, 1);
-                        list.splice(index, 0, moved);
-                        return list;
-                      });
-                      setSlotCount((prev) => (toSlotNum > prev ? Math.min(5, toSlotNum) : prev));
-                    }}
-                    className="flex cursor-move items-center gap-2 px-2 py-2 hover:bg-slate-50"
-                    onClick={(ev) => { if ((ev.target as HTMLElement).closest('button')) return; setSelectedProduct(p); }}
-                  >
-                    {isSlot && (
-                      <span
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-100 text-sm font-bold text-amber-600"
-                        aria-label={`슬롯 ${slotNum}`}
+            {categoryProducts.length === 0 ? (
+              <p className="px-2 py-4 text-xs text-slate-400">
+                이 카테고리에 등록된 상품이 없습니다.
+                <span className="mt-2 block text-amber-600">
+                  쇼핑 페이지에는 보이는데 여기만 비었다면 Supabase → Table Editor → products → RLS에서 &quot;authenticated&quot; 사용자 SELECT 허용 정책을 추가하세요.
+                </span>
+              </p>
+            ) : normalizeProductCategory(productCategory) === 'beauty' ? (
+              <>
+                <p className="mb-1 px-2 text-xs font-medium text-slate-600">현재 카탈로그 슬롯 (최대 7칸)</p>
+                <ul className="divide-y divide-slate-100 text-sm">
+                  {displayProductIds.slice(0, 7).map((productId) => {
+                    const p = products.find((pr) => pr.id === productId);
+                    if (!p) return null;
+                    const index = displayProductIds.indexOf(productId);
+                    const slotNum = index + 1;
+                    const isSlot = slotNum <= slotCount && slotNum <= 7;
+                    return (
+                      <li
+                        key={p.id}
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData('text/plain', String(index));
+                          e.dataTransfer.effectAllowed = 'move';
+                        }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const fromIdx = Number(e.dataTransfer.getData('text/plain'));
+                          if (fromIdx === index) return;
+                          const toSlotNum = index + 1;
+                          setOrderedProductIds((prev) => {
+                            const list = [...prev];
+                            const [moved] = list.splice(fromIdx, 1);
+                            list.splice(index, 0, moved);
+                            return list;
+                          });
+                          setSlotCount((prev) => (toSlotNum > prev ? Math.min(CATALOG_SLOT_ROW_PERSIST, toSlotNum) : prev));
+                        }}
+                        className="flex cursor-move items-center gap-2 px-2 py-2 hover:bg-slate-50"
+                        onClick={(ev) => {
+                          if ((ev.target as HTMLElement).closest('button')) return;
+                          setSelectedProduct(p);
+                        }}
                       >
-                        {slotNum}
-                      </span>
-                    )}
-                    {!isSlot && <span className="w-7 shrink-0" />}
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="truncate">{p.name}</span>
-                        {p.prp_price != null ? (
-                          <span className="shrink-0 text-xs text-slate-700">
-                            <span className="mr-1 line-through text-slate-400">
-                              {formatNumber(Number(p.rrp_price ?? 0))} ₽
-                            </span>
-                            <span>{formatNumber(p.prp_price)} ₽</span>
-                          </span>
-                        ) : (
-                          <span className="shrink-0 text-xs text-slate-700">
-                            {formatNumber(Number(p.rrp_price ?? 0))} ₽
+                        {isSlot && (
+                          <span
+                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-100 text-sm font-bold text-amber-600"
+                            aria-label={`슬롯 ${slotNum}`}
+                          >
+                            {slotNum}
                           </span>
                         )}
-                      </div>
-                      {p.category && (
-                        <p className={`mt-0.5 text-[11px] uppercase tracking-wide ${
-                          normalizeProductCategory(p.category) !== normalizeProductCategory(productCategory)
-                            ? 'font-semibold text-red-500'
-                            : 'text-slate-400'
-                        }`}>
-                          {p.category}
-                          {normalizeProductCategory(p.category) !== normalizeProductCategory(productCategory) && (
-                            <span className="ml-1 normal-case"> ⚠️ 카테고리 불일치 — 저장 시 자동 보정됨</span>
+                        {!isSlot && <span className="w-7 shrink-0" />}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate">{p.name}</span>
+                            {p.prp_price != null ? (
+                              <span className="shrink-0 text-xs text-slate-700">
+                                <span className="mr-1 line-through text-slate-400">
+                                  {formatNumber(Number(p.rrp_price ?? 0))} ₽
+                                </span>
+                                <span>{formatNumber(p.prp_price)} ₽</span>
+                              </span>
+                            ) : (
+                              <span className="shrink-0 text-xs text-slate-700">
+                                {formatNumber(Number(p.rrp_price ?? 0))} ₽
+                              </span>
+                            )}
+                          </div>
+                          {p.category && (
+                            <p
+                              className={`mt-0.5 text-[11px] uppercase tracking-wide ${
+                                normalizeProductCategory(p.category) !== normalizeProductCategory(productCategory)
+                                  ? 'font-semibold text-red-500'
+                                  : 'text-slate-400'
+                              }`}
+                            >
+                              {p.category}
+                              {normalizeProductCategory(p.category) !== normalizeProductCategory(productCategory) && (
+                                <span className="ml-1 normal-case"> ⚠️ 카테고리 불일치 — 저장 시 자동 보정됨</span>
+                              )}
+                            </p>
                           )}
-                        </p>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {displayProductIds.length > 7 && (
+                  <>
+                    <p className="mt-4 px-2 text-xs font-medium text-slate-500">
+                      추가 상품 (8번째 이하 — 위 7칸으로 드래그하면 카탈로그 슬롯에 올라갑니다)
+                    </p>
+                    <ul className="divide-y divide-slate-100 text-sm">
+                      {displayProductIds.slice(7).map((productId) => {
+                        const p = products.find((pr) => pr.id === productId);
+                        if (!p) return null;
+                        const index = displayProductIds.indexOf(productId);
+                        return (
+                          <li
+                            key={p.id}
+                            draggable
+                            onDragStart={(e) => {
+                              e.dataTransfer.setData('text/plain', String(index));
+                              e.dataTransfer.effectAllowed = 'move';
+                            }}
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              e.dataTransfer.dropEffect = 'move';
+                            }}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              const fromIdx = Number(e.dataTransfer.getData('text/plain'));
+                              if (fromIdx === index) return;
+                              setOrderedProductIds((prev) => {
+                                const list = [...prev];
+                                const [moved] = list.splice(fromIdx, 1);
+                                list.splice(index, 0, moved);
+                                return list;
+                              });
+                            }}
+                            className="flex cursor-move items-center gap-2 px-2 py-2 hover:bg-slate-50"
+                            onClick={(ev) => {
+                              if ((ev.target as HTMLElement).closest('button')) return;
+                              setSelectedProduct(p);
+                            }}
+                          >
+                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-500">
+                              +
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="truncate">{p.name}</span>
+                                {p.prp_price != null ? (
+                                  <span className="shrink-0 text-xs text-slate-700">
+                                    <span className="mr-1 line-through text-slate-400">
+                                      {formatNumber(Number(p.rrp_price ?? 0))} ₽
+                                    </span>
+                                    <span>{formatNumber(p.prp_price)} ₽</span>
+                                  </span>
+                                ) : (
+                                  <span className="shrink-0 text-xs text-slate-700">
+                                    {formatNumber(Number(p.rrp_price ?? 0))} ₽
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </>
+                )}
+                <div className="mt-4 rounded-xl border border-slate-300/80 bg-slate-100 p-3">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold text-slate-900">과거 박스</h3>
+                    <button
+                      type="button"
+                      onClick={() => void saveHistorySeasonLabelsToDb()}
+                      disabled={savingHistoryLabels || !canGrantPermission}
+                      className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:border-brand hover:text-brand disabled:opacity-50"
+                    >
+                      {savingHistoryLabels ? '저장 중…' : '시즌 이름 저장'}
+                    </button>
+                  </div>
+                  <p className="mb-3 text-xs text-slate-600">
+                    «В истории боксов»에 표시되는 시즌 제목입니다. 시즌당 박스는 최대 {HISTORY_SEASON_MAX_PRODUCTS}개까지입니다 (N-1이 최근, N-3이 가장 과거).
+                  </p>
+                  {([1, 2, 3] as const).map((season) => (
+                    <div key={season} className="mb-3 rounded-lg border border-slate-200 bg-white p-3 last:mb-0">
+                      <div className="mb-2 flex flex-wrap items-center gap-2">
+                        <span className="shrink-0 text-xs font-bold text-slate-500">N-{season}</span>
+                        <input
+                          type="text"
+                          className={`${inputClass} min-h-9 max-w-[16rem] flex-1 text-sm`}
+                          value={historySeasonLabels[String(season)] ?? ''}
+                          onChange={(e) =>
+                            setHistorySeasonLabels((prev) => ({ ...prev, [String(season)]: e.target.value }))
+                          }
+                          placeholder={season === 1 ? '예: 2026 S/S' : ''}
+                        />
+                        <span className="text-[10px] text-slate-400">
+                          {historyProductsBySeason[season].length}/{HISTORY_SEASON_MAX_PRODUCTS}
+                        </span>
+                      </div>
+                      {historyProductsBySeason[season].length === 0 ? (
+                        <p className="py-2 text-xs text-slate-400">상품 없음 — 오른쪽에서 «В истории боксов» 체크 후 저장</p>
+                      ) : (
+                        <ul className="divide-y divide-slate-100 text-sm">
+                          {historyProductsBySeason[season].map((p) => (
+                            <li key={p.id} className="flex flex-wrap items-center gap-2 px-1 py-2">
+                              <button
+                                type="button"
+                                className="min-w-0 flex-1 truncate text-left text-slate-800 hover:text-brand"
+                                onClick={() => setSelectedProduct(p)}
+                              >
+                                {p.name}
+                              </button>
+                              <div className="flex shrink-0 flex-wrap items-center gap-1">
+                                <button
+                                  type="button"
+                                  className="rounded border border-slate-200 bg-white px-1.5 text-[11px] text-slate-600 hover:bg-slate-50"
+                                  onClick={() => void reorderHistoryInSeason(season, p.id, -1)}
+                                >
+                                  ↑
+                                </button>
+                                <button
+                                  type="button"
+                                  className="rounded border border-slate-200 bg-white px-1.5 text-[11px] text-slate-600 hover:bg-slate-50"
+                                  onClick={() => void reorderHistoryInSeason(season, p.id, 1)}
+                                >
+                                  ↓
+                                </button>
+                                {([1, 2, 3] as const)
+                                  .filter((s) => s !== season)
+                                  .map((s) => (
+                                    <button
+                                      key={s}
+                                      type="button"
+                                      className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-600 hover:border-brand hover:text-brand"
+                                      onClick={() => void moveHistoryToSeason(p.id, s)}
+                                    >
+                                      → {historySeasonLabels[String(s)] ?? `N-${s}`}
+                                    </button>
+                                  ))}
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
                       )}
                     </div>
-                  </li>
-                );
-              })}
-              {categoryProducts.length === 0 && (
-                <li className="px-2 py-4 text-xs text-slate-400">
-                  이 카테고리에 등록된 상품이 없습니다.
-                  <span className="mt-2 block text-amber-600">
-                    쇼핑 페이지에는 보이는데 여기만 비었다면 Supabase → Table Editor → products → RLS에서 &quot;authenticated&quot; 사용자 SELECT 허용 정책을 추가하세요.
-                  </span>
-                </li>
-              )}
-            </ul>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <ul className="divide-y divide-slate-100 text-sm">
+                {displayProductIds.map((productId, index) => {
+                  const p = products.find((pr) => pr.id === productId);
+                  if (!p) return null;
+                  const slotNum = index + 1;
+                  const isSlot = slotNum <= slotCount;
+                  return (
+                    <li
+                      key={p.id}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData('text/plain', String(index));
+                        e.dataTransfer.effectAllowed = 'move';
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const fromIdx = Number(e.dataTransfer.getData('text/plain'));
+                        if (fromIdx === index) return;
+                        const toSlotNum = index + 1;
+                        setOrderedProductIds((prev) => {
+                          const list = [...prev];
+                          const [moved] = list.splice(fromIdx, 1);
+                          list.splice(index, 0, moved);
+                          return list;
+                        });
+                        setSlotCount((prev) => (toSlotNum > prev ? Math.min(CATALOG_SLOT_ROW_PERSIST, toSlotNum) : prev));
+                      }}
+                      className="flex cursor-move items-center gap-2 px-2 py-2 hover:bg-slate-50"
+                      onClick={(ev) => {
+                        if ((ev.target as HTMLElement).closest('button')) return;
+                        setSelectedProduct(p);
+                      }}
+                    >
+                      {isSlot && (
+                        <span
+                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-100 text-sm font-bold text-amber-600"
+                          aria-label={`슬롯 ${slotNum}`}
+                        >
+                          {slotNum}
+                        </span>
+                      )}
+                      {!isSlot && <span className="w-7 shrink-0" />}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate">
+                            {p.name}
+                            {p.box_history ? (
+                              <span className="ml-1.5 shrink-0 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium uppercase text-slate-600">
+                                История
+                              </span>
+                            ) : null}
+                          </span>
+                          {p.prp_price != null ? (
+                            <span className="shrink-0 text-xs text-slate-700">
+                              <span className="mr-1 line-through text-slate-400">
+                                {formatNumber(Number(p.rrp_price ?? 0))} ₽
+                              </span>
+                              <span>{formatNumber(p.prp_price)} ₽</span>
+                            </span>
+                          ) : (
+                            <span className="shrink-0 text-xs text-slate-700">
+                              {formatNumber(Number(p.rrp_price ?? 0))} ₽
+                            </span>
+                          )}
+                        </div>
+                        {p.category && (
+                          <p
+                            className={`mt-0.5 text-[11px] uppercase tracking-wide ${
+                              normalizeProductCategory(p.category) !== normalizeProductCategory(productCategory)
+                                ? 'font-semibold text-red-500'
+                                : 'text-slate-400'
+                            }`}
+                          >
+                            {p.category}
+                            {normalizeProductCategory(p.category) !== normalizeProductCategory(productCategory) && (
+                              <span className="ml-1 normal-case"> ⚠️ 카테고리 불일치 — 저장 시 자동 보정됨</span>
+                            )}
+                          </p>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </div>
 
           <div className="rounded-xl border border-slate-200 bg-white p-4">
@@ -3630,6 +4198,39 @@ export const Admin: React.FC = () => {
                   </div>
                 </div>
 
+                {normalizeProductCategory(selectedProduct.category ?? 'beauty') === 'beauty' && (
+                  <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-3 text-sm">
+                    <label className="flex cursor-pointer items-start gap-3">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-brand focus:ring-brand"
+                        checked={Boolean(selectedProduct.box_history)}
+                        onChange={(e) => handleProductField('box_history', e.target.checked)}
+                      />
+                      <span>
+                        <span className="font-medium text-slate-900">В истории боксов</span>
+                        <span className="mt-0.5 block text-xs text-slate-500">
+                          Прошлый сезон — скрыто на главной витрине Beauty box; ниже «과거 박스»에서 시즌(N-1~N-3)을 고릅니다.
+                        </span>
+                      </span>
+                    </label>
+                    {selectedProduct.box_history && (
+                      <div>
+                        <label className={labelClass}>과거 박스 시즌 (N-1=히스토리 상단 … N-3=하단)</label>
+                        <select
+                          className={inputClass}
+                          value={String(Math.min(3, Math.max(1, Number(selectedProduct.history_season_index) || 1)))}
+                          onChange={(e) => handleProductField('history_season_index', Number(e.target.value))}
+                        >
+                          <option value={1}>{historySeasonLabels['1'] ?? 'N-1'}</option>
+                          <option value={2}>{historySeasonLabels['2'] ?? 'N-2'}</option>
+                          <option value={3}>{historySeasonLabels['3'] ?? 'N-3'}</option>
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* ① 썸네일·상세 페이지 대표 이미지 (최대 2장) */}
                 <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3">
                   <label className={`${labelClass} font-semibold text-slate-800`}>
@@ -3775,11 +4376,11 @@ export const Admin: React.FC = () => {
                   </div>
                 </div>
 
-                {/* ② 구성품 이미지 및 내용 (최대 6장) */}
+                {/* ② 구성품 이미지 및 내용 (최대 8장) */}
                 <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3">
                   <div className="mb-2 flex items-center justify-between">
                     <label className={`${labelClass} font-semibold text-slate-800`}>
-                      ② 구성품 이미지 및 내용 (최대 6장)
+                      ② 구성품 이미지 및 내용 (최대 8장)
                     </label>
                     <button
                       type="button"
@@ -4009,7 +4610,7 @@ export const Admin: React.FC = () => {
                   </p>
                 ) : (
                   <div className="mb-4 flex flex-wrap gap-3">
-                    {([1, 2, 3, 4, 5] as const).map((slotNum) => {
+                    {Array.from({ length: skinMatchSlots.length }, (_, i) => i + 1).map((slotNum) => {
                       const isActive = slotNum <= skinMatchSlots.length;
                       const slotInfo = skinMatchSlots[slotNum - 1];
                       const productName = slotInfo?.product_id ? products.find((p) => p.id === slotInfo.product_id)?.name ?? slotInfo?.title : slotInfo?.title;
@@ -4151,12 +4752,36 @@ export const Admin: React.FC = () => {
         <section className="mt-4">
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <h2 className="mb-3 text-sm font-semibold text-slate-900">프로모 배너</h2>
+            <p className="mb-3 text-xs text-slate-500">
+              «진행 중»은 사이트 <strong>Актуальные</strong> 탭, «아카이브»는 <strong>Архив</strong> 탭에 노출됩니다. 드래그 순서는
+              현재 선택한 목록 안에서만 적용됩니다.
+            </p>
+            <div className="mb-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setPromoAdminSubTab('active')}
+                className={`rounded-full px-4 py-1.5 text-xs font-medium ${
+                  promoAdminSubTab === 'active' ? 'bg-brand text-white' : 'border border-slate-200 bg-white text-slate-600'
+                }`}
+              >
+                진행 중
+              </button>
+              <button
+                type="button"
+                onClick={() => setPromoAdminSubTab('archive')}
+                className={`rounded-full px-4 py-1.5 text-xs font-medium ${
+                  promoAdminSubTab === 'archive' ? 'bg-slate-700 text-white' : 'border border-slate-200 bg-white text-slate-600'
+                }`}
+              >
+                아카이브 (종료)
+              </button>
+            </div>
             {promosLoading ? (
               <p className="py-8 text-center text-sm text-slate-500">불러오는 중…</p>
             ) : (
               <>
                 <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:flex xl:flex-wrap">
-                  {promos.map((p, index) => (
+                  {promosFilteredForAdmin.map((p, index) => (
                     <div
                       key={p.id}
                       draggable
@@ -4173,10 +4798,17 @@ export const Admin: React.FC = () => {
                         const raw = e.dataTransfer.getData('text/plain');
                         try {
                           const { index: from } = JSON.parse(raw) as { index: number; id: string };
-                          const list = [...promos];
+                          const list = [...promosFilteredForAdmin];
                           const [removed] = list.splice(from, 1);
                           list.splice(index, 0, removed);
-                          setPromos(list.map((pr, i) => ({ ...pr, sort_order: i })));
+                          const useArchiveOffset = promoAdminSubTab === 'archive';
+                          setPromos((prev) => {
+                            const m = new Map<string, number>();
+                            list.forEach((item, i) => {
+                              m.set(item.id, useArchiveOffset ? PROMO_ARCHIVE_SORT_OFFSET + i : i);
+                            });
+                            return prev.map((pr) => (m.has(pr.id) ? { ...pr, sort_order: m.get(pr.id)! } : pr));
+                          });
                         } catch {
                           // ignore
                         }
@@ -4200,6 +4832,7 @@ export const Admin: React.FC = () => {
                               title: p.title,
                               image_url: p.image_url ?? '',
                               end_at: p.end_at ? p.end_at.slice(0, 10) : '',
+                              is_archived: Boolean(p.is_archived),
                             });
                           }}
                           className="rounded px-2 py-1 text-xs text-sky-600 hover:bg-sky-50"
@@ -4228,6 +4861,9 @@ export const Admin: React.FC = () => {
                       <p className="text-center text-xs text-slate-500">
                         {p.end_at ? `~ ${new Date(p.end_at).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })}` : '종료일 미설정'}
                       </p>
+                      {p.is_archived ? (
+                        <p className="mt-1 text-center text-[10px] font-medium uppercase text-slate-400">아카이브</p>
+                      ) : null}
                     </div>
                   ))}
                 </div>
@@ -4239,8 +4875,8 @@ export const Admin: React.FC = () => {
                       setPromosSaving(true);
                       setError(null);
                       try {
-                        for (let i = 0; i < promos.length; i++) {
-                          await supabase.from('promos').update({ sort_order: i }).eq('id', promos[i].id);
+                        for (const pr of promos) {
+                          await supabase.from('promos').update({ sort_order: pr.sort_order }).eq('id', pr.id);
                         }
                         setSaveSuccessAt(Date.now());
                       } catch (e) {
@@ -4307,10 +4943,23 @@ export const Admin: React.FC = () => {
                       <p className="mt-1 text-xs leading-relaxed text-slate-600">{PROMO_BANNER_RECOMMENDED}</p>
                     </div>
                     <div>
-                      <label className="mb-1 block text-xs font-medium text-slate-600">종료일 (까지, 연·월·일 4·2·2자, 오늘 이후만)</label>
+                      <label className="mb-1 flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-600">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-slate-300 text-brand"
+                          checked={promoForm.is_archived}
+                          onChange={(e) => setPromoForm((f) => ({ ...f, is_archived: e.target.checked }))}
+                        />
+                        아카이브(종료) — 사이트 «Архив» 탭에만 표시
+                      </label>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-slate-600">
+                        종료일 (진행 중은 오늘 이후만; 아카이브는 과거 날짜 허용)
+                      </label>
                       <input
                         type="date"
-                        min={new Date().toISOString().slice(0, 10)}
+                        min={promoForm.is_archived ? undefined : new Date().toISOString().slice(0, 10)}
                         className="w-full rounded border border-slate-200 px-3 py-2 text-sm"
                         value={promoForm.end_at}
                         onChange={(e) => setPromoForm((f) => ({ ...f, end_at: e.target.value }))}
@@ -4326,30 +4975,52 @@ export const Admin: React.FC = () => {
                             return;
                           }
                           const today = new Date().toISOString().slice(0, 10);
-                          if (promoForm.end_at && promoForm.end_at < today) {
-                            window.alert('종료일은 오늘 이후만 입력할 수 있습니다.');
+                          if (!promoForm.is_archived && promoForm.end_at && promoForm.end_at < today) {
+                            window.alert('진행 중 프로모의 종료일은 오늘 이후만 입력할 수 있습니다.');
                             return;
                           }
                           setPromosSaving(true);
                           setError(null);
                           try {
+                            const nextArchived = promoForm.is_archived;
+                            let sort_order: number;
+                            if (selectedPromo) {
+                              const wasA = Boolean(selectedPromo.is_archived);
+                              sort_order = selectedPromo.sort_order;
+                              if (wasA !== nextArchived) {
+                                if (nextArchived) {
+                                  sort_order =
+                                    PROMO_ARCHIVE_SORT_OFFSET +
+                                    promos.filter((x) => x.is_archived && x.id !== selectedPromo.id).length;
+                                } else {
+                                  sort_order = promos.filter((x) => !x.is_archived && x.id !== selectedPromo.id).length;
+                                }
+                              }
+                            } else {
+                              sort_order = nextArchived
+                                ? PROMO_ARCHIVE_SORT_OFFSET + promos.filter((x) => x.is_archived).length
+                                : promos.filter((x) => !x.is_archived).length;
+                            }
                             const payload = {
                               title: promoForm.title.trim(),
                               image_url: promoForm.image_url.trim() || null,
                               end_at: promoForm.end_at ? new Date(promoForm.end_at).toISOString() : null,
-                              sort_order: selectedPromo ? selectedPromo.sort_order : promos.length,
+                              sort_order,
+                              is_archived: nextArchived,
                             };
                             if (selectedPromo) {
                               const { error: err } = await supabase.from('promos').update(payload).eq('id', selectedPromo.id);
                               if (err) throw err;
-                              setPromos((prev) => prev.map((pr) => (pr.id === selectedPromo.id ? { ...pr, ...payload } : pr)));
+                              setPromos((prev) =>
+                                prev.map((pr) => (pr.id === selectedPromo.id ? { ...pr, ...payload } : pr)),
+                              );
                               setSelectedPromo(null);
                             } else {
                               const { data, error: err } = await supabase.from('promos').insert(payload).select('id').single();
                               if (err) throw err;
                               setPromos((prev) => [...prev, { ...payload, id: (data as { id: string }).id }]);
                             }
-                            setPromoForm({ title: '', image_url: '', end_at: '' });
+                            setPromoForm({ title: '', image_url: '', end_at: '', is_archived: false });
                             setSaveSuccessAt(Date.now());
                           } catch (e) {
                             setError(e instanceof Error ? e.message : '저장 실패');
@@ -4367,7 +5038,7 @@ export const Admin: React.FC = () => {
                           type="button"
                           onClick={() => {
                             setSelectedPromo(null);
-                            setPromoForm({ title: '', image_url: '', end_at: '' });
+                            setPromoForm({ title: '', image_url: '', end_at: '', is_archived: false });
                           }}
                           className="rounded-full border border-slate-200 px-4 py-1.5 text-xs text-slate-600"
                         >

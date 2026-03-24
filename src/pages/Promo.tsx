@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { SemoPageSpinner, SEMO_SECTION_LOADING_CLASS } from '../components/SemoPageSpinner';
 
@@ -8,21 +8,22 @@ type PromoItem = {
   image_url: string | null;
   end_at: string | null;
   sort_order: number;
+  is_archived?: boolean | null;
 };
 
 function PromoCard({
   p,
   className = '',
+  archiveTab = false,
 }: {
   p: PromoItem;
   className?: string;
+  /** 아카이브 탭: 살짝 톤 다운 */
+  archiveTab?: boolean;
 }) {
   return (
-    <article
-      className={`flex flex-col ${className}`}
-    >
+    <article className={`flex flex-col ${archiveTab ? 'opacity-90' : ''} ${className}`}>
       <h2 className="mb-1 px-1 pt-1 text-center text-sm font-semibold text-slate-900 sm:text-base">{p.title}</h2>
-      {/* 업로드 비율 그대로 표시 — 고정 프레임·object-contain으로 생기던 회색 여백 제거 */}
       <div className="relative mb-1.5 w-full overflow-hidden rounded-xl bg-slate-100">
         {p.image_url ? (
           <img src={p.image_url} alt="" className="block h-auto w-full" />
@@ -31,18 +32,25 @@ function PromoCard({
         )}
       </div>
       <p className="px-1 pb-1 text-center text-xs text-slate-500">
-        {p.end_at
-          ? `До ${new Date(p.end_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}`
-          : 'Без срока'}
+        {archiveTab
+          ? p.end_at
+            ? `Завершена: ${new Date(p.end_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}`
+            : 'Архив'
+          : p.end_at
+            ? `До ${new Date(p.end_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}`
+            : 'Без срока'}
       </p>
     </article>
   );
 }
 
-/** Promo 페이지 — 한 화면 최대 6개(3열 x 2행), 캐러셀/화살표 없이 고정 그리드 */
+type PublicPromoTab = 'active' | 'archive';
+
+/** Promo — Актуальные / Архив 탭 */
 export const Promo: React.FC = () => {
   const [promos, setPromos] = useState<PromoItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<PublicPromoTab>('active');
 
   useEffect(() => {
     if (!supabase) {
@@ -50,45 +58,94 @@ export const Promo: React.FC = () => {
       setLoading(false);
       return;
     }
-    supabase
-      .from('promos')
-      .select('id, title, image_url, end_at, sort_order')
-      .order('sort_order', { ascending: true })
-      .then(({ data }) => {
-        setPromos((data as PromoItem[]) ?? []);
-      })
-      .catch(() => setPromos([]))
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const full = await supabase
+        .from('promos')
+        .select('id, title, image_url, end_at, sort_order, is_archived')
+        .order('sort_order', { ascending: true });
+      if (cancelled) return;
+      if (!full.error && full.data) {
+        setPromos(full.data as PromoItem[]);
+        setLoading(false);
+        return;
+      }
+      if (full.error) console.warn('[Promo]', full.error.message);
+      const min = await supabase
+        .from('promos')
+        .select('id, title, image_url, end_at, sort_order')
+        .order('sort_order', { ascending: true });
+      if (cancelled) return;
+      setPromos(
+        ((min.data as Omit<PromoItem, 'is_archived'>[]) ?? []).map((r) => ({ ...r, is_archived: false })),
+      );
+      setLoading(false);
+    })().catch(() => {
+      if (!cancelled) {
+        setPromos([]);
+        setLoading(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const visiblePromos = promos.slice(0, 6);
+  const filtered = useMemo(() => {
+    const list = promos.filter((p) => Boolean(p.is_archived) === (tab === 'archive'));
+    return list.slice(0, 6);
+  }, [promos, tab]);
+
   const desktopColsClass =
-    visiblePromos.length <= 1
+    filtered.length <= 1
       ? 'md:grid-cols-1 md:max-w-[24rem]'
-      : visiblePromos.length === 2
-      ? 'md:grid-cols-2 md:max-w-4xl'
-      : 'md:grid-cols-3 md:max-w-6xl';
+      : filtered.length === 2
+        ? 'md:grid-cols-2 md:max-w-4xl'
+        : 'md:grid-cols-3 md:max-w-6xl';
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-5 sm:px-6 sm:py-8 md:py-10">
-      <header className="mb-8 text-center">
-        <h1 className="text-center text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl md:text-5xl">
-          Текущие акции
+    <main className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-5 sm:px-6 sm:py-10 md:py-14">
+      {/* Заголовок → табы → баннеры: вертикальные отступы удвоены; ширина сегмента — половина от прежнего max-w-md */}
+      <header className="mb-16 text-center sm:mb-20">
+        <h1 className="text-center text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl md:text-4xl">
+          Акции
         </h1>
-        <p className="mt-4 text-lg text-slate-600">Специальные предложения и события SEMO box</p>
+        <div className="mx-auto mt-12 grid w-full max-w-[14rem] grid-cols-2 gap-2 rounded-full border border-slate-200 bg-slate-50/80 p-1">
+          <button
+            type="button"
+            onClick={() => setTab('active')}
+            className={`min-h-10 min-w-0 w-full rounded-full px-2 text-center text-sm font-medium transition sm:min-h-9 sm:px-3 ${
+              tab === 'active' ? 'bg-brand text-white shadow-sm' : 'text-slate-600 hover:bg-white'
+            }`}
+          >
+            Актуальные
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('archive')}
+            className={`min-h-10 min-w-0 w-full rounded-full px-2 text-center text-sm font-medium transition sm:min-h-9 sm:px-3 ${
+              tab === 'archive' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-600 hover:bg-white'
+            }`}
+          >
+            Архив
+          </button>
+        </div>
       </header>
 
       {loading ? (
         <div className={SEMO_SECTION_LOADING_CLASS}>
           <SemoPageSpinner />
         </div>
-      ) : visiblePromos.length === 0 ? (
-        <p className="py-12 text-center text-slate-500">Нет активных акций.</p>
+      ) : filtered.length === 0 ? (
+        <p className="py-12 text-center text-slate-500">
+          {tab === 'active' ? 'Нет активных акций.' : 'В архиве пока ничего нет.'}
+        </p>
       ) : (
         <section className="flex justify-center">
           <div className={`grid w-full grid-cols-1 gap-3 sm:grid-cols-2 md:gap-4 ${desktopColsClass}`}>
-            {visiblePromos.map((p) => (
-              <PromoCard key={p.id} p={p} />
+            {filtered.map((p) => (
+              <PromoCard key={p.id} p={p} archiveTab={tab === 'archive'} />
             ))}
           </div>
         </section>

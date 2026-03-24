@@ -252,6 +252,21 @@ export function calcSkinType(answers: number[]): { type: string; scores: Record<
   return { type, scores };
 }
 
+/**
+ * DB에 저장된 타입 코드만 있을 때(프로필 «прошлый тест») «Баллы» 줄 표시용.
+ * 실제 20문항 합계와 다를 수 있으나 D/O·S/R·P/N·W/T 방향과 맞춤.
+ */
+export function approximateScoresFromSkinTypeCode(type: string): Record<1 | 2 | 3 | 4, number> {
+  const code = type.trim().toUpperCase();
+  if (code.length !== 4) return { 1: 0, 2: 0, 3: 0, 4: 0 };
+  return {
+    1: code[0] === 'D' ? 2 : -2,
+    2: code[1] === 'S' ? 2 : -2,
+    3: code[2] === 'P' ? 2 : -2,
+    4: code[3] === 'W' ? 2 : -2,
+  };
+}
+
 export function getPartTitle(questionIndex: number): string {
   if (questionIndex < 5) return PART_TITLES[0];
   if (questionIndex < 10) return PART_TITLES[1];

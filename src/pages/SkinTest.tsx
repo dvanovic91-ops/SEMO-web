@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useEffect, useLayoutEffect } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   QUESTIONS,
   ANSWERS,
@@ -7,12 +7,15 @@ import {
   PROFILE_STEPS,
   SKIN_INFO,
   calcSkinType,
+  approximateScoresFromSkinTypeCode,
   type SkinTypeInfo,
 } from '../data/skinTestData';
 import { getRecommendationPath, SKIN_TEST_CATALOG_CATEGORY } from '../config/skinTypeRecommendations';
 import { useAuth } from '../context/AuthContext';
+import { useCart } from '../context/CartContext';
 import { supabase } from '../lib/supabase';
 import { BackArrow } from '../components/BackArrow';
+import { ProductCompositionGrid, type ProductCompositionItem } from '../components/ProductCompositionGrid';
 import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../components/SemoPageSpinner';
 import { getOrCreateVisitSessionId } from '../lib/clientSession';
 import { getRecommendedProductIdForSkinType } from '../lib/skinTypeSlotMapping';
@@ -54,17 +57,6 @@ function normalizePreviewImageUrls(row: { image_url?: string | null; image_urls?
   return [];
 }
 
-function firstComponentImageUrl(comp: {
-  image_url?: string | null;
-  image_urls?: string[] | null;
-}): string | null {
-  if (comp.image_urls && Array.isArray(comp.image_urls) && comp.image_urls.length > 0) {
-    const u = comp.image_urls.find((x) => typeof x === 'string' && x.trim());
-    if (u) return u.trim();
-  }
-  return comp.image_url && String(comp.image_url).trim() ? String(comp.image_url).trim() : null;
-}
-
 /** 어드민 이메일 — 웹에서도 테스트 횟수 제한 없음 (봇 ADMIN_IDS와 별도) */
 const ADMIN_EMAILS = ['admin@semo-box.ru', 'admin@semo-beautybox.com'];
 /** 테스트 횟수 제한 없음 (해당 이메일만) */
@@ -79,6 +71,8 @@ function nextProfileStep(step: number): number {
 
 export const SkinTest: React.FC = () => {
   const { userId, userEmail } = useAuth();
+  const [searchParams] = useSearchParams();
+  const { addItem } = useCart();
   const isAdmin = !!userEmail && ADMIN_EMAILS.includes(userEmail);
   const noTestLimit = !!userEmail && UNLIMITED_TEST_EMAILS.includes(userEmail);
   const [stage, setStage] = useState<Stage>('intro');
@@ -94,13 +88,37 @@ export const SkinTest: React.FC = () => {
     scores: Record<1 | 2 | 3 | 4, number>;
   } | null>(null);
   const [recommendedProductPreview, setRecommendedProductPreview] = useState<{
+    /** 장바구니·상세 링크용 */
+    productId?: string;
     name: string;
     thumb1: string | null;
     thumb2: string | null;
-    composition: { id: string; name: string | null; imageUrl: string | null }[];
+    composition: ProductCompositionItem[];
+    prp_price?: number | null;
+    rrp_price?: number | null;
     /** 상품 ID 없음 / 조회 실패 등 — 무한 «Загрузка» 방지 */
     status?: 'ok' | 'no_slot' | 'fetch_failed';
   } | null>(null);
+  const [cartToast, setCartToast] = useState(false);
+
+  /** 프로필 «Посмотреть результат теста» → ?type=DSNW 등: 동일 결과지 UI */
+  useLayoutEffect(() => {
+    const raw = searchParams.get('type')?.trim().toUpperCase();
+    if (!raw || !SKIN_INFO[raw]) return;
+    setResult({
+      type: raw,
+      info: SKIN_INFO[raw],
+      scores: approximateScoresFromSkinTypeCode(raw),
+    });
+    setStage('result');
+  }, [searchParams]);
+
+  /** 장바구니 토스트 */
+  useEffect(() => {
+    if (!cartToast) return;
+    const t = window.setTimeout(() => setCartToast(false), 2800);
+    return () => window.clearTimeout(t);
+  }, [cartToast]);
 
   /** 회원 기준 skin_test_results 건수 조회 (2회 제한용) */
   useEffect(() => {
@@ -164,16 +182,18 @@ export const SkinTest: React.FC = () => {
           image_url?: string | null;
           image_urls?: unknown;
           category?: string | null;
+          prp_price?: number | null;
+          rrp_price?: number | null;
         } | null = null;
         const selFull = await supabase
           .from('products')
-          .select('name, image_url, image_urls, category')
+          .select('name, image_url, image_urls, category, prp_price, rrp_price')
           .eq('id', productId)
           .maybeSingle();
         if (selFull.error) {
           const selMini = await supabase
             .from('products')
-            .select('name, image_url, image_urls')
+            .select('name, image_url, image_urls, prp_price, rrp_price')
             .eq('id', productId)
             .maybeSingle();
           if (!selMini.error) productData = selMini.data as typeof productData;
@@ -197,20 +217,31 @@ export const SkinTest: React.FC = () => {
         const thumb1 = ordered[0] ?? null;
         const thumb2 = ordered[1] ?? null;
 
-        let composition: { id: string; name: string | null; imageUrl: string | null }[] = [];
+        let composition: ProductCompositionItem[] = [];
         try {
           const { data: compRows } = await supabase
             .from('product_components')
-            .select('id, sort_order, name, image_url, image_urls')
+            .select('id, sort_order, name, image_url, image_urls, description')
             .eq('product_id', productId);
           if (Array.isArray(compRows)) {
-            composition = (compRows as { id: string; sort_order?: number; name: string | null; image_url: string | null; image_urls?: string[] | null }[])
+            composition = (
+              compRows as {
+                id: string;
+                sort_order?: number;
+                name: string | null;
+                image_url: string | null;
+                image_urls?: string[] | null;
+                description?: string | null;
+              }[]
+            )
               .slice()
               .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
               .map((c) => ({
                 id: c.id,
                 name: c.name,
-                imageUrl: firstComponentImageUrl(c),
+                image_url: c.image_url,
+                image_urls: c.image_urls ?? null,
+                description: c.description ?? null,
               }));
           }
         } catch {
@@ -219,10 +250,13 @@ export const SkinTest: React.FC = () => {
 
         if (!cancelled) {
           setRecommendedProductPreview({
+            productId,
             name: productData.name ?? 'Beauty box',
             thumb1,
             thumb2,
             composition,
+            prp_price: productData.prp_price != null ? Number(productData.prp_price) : null,
+            rrp_price: productData.rrp_price != null ? Number(productData.rrp_price) : null,
             status: 'ok',
           });
         }
@@ -234,6 +268,25 @@ export const SkinTest: React.FC = () => {
       cancelled = true;
     };
   }, [result?.type]);
+
+  const canAddRecommendedToCart =
+    recommendedProductPreview?.status === 'ok' && !!recommendedProductPreview.productId;
+
+  const handleAddRecommendedToCart = () => {
+    const p = recommendedProductPreview;
+    if (!p || p.status !== 'ok' || !p.productId) return;
+    const thumb = p.thumb1 ?? p.thumb2 ?? null;
+    const prp = p.prp_price != null ? Number(p.prp_price) : null;
+    const rrp = p.rrp_price != null ? Number(p.rrp_price) : null;
+    addItem({
+      id: p.productId,
+      name: p.name,
+      price: prp ?? rrp ?? 0,
+      imageUrl: thumb,
+      originalPrice: prp != null && rrp != null ? rrp : undefined,
+    });
+    setCartToast(true);
+  };
 
   const handleAgree = () => {
     if (!isAdmin && !noTestLimit && limitReached) return;
@@ -347,7 +400,7 @@ export const SkinTest: React.FC = () => {
         <main className="mx-auto flex min-h-[100dvh] flex-col bg-white px-4 py-5 sm:min-h-screen sm:px-6 sm:py-10 md:py-14">
           <div className="mx-auto w-full max-w-4xl">
             <header className="mb-12 text-center">
-              <h1 className="text-center text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl md:text-5xl">
+              <h1 className="text-center text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl md:text-4xl">
                 Тест типа кожи
               </h1>
               <p className="mt-4 text-lg text-slate-600">Без аккаунта тест можно пройти один раз</p>
@@ -377,7 +430,7 @@ export const SkinTest: React.FC = () => {
         <main className="mx-auto flex min-h-[100dvh] flex-col bg-white px-4 py-5 sm:min-h-screen sm:px-6 sm:py-10 md:py-14">
           <div className="mx-auto w-full max-w-4xl">
             <header className="mb-12 text-center">
-              <h1 className="text-center text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl md:text-5xl">
+              <h1 className="text-center text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl md:text-4xl">
                 Тест типа кожи
               </h1>
               <p className="mt-4 text-lg text-slate-600">Лимит прохождений для вашего аккаунта</p>
@@ -403,7 +456,7 @@ export const SkinTest: React.FC = () => {
       <main className="mx-auto flex min-h-[100dvh] flex-col bg-white px-4 py-5 sm:min-h-screen sm:px-6 sm:py-10 md:py-14">
         <div className="mx-auto w-full max-w-4xl">
           <header className="mb-12 text-center">
-            <h1 className="text-center text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl md:text-5xl">
+            <h1 className="text-center text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl md:text-4xl">
               Тест типа кожи
             </h1>
             <p className="mt-4 text-lg text-slate-600">
@@ -577,45 +630,25 @@ export const SkinTest: React.FC = () => {
             <p className="text-sm font-medium tracking-wide text-brand">
               Результат теста
             </p>
-            <h1 className="mt-4 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
+            <h1 className="mt-4 text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
               Ваш тип кожи: {type}
             </h1>
             <p className="mt-2 text-sm text-slate-500">{info.name}</p>
           </div>
 
-          {/* 설명 — 이모지 제거 */}
-          <div className="mt-10 py-6">
+          {/* 설명 — 타입 부제목과 간격 절반(mt-10→mt-5), 블록 패딩 절반(py-6→py-3) */}
+          <div className="mt-5 py-3">
             <p className="text-base leading-relaxed text-slate-700 sm:text-lg">
               {info.desc.replace(/\s*[\u2728\u{1F31F}\u{1F338}\u{1F4AB}\u{1F3C6}\u{1F33F}]+\s*$/gu, '').trim()}
             </p>
           </div>
 
-          {/* Баллы — Фокус ухода 위, 결과/포쿠스보다 작은 폰트·진한 회색 */}
-          <p className="mt-6 text-sm text-slate-600">
-            Баллы: Увл. {scores[1] >= 0 ? `+${scores[1]}` : scores[1]} · Чувств. {scores[2] >= 0 ? `+${scores[2]}` : scores[2]} · Пигм. {scores[3] >= 0 ? `+${scores[3]}` : scores[3]} · Возраст. {scores[4] >= 0 ? `+${scores[4]}` : scores[4]}
-          </p>
-
-          {/* Фокус ухода */}
-          <div className="mt-6">
-            <p className="text-sm font-medium tracking-wide text-slate-600">
-              Фокус ухода
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {info.concerns.map((c) => (
-                <span
-                  key={c}
-                  className="rounded-full border border-brand/30 bg-brand-soft/30 px-4 py-1.5 text-sm text-slate-800"
-                >
-                  {c}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          {/* Персональный выбор SEMO — Beauty box: кадрированные миниатюры 1 и 2 */}
-          <div className="mt-8 rounded-xl border border-brand/20 bg-brand-soft/25 py-6 px-6">
+          {/* Персональный выбор SEMO — 설명 직후, 설명과 간격 절반 수준(mt-4) */}
+          <div className="mt-4 rounded-xl border border-brand/20 bg-brand-soft/25 py-6 px-6">
             <p className="text-sm font-medium tracking-wide text-brand">
-              Персональный выбор SEMO
+              {recommendedProductPreview?.status === 'ok' && recommendedProductPreview.name?.trim()
+                ? `Персональный выбор SEMO : ${recommendedProductPreview.name.trim()}`
+                : 'Персональный выбор SEMO'}
             </p>
             {recommendedProductPreview?.status === 'no_slot' && (
               <p className="mt-2 text-xs leading-snug text-slate-600 sm:text-sm">
@@ -649,7 +682,7 @@ export const SkinTest: React.FC = () => {
                       {url ? (
                         <img
                           src={url}
-                          alt={`${recommendedProductPreview?.name ?? 'Beauty box'} — ${n}`}
+                          alt={recommendedProductPreview?.name?.trim() || 'Beauty box'}
                           className="h-full w-full object-cover"
                         />
                       ) : (
@@ -658,62 +691,83 @@ export const SkinTest: React.FC = () => {
                         </div>
                       )}
                     </div>
-                    <span className="mt-2 text-xs font-medium tabular-nums text-slate-500">{n}</span>
                   </div>
                 );
               })}
             </div>
 
             {recommendedProductPreview && recommendedProductPreview.composition.length > 0 && (
-              <details className="mt-5 rounded-lg border border-slate-200/80 bg-white/60 px-3 py-2 sm:px-4">
-                <summary className="cursor-pointer text-sm font-medium text-slate-700 marker:text-slate-400">
-                  Состав набора
-                </summary>
-                <ul className="mt-3 space-y-2 border-t border-slate-100 pt-3">
-                  {recommendedProductPreview.composition.map((item) => (
-                    <li key={item.id} className="flex items-center gap-3 text-sm text-slate-700">
-                      {item.imageUrl ? (
-                        <img
-                          src={item.imageUrl}
-                          alt=""
-                          className="h-10 w-10 shrink-0 rounded-lg object-cover"
-                        />
-                      ) : (
-                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-xs text-slate-300">
-                          —
-                        </span>
-                      )}
-                      <span className="min-w-0 leading-snug">{item.name ?? '—'}</span>
-                    </li>
-                  ))}
-                </ul>
-              </details>
+              <ProductCompositionGrid
+                className="mt-5"
+                components={recommendedProductPreview.composition}
+              />
             )}
           </div>
 
-          {/* CTA: компактные кнопки по центру */}
-          <div className="mt-10 flex flex-col items-center gap-3">
-            {!userId ? (
-              <>
-                <p className="max-w-md text-center text-sm text-slate-600">
-                  Сохраните результат в личном кабинете и пройдите тест ещё раз после регистрации.
-                </p>
-                <Link
-                  to="/login"
-                  className="w-full max-w-[240px] rounded-full bg-brand py-2.5 text-center text-sm font-semibold text-white transition hover:bg-brand/90"
+          {/* Баллы — 제품 추천 블록 아래 */}
+          <p className="mt-6 text-sm text-slate-600">
+            Баллы: Увл. {scores[1] >= 0 ? `+${scores[1]}` : scores[1]} · Чувств. {scores[2] >= 0 ? `+${scores[2]}` : scores[2]} · Пигм. {scores[3] >= 0 ? `+${scores[3]}` : scores[3]} · Возраст. {scores[4] >= 0 ? `+${scores[4]}` : scores[4]}
+          </p>
+
+          {/* Фокус ухода */}
+          <div className="mt-6">
+            <p className="text-sm font-medium tracking-wide text-slate-600">
+              Фокус ухода
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {info.concerns.map((c) => (
+                <span
+                  key={c}
+                  className="rounded-full border border-brand/30 bg-brand-soft/30 px-4 py-1.5 text-sm text-slate-800"
                 >
-                  Зарегистрироваться! Всего 10 секунд!
-                </Link>
-              </>
-            ) : (
+                  {c}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* CTA: Смотреть товары + В корзину — 한 줄(모바일은 세로) 가운데 정렬 */}
+          <div className="mt-10 flex flex-col items-center gap-3">
+            {!userId && (
+              <p className="max-w-md text-center text-sm text-slate-600">
+                Сохраните результат в личном кабинете и пройдите тест ещё раз после регистрации.
+              </p>
+            )}
+            <div className="flex w-full flex-col items-center justify-center gap-3 sm:flex-row sm:flex-wrap">
               <Link
                 to={getRecommendationPath(result.type)}
-                className="w-full max-w-[240px] rounded-full bg-brand py-2.5 text-center text-sm font-semibold text-white transition hover:bg-brand/90"
+                className="inline-flex w-full max-w-[240px] justify-center rounded-full border-2 border-brand bg-white py-2.5 text-center text-sm font-semibold text-brand transition hover:bg-brand-soft/25"
               >
                 Смотреть товары
               </Link>
+              {canAddRecommendedToCart && (
+                <button
+                  type="button"
+                  onClick={handleAddRecommendedToCart}
+                  className="inline-flex w-full max-w-[240px] justify-center rounded-full bg-brand py-2.5 text-center text-sm font-semibold text-white transition hover:bg-brand/90"
+                >
+                  В корзину
+                </button>
+              )}
+            </div>
+            {!userId && (
+              <Link
+                to="/login"
+                className="w-full max-w-[240px] rounded-full bg-slate-800 py-2.5 text-center text-sm font-semibold text-white transition hover:bg-slate-700"
+              >
+                Зарегистрироваться! Всего 10 секунд!
+              </Link>
             )}
           </div>
+
+          {cartToast && (
+            <div
+              className="fixed left-1/2 z-50 max-w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-slate-200 bg-slate-900 px-4 py-3 text-center text-sm font-medium text-white shadow-lg max-md:bottom-[calc(var(--semo-mobile-tabbar-h)+0.5rem)] md:bottom-8"
+              role="status"
+            >
+              Добавлен в корзину
+            </div>
+          )}
         </div>
       </main>
     );

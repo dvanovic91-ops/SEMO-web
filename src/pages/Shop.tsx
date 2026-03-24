@@ -4,7 +4,13 @@ import { useCart } from '../context/CartContext';
 import { supabase } from '../lib/supabase';
 import { ShopCardImage } from './ShopCardImage';
 import { SemoPageSpinner } from '../components/SemoPageSpinner';
-import { CATALOG_ROOM_SLOTS_TABLE, type CatalogSlotRoom } from '../lib/catalogSlotRooms';
+import {
+  CATALOG_ROOM_SLOTS_TABLE,
+  CATALOG_SLOT_VISIBLE_BY_ROOM_KEY,
+  clampCatalogVisibleCount,
+  parseCatalogVisibleByRoom,
+  type CatalogSlotRoom,
+} from '../lib/catalogSlotRooms';
 
 /** 슬롯 또는 폴백 상품 타입 */
 type ShopItem = {
@@ -18,6 +24,8 @@ type ShopItem = {
   linkUrl: string | null;
   /** 카드 색상: sky 면 연하늘, 아니면 기본 주황 */
   boxTheme?: 'brand' | 'sky' | null;
+  /** DB box_history — 메인 뷰티 카탈로그에서는 제외(히스토리 전용 페이지만) */
+  boxHistory?: boolean;
 };
 
 /** 데스크톱: 4개 + 다음 카드 일부(피크) 노출 */
@@ -53,24 +61,30 @@ type ShopProductCardProps = {
   layoutCategory: ShopLayoutCategory;
   /** 모바일: 세로 풀폭 버튼 / 데스크톱 캐러셀: 가로 나란히 */
   layout: 'mobile-stack' | 'desktop-carousel';
+  /** 과거 시즌 히스토리 페이지: 이미지·텍스트 회색 톤, 장바구니 비활성 */
+  archiveMode?: boolean;
 };
 
 /**
  * 상품 카드 — 모바일은 넓은 1열·충분한 패딩·버튼 min 44px, 데스크톱은 캐러셀 슬롯용
  */
-function ShopProductCard({ product, onAddToCart, layoutCategory, layout }: ShopProductCardProps) {
-  const isSky = (product.boxTheme ?? 'brand') === 'sky';
+function ShopProductCard({ product, onAddToCart, layoutCategory, layout, archiveMode }: ShopProductCardProps) {
+  const archive = Boolean(archiveMode);
   const articleBase =
     'flex w-full min-w-0 flex-col items-stretch rounded-xl border border-slate-200/80 bg-white md:min-h-[420px] md:items-center shadow-[0_1px_8px_-4px_rgba(15,23,42,0.18)]';
+  const archiveTone = archive ? ' grayscale contrast-[0.92]' : '';
   const pad =
     layout === 'mobile-stack'
       ? 'px-5 pt-5 pb-6 md:px-6 md:pt-5 md:pb-6'
       : 'px-4 pt-4 pb-6 sm:px-6 sm:pt-5 sm:pb-6';
 
-  const titleClass = 'prose-ru text-center text-base font-medium leading-snug tracking-wide text-slate-800 md:text-sm';
+  const titleClass = archive
+    ? 'prose-ru text-center text-base font-medium leading-snug tracking-wide text-slate-500 md:text-sm'
+    : 'prose-ru text-center text-base font-medium leading-snug tracking-wide text-slate-800 md:text-sm';
 
-  const cartBtnClass =
-    'inline-flex min-h-9 w-full items-center justify-center rounded-full border border-brand/90 bg-brand px-4 py-2 text-sm font-medium leading-tight text-white transition hover:bg-brand/90 md:min-h-8 md:py-1.5';
+  const cartBtnClass = archive
+    ? 'inline-flex min-h-9 w-full cursor-not-allowed items-center justify-center rounded-full border border-slate-300 bg-slate-200 px-4 py-2 text-sm font-medium leading-tight text-slate-500 md:min-h-8 md:py-1.5'
+    : 'inline-flex min-h-9 w-full items-center justify-center rounded-full border border-brand/90 bg-brand px-4 py-2 text-sm font-medium leading-tight text-white transition hover:bg-brand/90 md:min-h-8 md:py-1.5';
 
   const buttonWrap =
     layout === 'mobile-stack'
@@ -87,17 +101,30 @@ function ShopProductCard({ product, onAddToCart, layoutCategory, layout }: ShopP
           layout={layout === 'mobile-stack' ? 'mobile' : 'desktop'}
         />
       </div>
+      {/* История боксов: только RRP (рекомендованная цена), без PRP — в каталоге не показываем скидочную цену */}
       <div className="mt-4 flex flex-col items-center gap-1 text-center md:gap-0.5">
-        {product.originalPrice != null && (
-          <span className="text-sm text-slate-500 line-through md:text-sm">{formatPrice(product.originalPrice)}</span>
+        {archive ? (
+          <span className="text-lg font-semibold text-slate-600 md:text-base">
+            {formatPrice(product.originalPrice != null ? product.originalPrice : product.price)}
+          </span>
+        ) : (
+          <>
+            {product.originalPrice != null && (
+              <span className="text-sm line-through text-slate-500 md:text-sm">
+                {formatPrice(product.originalPrice)}
+              </span>
+            )}
+            <span className="text-lg font-semibold text-slate-900 md:text-base">
+              {formatPrice(product.price)}
+            </span>
+          </>
         )}
-        <span className="text-lg font-semibold text-slate-900 md:text-base">{formatPrice(product.price)}</span>
       </div>
     </>
   );
 
   return (
-    <article className={`${articleBase} ${pad}`}>
+    <article className={`${articleBase} ${pad}${archiveTone}`}>
       {product.linkUrl ? (
         <a href={product.linkUrl} className="flex w-full min-w-0 flex-1 flex-col items-center md:items-center">
           {cardTop}
@@ -115,14 +142,14 @@ function ShopProductCard({ product, onAddToCart, layoutCategory, layout }: ShopP
       <div className={buttonWrap}>
         <button
           type="button"
-          disabled={!product.productId}
+          disabled={!product.productId || archive}
           onClick={(e) => {
             e.stopPropagation();
             onAddToCart(product);
           }}
           className={`${cartBtnClass} ${layout === 'desktop-carousel' ? 'sm:w-auto' : ''} disabled:cursor-not-allowed disabled:opacity-40`}
         >
-          В корзину
+          {archive ? 'Нет в продаже' : 'В корзину'}
         </button>
       </div>
     </article>
@@ -132,7 +159,7 @@ function ShopProductCard({ product, onAddToCart, layoutCategory, layout }: ShopP
 /** 뷰티 / 핏 / 헤어 카탈로그 키 — DB 룸 테이블(`catalogSlotRooms`)과 1:1 */
 export type ShopLayoutCategory = CatalogSlotRoom;
 
-const PRODUCTS_SELECT_FULL = 'id, category, name, rrp_price, prp_price, image_url, image_urls, box_theme';
+const PRODUCTS_SELECT_FULL = 'id, category, name, rrp_price, prp_price, image_url, image_urls, box_theme, box_history';
 const PRODUCTS_SELECT_MIN = 'id, category, name, rrp_price, prp_price, image_url';
 
 type ProductRowShop = {
@@ -144,6 +171,7 @@ type ProductRowShop = {
   image_url: string | null;
   image_urls?: string[] | null;
   box_theme?: 'brand' | 'sky' | null;
+  box_history?: boolean | null;
 };
 
 /** 스키마에 image_urls/box_theme 없으면 전체 select 가 400 → 최소 컬럼으로 재시도 (Admin 과 동일 패턴) */
@@ -244,6 +272,11 @@ async function buildShopItemsFromCategoryProducts(
     filtered = filterRowsForCatalog(all, layoutCategory).slice(0, max);
   }
 
+  // 뷰티: 과거 시즌(box_history) 상품은 메인 카탈로그 폴백에서 제외
+  if (layoutCategory === 'beauty') {
+    filtered = filtered.filter((p) => !p.box_history);
+  }
+
   return rowsToShopItems(filtered, max);
 }
 
@@ -278,10 +311,13 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
     setCatalogLoading(true);
     (async () => {
       try {
-        const { data: slotData, error: slotErr } = await supabase
-          .from(CATALOG_ROOM_SLOTS_TABLE)
-          .select('id, slot_index, title, description, image_url, product_id, link_url')
-          .eq('catalog_room', layoutCategory);
+        const [{ data: slotData, error: slotErr }, { data: visRow }] = await Promise.all([
+          supabase
+            .from(CATALOG_ROOM_SLOTS_TABLE)
+            .select('id, slot_index, title, description, image_url, product_id, link_url')
+            .eq('catalog_room', layoutCategory),
+          supabase.from('site_settings').select('value').eq('key', CATALOG_SLOT_VISIBLE_BY_ROOM_KEY).maybeSingle(),
+        ]);
         if (slotErr) {
           console.warn('[ShopCatalog] catalog_room_slots:', slotErr.message);
           setItems(await buildShopItemsFromCategoryProducts(supabase, layoutCategory, 5));
@@ -307,10 +343,11 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
           setCatalogLoading(false);
           return;
         }
-        // 관리자가 저장한 슬롯 개수(1~5)만큼만 노출
-        const targetSlotCount = Math.min(5, Math.max(1, slots.length));
-        // DB에 slot_index 가 0,3,4,5,6 처럼 구멍이 있으면, 예전 로직은 1·2번을 빈 슬롯으로 만들고 뒤로 밀려 순서가 뒤섞임 → 정렬 후 앞에서 5개만 쓰고 표시 순서는 0..n-1 으로 압축
-        const normalizedSlots: SlotRow[] = slots.slice(0, targetSlotCount).map((row, i) => ({
+        const visMap = parseCatalogVisibleByRoom(visRow?.value);
+        const fallbackVisible = Math.min(5, Math.max(1, slots.length));
+        const targetVisible = clampCatalogVisibleCount(visMap[layoutCategory] ?? fallbackVisible, fallbackVisible);
+        // DB에 slot_index 가 구멍 나 있으면 정렬 후 앞에서 targetVisible 개만 쓰고 표시 순서는 0..n-1 로 압축
+        const normalizedSlots: SlotRow[] = slots.slice(0, targetVisible).map((row, i) => ({
           ...row,
           slot_index: i,
         }));
@@ -325,6 +362,7 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
             image_url: string | null;
             image_urls: string[];
             box_theme: 'brand' | 'sky' | null;
+            box_history?: boolean | null;
           }
         > = {};
         // 1) 슬롯에 연결된 상품 — 행은 이미 catalog_room 으로 구분됨. category 문자열이 DB와 어긋나도 슬롯에 넣은 UUID는 그대로 표시(안 그러면 0₽·플레이스홀더만 뜸)
@@ -339,7 +377,20 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
           if (slotProdErr) {
             console.warn('[Shop] slot products:', slotProdErr.message);
           } else {
-            (slotProducts ?? []).forEach((p: { id: string; category?: string | null; name?: string | null; rrp_price: number | null; prp_price: number | null; image_url: string | null; image_urls?: string[] | null; box_theme?: 'brand' | 'sky' | null }) => {
+            (
+              slotProducts ?? []
+            ).forEach(
+              (p: {
+                id: string;
+                category?: string | null;
+                name?: string | null;
+                rrp_price: number | null;
+                prp_price: number | null;
+                image_url: string | null;
+                image_urls?: string[] | null;
+                box_theme?: 'brand' | 'sky' | null;
+                box_history?: boolean | null;
+              }) => {
               const pk = strictProductLayoutKey(p.category);
               if (pk != null && pk !== layoutCategory) {
                 console.warn('[ShopCatalog] 카테고리 불일치 상품 제외:', p.id, p.category, '≠', layoutCategory);
@@ -352,6 +403,7 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
                 image_url: p.image_url ?? null,
                 image_urls: Array.isArray(p.image_urls) && p.image_urls.length ? p.image_urls : p.image_url ? [p.image_url] : [],
                 box_theme: p.box_theme ?? 'brand',
+                box_history: p.box_history ?? false,
               };
             });
           }
@@ -382,6 +434,7 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
                 : [];
           const imageUrl = imageUrls[0] ?? null;
           const boxTheme: 'brand' | 'sky' | null = product?.box_theme ?? (s.slot_index >= 4 ? 'sky' : 'brand');
+          const boxHistory = Boolean(product?.box_history);
           return {
             id: productId ?? `slot-${s.slot_index}`,
             name: (product?.name?.trim() || s.title || `Слот ${s.slot_index + 1}`).trim(),
@@ -392,9 +445,12 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
             productId,
             linkUrl: s.link_url ?? null,
             boxTheme,
+            boxHistory,
           };
         });
-        setItems(list.slice(0, targetSlotCount));
+        // 슬롯에 UUID는 있으나 카테고리 불일치·삭제 등으로 상품을 못 붙인 행은 노출하지 않음.
+        // 뷰티: box_history(과거 시즌) 상품은 메인 카탈로그에서 제외 → «История боксов» 전용
+        setItems(list.filter((item) => item.productId != null && !item.boxHistory));
       } catch (e) {
         console.warn('[ShopCatalog] load error:', e);
         setItems(await buildShopItemsFromCategoryProducts(supabase, layoutCategory, 5));
@@ -444,10 +500,26 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
   return (
     <main className="mx-auto min-w-0 w-full max-w-[96rem] px-3 py-5 sm:px-6 sm:py-10 md:px-8 md:py-14">
       <header className="mb-12">
-        <h1 className="text-center text-3xl font-semibold tracking-tight text-brand whitespace-nowrap sm:text-4xl md:text-5xl">
+        <h1 className="text-center text-2xl font-semibold tracking-tight text-slate-900 whitespace-nowrap sm:text-3xl md:text-4xl">
           {pageTitle}
         </h1>
-        {pageSubtitle ? (
+        {pageSubtitle && layoutCategory === 'beauty' ? (
+          /* 데스크톱 카탈로그 섹션과 동일 md/lg 패딩 → 우측 링크가 4번째 카드 열 끝과 시각적으로 맞도록 */
+          <div className="mt-8 flex w-full min-w-0 items-center gap-2 px-3 sm:gap-3 md:px-8 lg:px-10">
+            <div className="min-w-0 flex-1" aria-hidden />
+            <p className="prose-ru shrink-0 text-center text-base leading-relaxed text-brand sm:text-lg">
+              {pageSubtitle}
+            </p>
+            <div className="flex min-w-0 flex-1 justify-end">
+              <Link
+                to="/shop/box-history"
+                className="inline-block shrink-0 -translate-x-1/2 text-[calc(0.875rem-1pt)] font-medium text-slate-500 underline-offset-4 transition hover:text-slate-600 hover:underline sm:text-[calc(1rem-1pt)]"
+              >
+                История боксов →
+              </Link>
+            </div>
+          </div>
+        ) : pageSubtitle ? (
           <p className="prose-ru mx-auto mt-4 max-w-2xl text-center text-sm leading-relaxed text-slate-600 sm:text-base">
             {pageSubtitle}
           </p>
@@ -559,5 +631,9 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
 }
 
 export const Shop: React.FC = () => (
-  <ShopCatalog category="beauty" pageTitle="Beauty box" pageSubtitle="S/S 2026: Выбор SEMO" />
+  <ShopCatalog category="beauty" pageTitle="Beauty box" pageSubtitle="S/S 2026 Выбор SEMO" />
 );
+
+/** 히스토리 페이지 등에서 카드 재사용 */
+export { ShopProductCard };
+export type { ShopItem };

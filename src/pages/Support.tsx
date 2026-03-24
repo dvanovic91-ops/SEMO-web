@@ -78,7 +78,7 @@ export const Support: React.FC = () => {
   return (
     <main className="mx-auto max-w-6xl px-4 py-5 sm:px-6 sm:py-10 md:py-14">
       <header className="mb-6 text-center">
-        <h1 className="text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl md:text-5xl">FAQ</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl md:text-4xl">FAQ</h1>
         <p className="mt-3 text-sm text-slate-600 sm:text-base">
           Частые вопросы по международной доставке, таможне, возвратам и аккаунту.
         </p>

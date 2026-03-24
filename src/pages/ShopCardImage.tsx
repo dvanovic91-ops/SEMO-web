@@ -57,30 +57,31 @@ export const ShopCardImage: React.FC<Props> = ({ images, name, layout = 'desktop
     });
   };
 
-  const frameClass =
+  /** 동일 shell + aspect → 빈 슬롯·사진 슬롯 박스 크기 일치. 사진은 absolute로 꽉 채움( flex center 로 인한 축소 방지) */
+  const shellClass =
     layout === 'mobile'
-      ? 'relative mt-2 flex aspect-[4/3] w-full min-w-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200/80 bg-white/80 sm:aspect-square'
-      : 'relative mt-2 flex aspect-square w-full min-w-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200/80 bg-white/80';
-
-  const emptyMinH = layout === 'mobile' ? 'min-h-[200px]' : 'min-h-[180px]';
+      ? 'relative mt-2 aspect-[4/3] w-full min-w-0 shrink-0 overflow-hidden rounded-xl border border-slate-200/80 bg-slate-50/90 sm:aspect-square'
+      : 'relative mt-2 aspect-square w-full min-w-0 shrink-0 overflow-hidden rounded-lg border border-slate-200/80 bg-slate-50/90';
 
   if (!images.length) {
     return (
-      <div className={`${frameClass} ${emptyMinH}`}>
-        <span className="prose-ru px-2 text-center text-base font-medium text-brand">{name}</span>
+      <div className={`${shellClass} flex items-center justify-center`}>
+        <span className="prose-ru line-clamp-3 px-2 text-center text-sm font-medium text-slate-400 sm:text-base">
+          {name}
+        </span>
       </div>
     );
   }
 
   return (
     <div
-      className={frameClass}
+      className={shellClass}
       onMouseEnter={startHover}
       onMouseLeave={endHover}
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
     >
-      <img src={images[index]} alt={name} className="h-full w-full object-cover object-center" />
+      <img src={images[index]} alt={name} className="absolute inset-0 h-full w-full object-cover object-center" />
       {/* 모바일: 좌우 스와이프 가능 — 하단 점 표시 */}
       {hasMultiple && layout === 'mobile' && (
         <div className="pointer-events-none absolute bottom-2 left-0 right-0 flex justify-center gap-1.5" aria-hidden>

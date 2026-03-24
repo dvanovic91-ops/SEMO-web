@@ -2,7 +2,6 @@ import React, { useEffect, useState, useRef } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { BackArrow } from '../../components/BackArrow';
 import { AuthInitializingScreen, SemoPageSpinner, SEMO_SECTION_LOADING_CLASS } from '../../components/SemoPageSpinner';
-import { getRecommendationPath } from '../../config/skinTypeRecommendations';
 import { useAuth } from '../../context/AuthContext';
 import { SKIN_INFO } from '../../data/skinTestData';
 import { supabase } from '../../lib/supabase';
@@ -125,10 +124,10 @@ export const ProfileTestResultDetail: React.FC = () => {
           )}
           <div className="mt-8">
             <Link
-              to={getRecommendationPath(type)}
+              to={`/skin-test?type=${encodeURIComponent(type.trim().toUpperCase())}`}
               className="inline-block rounded-full bg-brand px-6 py-3 text-center text-sm font-semibold text-white transition hover:bg-brand/90"
             >
-              Рекомендуемые товары
+              Посмотреть результат теста
             </Link>
           </div>
         </div>

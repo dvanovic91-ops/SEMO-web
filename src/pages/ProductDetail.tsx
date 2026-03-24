@@ -5,6 +5,7 @@ import { useProductNavReplacement } from '../context/ProductNavReplacementContex
 import { useCart } from '../context/CartContext';
 import { supabase } from '../lib/supabase';
 import { BackArrow } from '../components/BackArrow';
+import { ProductCompositionGrid } from '../components/ProductCompositionGrid';
 import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../components/SemoPageSpinner';
 import {
   mockBriefFromComponents,
@@ -36,12 +37,6 @@ type Component = {
   /** 상세 «Подробнее о составе» 블록 배치 */
   layout?: 'image_left' | 'image_right';
 };
-
-/** 구성품 이미지 URL 배열 (image_urls 우선, 없으면 [image_url]) */
-function getComponentImageUrls(comp: Component): string[] {
-  if (comp.image_urls && Array.isArray(comp.image_urls) && comp.image_urls.length > 0) return comp.image_urls;
-  return comp.image_url ? [comp.image_url] : [];
-}
 
 /**
  * products.image_urls — 배열·JSON 문자열·단일 URL 등 Supabase 형태 통일.
@@ -133,7 +128,6 @@ export const ProductDetail: React.FC = () => {
   const [components, setComponents] = useState<Component[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [ingredientBrief, setIngredientBrief] = useState<ProductIngredientBrief | null>(null);
-  const [ingredientPanelOpen, setIngredientPanelOpen] = useState(false);
   /** 로드 실패/타임아웃 시 메시지. null이면 로딩 중 또는 성공 — setLoading 제거로 #310 완화 */
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -1058,84 +1052,8 @@ export const ProductDetail: React.FC = () => {
             </div>
           </div>
 
-          {/* 구성품 그리드가 있으면 같은 카드 안에 */}
-          <div className="mt-6 overflow-hidden rounded-2xl bg-white shadow-[0_1px_10px_-6px_rgba(15,23,42,0.2)] ring-1 ring-slate-200/70">
-              {/* 3) 하단 박스: 상세 구성품 이미지 (관리자 product_components 연동) — 이미지·가격 행 아래 전체 너비 */}
-              {components.length > 0 && (
-                <div className="border-t border-slate-100 bg-white px-4 py-4 sm:px-6 sm:py-5">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Состав набора</p>
-                    <button
-                      type="button"
-                      onClick={() => setIngredientPanelOpen((v) => !v)}
-                      className="w-[11.4rem] shrink-0 rounded-full border border-slate-300 bg-white px-2 py-1.75 text-[13px] font-medium leading-snug text-slate-600 transition hover:border-slate-500 hover:text-slate-800 sm:w-auto sm:px-3 sm:py-1.5 sm:text-xs"
-                    >
-                      {ingredientPanelOpen ? 'Скрыть ключевые ингредиенты' : 'Смотреть ключевые ингредиенты'}
-                    </button>
-                  </div>
-
-                  {!ingredientPanelOpen ? (
-                    <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-6 sm:gap-3">
-                      {components.slice(0, 6).map((comp) => {
-                        const imgs = getComponentImageUrls(comp);
-                        const firstImg = imgs[0];
-                        return (
-                          <div key={comp.id} className="flex flex-col items-center">
-                            <div className="aspect-square w-full overflow-hidden rounded-xl bg-slate-50">
-                              {firstImg ? (
-                                <img
-                                  src={firstImg}
-                                  alt={comp.name ?? ''}
-                                  className="h-full w-full object-cover"
-                                />
-                              ) : (
-                                <div className="flex h-full w-full items-center justify-center text-slate-300 text-xs">—</div>
-                              )}
-                            </div>
-                            {comp.name && (
-                              <p className="mt-1.5 line-clamp-2 text-center text-[11px] font-medium text-slate-700 sm:text-xs">
-                                {comp.name}
-                              </p>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      <div className="space-y-2.5">
-                        {components.slice(0, 6).map((comp) => {
-                          const imgs = getComponentImageUrls(comp);
-                          const firstImg = imgs[0];
-                          const fallbackText = comp.description?.trim()
-                            ? comp.description
-                            : '구성품 설명을 입력해주세요.';
-                          const isLongFallback = fallbackText.length > 90;
-                          const useTopAlign = isLongFallback;
-                          return (
-                            <div key={`row-${comp.id}`} className="grid grid-cols-[102px_1fr] items-start gap-3 sm:grid-cols-[128px_1fr] md:grid-cols-[176px_1fr]">
-                              <div className="aspect-square overflow-hidden rounded-xl bg-slate-50">
-                                {firstImg ? (
-                                  <img src={firstImg} alt={comp.name ?? ''} className="h-full w-full object-cover" />
-                                ) : (
-                                  <div className="flex h-full w-full items-center justify-center text-slate-300 text-xs">—</div>
-                                )}
-                              </div>
-                              <article className="grid h-full min-h-[6.25rem] grid-rows-[auto_1fr] rounded-xl border border-slate-200 bg-white p-2.5 sm:min-h-[7rem] md:min-h-[6.75rem]">
-                                <p className="text-[13px] font-semibold text-slate-900 sm:text-sm">{comp.name ?? 'Компонент'}</p>
-                                <div className={`mt-3 flex ${useTopAlign ? 'items-start' : 'items-center'}`}>
-                                  <p className="whitespace-pre-line text-xs leading-relaxed text-slate-500">{fallbackText}</p>
-                                </div>
-                              </article>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-          </div>
+          {/* 구성품 그리드 — ProductCompositionGrid와 동일 UX (토글 «ключевые ингредиенты») */}
+          <ProductCompositionGrid components={components} />
         </header>
 
         {(ingredientBrief?.infographic_image_url || (product?.detail_description && /^https?:\/\//i.test(product.detail_description))) && (

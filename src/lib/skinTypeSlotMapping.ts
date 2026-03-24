@@ -25,10 +25,20 @@ export async function getRecommendedProductIdForSkinType(skinType: string | null
       const id = String(data).trim();
       if (id) {
         // RPC가 category 필터 없이 배포된 경우 inner_beauty 등이 나올 수 있음 → 뷰티박스만 허용
-        const { data: prow } = await supabase.from('products').select('category').eq('id', id).maybeSingle();
+        const r1 = await supabase.from('products').select('category, box_history').eq('id', id).maybeSingle();
+        let prow: { category?: string | null; box_history?: boolean | null } | null = r1.data as typeof prow;
+        if (r1.error) {
+          const r2 = await supabase.from('products').select('category').eq('id', id).maybeSingle();
+          prow = r2.data as typeof prow;
+        }
         if (prow) {
-          const cat = (prow as { category?: string | null }).category;
-          if (cat == null || cat === SKIN_TEST_CATALOG_CATEGORY) return id;
+          const row = prow as { category?: string | null; box_history?: boolean | null };
+          if (row.box_history) {
+            // 과거 시즌 박스는 추천·테스트 매칭에서 제외 → 아래 슬롯 폴백
+          } else {
+            const cat = row.category;
+            if (cat == null || cat === SKIN_TEST_CATALOG_CATEGORY) return id;
+          }
         }
         // 상품 행을 읽지 못함(RLS 등)이거나 inner_beauty 등 → RPC 결과 무시하고 뷰티 슬롯 폴백
       }
@@ -50,7 +60,13 @@ export async function getRecommendedProductIdForSkinType(skinType: string | null
     .sort((a, b) => a.slot_index - b.slot_index);
   if (rows.length === 0 || slotIndex > rows.length) return null;
   const row = rows[slotIndex - 1];
-  return row?.product_id ?? null;
+  const pid = row?.product_id ?? null;
+  if (!pid) return null;
+  const { data: pRow, error: pRowErr } = await supabase.from('products').select('box_history').eq('id', pid).maybeSingle();
+  if (pRowErr) return pid;
+  const bh = (pRow as { box_history?: boolean | null } | null)?.box_history;
+  if (bh) return null;
+  return pid;
 }
 
 /** DB에서 해당 피부타입의 슬롯 번호(1~5) 조회. 없으면 config 값 반환. 오류 시 null */

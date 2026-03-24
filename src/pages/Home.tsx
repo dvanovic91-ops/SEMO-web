@@ -1,7 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { CATALOG_ROOM_SLOTS_TABLE, type CatalogSlotRoom } from '../lib/catalogSlotRooms';
+import {
+  CATALOG_ROOM_SLOTS_TABLE,
+  CATALOG_SLOT_VISIBLE_BY_ROOM_KEY,
+  clampCatalogVisibleCount,
+  parseCatalogVisibleByRoom,
+  type CatalogSlotRoom,
+} from '../lib/catalogSlotRooms';
 
 /* ─── 히어로 이미지 타입 ─── */
 type HeroSlide = { image_url: string; mobile_image_url?: string; link_url?: string };
@@ -645,12 +651,32 @@ function ProductShowcase() {
     (async () => {
       setLoading(true);
       try {
-        const { data: slotRowsRaw } = await supabase
-          .from(CATALOG_ROOM_SLOTS_TABLE)
-          .select('catalog_room, slot_index, title, image_url, product_id')
-          .in('catalog_room', ['beauty', 'inner_beauty', 'hair_beauty'])
-          .order('catalog_room', { ascending: true })
-          .order('slot_index', { ascending: true });
+        const [{ data: slotRowsRaw }, { data: visRow }] = await Promise.all([
+          supabase
+            .from(CATALOG_ROOM_SLOTS_TABLE)
+            .select('catalog_room, slot_index, title, image_url, product_id')
+            .in('catalog_room', ['beauty', 'inner_beauty', 'hair_beauty'])
+            .order('catalog_room', { ascending: true })
+            .order('slot_index', { ascending: true }),
+          supabase.from('site_settings').select('value').eq('key', CATALOG_SLOT_VISIBLE_BY_ROOM_KEY).maybeSingle(),
+        ]);
+
+        const visMap = parseCatalogVisibleByRoom(visRow?.value);
+        const ROOMS: CatalogSlotRoom[] = ['beauty', 'inner_beauty', 'hair_beauty'];
+        const byRoom = new Map<
+          CatalogSlotRoom,
+          { catalog_room: CatalogSlotRoom; slot_index: number; title: string | null; image_url: string | null; product_id: string | null }[]
+        >();
+        for (const r of ROOMS) byRoom.set(r, []);
+        for (const row of (slotRowsRaw ?? []) as {
+          catalog_room: CatalogSlotRoom;
+          slot_index: number;
+          title: string | null;
+          image_url: string | null;
+          product_id: string | null;
+        }[]) {
+          byRoom.get(row.catalog_room)?.push(row);
+        }
 
         type SlotRow = {
           slot_index: number;
@@ -659,15 +685,21 @@ function ProductShowcase() {
           product_id: string | null;
           groupKey: CatalogSlotRoom;
         };
-        const slots: SlotRow[] = ((slotRowsRaw ?? []) as { catalog_room: CatalogSlotRoom; slot_index: number; title: string | null; image_url: string | null; product_id: string | null }[]).map(
-          (row) => ({
-            slot_index: row.slot_index,
-            title: row.title,
-            image_url: row.image_url,
-            product_id: row.product_id,
-            groupKey: row.catalog_room,
-          }),
-        );
+        const slots: SlotRow[] = [];
+        for (const r of ROOMS) {
+          const arr = (byRoom.get(r) ?? []).slice().sort((a, b) => a.slot_index - b.slot_index);
+          const fallbackVisible = Math.min(5, Math.max(1, arr.length));
+          const n = clampCatalogVisibleCount(visMap[r] ?? fallbackVisible, fallbackVisible);
+          for (const row of arr.slice(0, n)) {
+            slots.push({
+              slot_index: row.slot_index,
+              title: row.title,
+              image_url: row.image_url,
+              product_id: row.product_id,
+              groupKey: r,
+            });
+          }
+        }
 
         const productIds = [...new Set(slots.map((s) => s.product_id).filter(Boolean))] as string[];
         let priceMap: Record<string, { rrp_price: number; prp_price: number | null; image_url: string | null; image_urls: string[] | null; category: string | null }> = {};

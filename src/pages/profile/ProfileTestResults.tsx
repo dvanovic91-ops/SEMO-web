@@ -75,10 +75,14 @@ export const ProfileTestResults: React.FC = () => {
                 <p className="text-xs text-slate-500">{formatDate(r.completed_at)}</p>
               </Link>
               <Link
-                to={r.skin_type ? `/recommendations/${encodeURIComponent(r.skin_type.trim().toUpperCase())}` : '/recommendations'}
+                to={
+                  r.skin_type
+                    ? `/skin-test?type=${encodeURIComponent(r.skin_type.trim().toUpperCase())}`
+                    : '/skin-test'
+                }
                 className="ml-3 shrink-0 text-xs font-medium text-brand hover:underline"
               >
-                Рекомендуемые товары
+                Посмотреть результат теста
               </Link>
             </li>
           ))}
