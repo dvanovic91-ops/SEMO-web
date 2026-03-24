@@ -15,6 +15,7 @@ import { supabase } from '../lib/supabase';
 import { BackArrow } from '../components/BackArrow';
 import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../components/SemoPageSpinner';
 import { getOrCreateVisitSessionId } from '../lib/clientSession';
+import { getRecommendedProductIdForSkinType } from '../lib/skinTypeSlotMapping';
 
 const MAX_TEST_COUNT = 2;
 /** 어드민 이메일 — 웹에서도 테스트 횟수 제한 없음 (봇 ADMIN_IDS와 별도) */
@@ -45,6 +46,11 @@ export const SkinTest: React.FC = () => {
     info: SkinTypeInfo;
     scores: Record<1 | 2 | 3 | 4, number>;
   } | null>(null);
+  const [recommendedProductPreview, setRecommendedProductPreview] = useState<{
+    name: string;
+    imageUrl: string | null;
+    subImages: string[];
+  } | null>(null);
 
   /** 회원 기준 skin_test_results 건수 조회 (2회 제한용) */
   useEffect(() => {
@@ -64,6 +70,44 @@ export const SkinTest: React.FC = () => {
       })
       .catch(() => setTestCount(0));
   }, [userId, noTestLimit]);
+
+  useEffect(() => {
+    if (!result?.type || !supabase) {
+      setRecommendedProductPreview(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const productId = await getRecommendedProductIdForSkinType(result.type);
+        if (!productId || cancelled) {
+          if (!cancelled) setRecommendedProductPreview(null);
+          return;
+        }
+        const { data: productData } = await supabase
+          .from('products')
+          .select('name, image_url, image_urls')
+          .eq('id', productId)
+          .maybeSingle();
+        if (cancelled || !productData) return;
+        const imageUrls = Array.isArray((productData as { image_urls?: string[] | null }).image_urls)
+          ? ((productData as { image_urls?: string[] | null }).image_urls ?? []).filter(Boolean)
+          : [];
+        const imageUrl = (productData as { image_url?: string | null }).image_url ?? imageUrls[0] ?? null;
+        const subImages = imageUrls.filter((u) => u && u !== imageUrl).slice(0, 6);
+        setRecommendedProductPreview({
+          name: (productData as { name?: string | null }).name ?? 'Beauty box',
+          imageUrl,
+          subImages,
+        });
+      } catch {
+        if (!cancelled) setRecommendedProductPreview(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [result?.type]);
 
   const handleAgree = () => {
     if (!isAdmin && !noTestLimit && limitReached) return;
@@ -449,29 +493,34 @@ export const SkinTest: React.FC = () => {
             </p>
             <div className="mt-4 flex justify-center">
               <div className="group relative aspect-[3/2] w-full max-w-md overflow-hidden rounded-xl bg-slate-100">
-                <img
-                  src="https://placehold.co/600x400/fef0eb/E65427?text=Beauty+Box1"
-                  alt="Beauty box"
-                  className="h-full w-full object-cover transition group-hover:opacity-0"
-                />
-                <div className="absolute inset-0 grid grid-cols-3 grid-rows-2 opacity-0 transition group-hover:opacity-100">
-                  {[
-                    'https://placehold.co/400x300/fef0eb/E65427?text=1',
-                    'https://placehold.co/400x300/fef0eb/E65427?text=2',
-                    'https://placehold.co/400x300/fef0eb/E65427?text=3',
-                    'https://placehold.co/400x300/fef0eb/E65427?text=4',
-                    'https://placehold.co/400x300/fef0eb/E65427?text=5',
-                    'https://placehold.co/400x300/fef0eb/E65427?text=6',
-                  ].map((src, i) => (
-                    <div key={i} className="overflow-hidden">
-                      <img
-                        src={src}
-                        alt={`${i + 1}`}
-                        className="h-full w-full object-cover"
-                      />
-                    </div>
-                  ))}
-                </div>
+                {recommendedProductPreview?.imageUrl ? (
+                  <>
+                    <img
+                      src={recommendedProductPreview.imageUrl}
+                      alt={recommendedProductPreview.name}
+                      className={`h-full w-full object-cover transition ${
+                        recommendedProductPreview.subImages.length > 0 ? 'group-hover:opacity-0' : ''
+                      }`}
+                    />
+                    {recommendedProductPreview.subImages.length > 0 && (
+                      <div className="absolute inset-0 grid grid-cols-3 grid-rows-2 opacity-0 transition group-hover:opacity-100">
+                        {recommendedProductPreview.subImages.map((src, i) => (
+                          <div key={i} className="overflow-hidden">
+                            <img
+                              src={src}
+                              alt={`${recommendedProductPreview.name} ${i + 1}`}
+                              className="h-full w-full object-cover"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-sm text-slate-400">
+                    Рекомендованный товар загружается...
+                  </div>
+                )}
               </div>
             </div>
           </div>

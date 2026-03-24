@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
 import { supabase } from '../lib/supabase';
 import { ShopCardImage } from './ShopCardImage';
+import { SemoPageSpinner } from '../components/SemoPageSpinner';
 
 /** 슬롯 또는 폴백 상품 타입 */
 type ShopItem = {
@@ -31,16 +32,27 @@ const FALLBACK_SHOP_ITEMS: ShopItem[] = [1, 2, 3, 4, 5].map((i) => ({
   boxTheme: i >= 4 ? ('sky' as const) : ('brand' as const),
 }));
 
-const VISIBLE_DESKTOP = 3;
+/** 데스크톱: 3개 + 다음 카드 일부(피크) 노출 */
+const VISIBLE_DESKTOP = 3.2;
 const itemWidthPercentDesktop = 100 / VISIBLE_DESKTOP;
+/** 카드 한 장의 20%를 피크로 사용 (3.2 구성에서 약 6.25%) */
+const desktopPeekPercent = itemWidthPercentDesktop * 0.2;
 
 function formatPrice(price: number): string {
   return `${price.toLocaleString('ru-RU')} руб.`;
 }
 
+function normalizeCategory(raw: unknown): ShopLayoutCategory {
+  const v = String(raw ?? 'beauty').trim().toLowerCase();
+  if (v === 'inner_beauty' || v === 'inner-beauty' || v === 'inner beauty' || v === 'inner') return 'inner_beauty';
+  if (v === 'hair_beauty' || v === 'hair-beauty' || v === 'hair beauty' || v === 'hair') return 'hair_beauty';
+  return 'beauty';
+}
+
 type ShopProductCardProps = {
   product: ShopItem;
   onAddToCart: (item: ShopItem) => void;
+  layoutCategory: ShopLayoutCategory;
   /** 모바일: 세로 풀폭 버튼 / 데스크톱 캐러셀: 가로 나란히 */
   layout: 'mobile-stack' | 'desktop-carousel';
 };
@@ -48,7 +60,7 @@ type ShopProductCardProps = {
 /**
  * 상품 카드 — 모바일은 넓은 1열·충분한 패딩·버튼 min 44px, 데스크톱은 캐러셀 슬롯용
  */
-function ShopProductCard({ product, onAddToCart, layout }: ShopProductCardProps) {
+function ShopProductCard({ product, onAddToCart, layoutCategory, layout }: ShopProductCardProps) {
   const isSky = (product.boxTheme ?? 'brand') === 'sky';
   const articleBase =
     isSky
@@ -98,7 +110,10 @@ function ShopProductCard({ product, onAddToCart, layout }: ShopProductCardProps)
           {cardTop}
         </a>
       ) : (
-        <Link to={`/product/${product.productId ?? product.id}`} className="flex w-full min-w-0 flex-1 cursor-pointer flex-col items-center md:items-center">
+        <Link
+          to={`/product/${product.productId ?? product.id}?catalog=${layoutCategory}`}
+          className="flex w-full min-w-0 flex-1 cursor-pointer flex-col items-center md:items-center"
+        >
           {cardTop}
         </Link>
       )}
@@ -135,6 +150,7 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
   const { addItem } = useCart();
   const [showAddedToast, setShowAddedToast] = useState(false);
   const [items, setItems] = useState<ShopItem[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(true);
   const [carouselIndex, setCarouselIndex] = useState(0);
   const touchStartX = useRef(0);
 
@@ -145,8 +161,10 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
   useEffect(() => {
     if (!supabase) {
       setItems([]);
+      setCatalogLoading(false);
       return;
     }
+    setCatalogLoading(true);
     (async () => {
       try {
         const { data: slotData, error: slotErr } = await supabase
@@ -156,6 +174,7 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
         if (slotErr) {
           console.warn('[ShopCatalog] main_layout_slots:', slotErr.message);
           setItems(layoutCategory === 'beauty' ? FALLBACK_SHOP_ITEMS : []);
+          setCatalogLoading(false);
           return;
         }
         const slots = ((slotData ?? []) as { slot_index: number; title: string | null; description: string | null; image_url: string | null; product_id: string | null; link_url: string | null }[])
@@ -163,13 +182,32 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
           .sort((a, b) => a.slot_index - b.slot_index);
         if (!slots.length) {
           setItems(layoutCategory === 'beauty' ? FALLBACK_SHOP_ITEMS : []);
+          setCatalogLoading(false);
           return;
         }
+        // 슬롯은 관리모드 기준으로 최대 5칸을 그대로 노출한다.
+        const targetSlotCount = 5;
+        const slotByIndex = new Map(slots.map((s) => [s.slot_index, s] as const));
+        const normalizedSlots = Array.from({ length: targetSlotCount }, (_, idx) => {
+          const found = slotByIndex.get(idx);
+          if (found) return found;
+          return {
+            slot_index: idx,
+            title: null,
+            description: null,
+            image_url: null,
+            product_id: null,
+            link_url: null,
+          };
+        });
 
-        const productIds = [...new Set(slots.map((s) => s.product_id).filter(Boolean))] as string[];
+        const productIds = [...new Set(normalizedSlots.map((s) => s.product_id).filter(Boolean))] as string[];
+        let categoryProductIds: string[] = [];
+        let allProductIds: string[] = [];
         let productsMap: Record<
           string,
           {
+            name?: string | null;
             rrp_price: number | null;
             prp_price: number | null;
             image_url: string | null;
@@ -177,16 +215,18 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
             box_theme: 'brand' | 'sky' | null;
           }
         > = {};
+        // 1) 슬롯에 연결된 상품은 카테고리와 무관하게 항상 먼저 조회(가격/이미지 0 방지)
         if (productIds.length > 0) {
-          const { data: prodData, error: prodErr } = await supabase
+          const { data: slotProducts, error: slotProdErr } = await supabase
             .from('products')
-            .select('id, rrp_price, prp_price, image_url, image_urls, box_theme')
+            .select('id, name, category, rrp_price, prp_price, image_url, image_urls, box_theme')
             .in('id', productIds);
-          if (prodErr) {
-            console.warn('[Shop] products:', prodErr.message);
+          if (slotProdErr) {
+            console.warn('[Shop] slot products:', slotProdErr.message);
           } else {
-            (prodData ?? []).forEach((p: { id: string; rrp_price: number | null; prp_price: number | null; image_url: string | null; image_urls?: string[] | null; box_theme?: 'brand' | 'sky' | null }) => {
+            (slotProducts ?? []).forEach((p: { id: string; name?: string | null; rrp_price: number | null; prp_price: number | null; image_url: string | null; image_urls?: string[] | null; box_theme?: 'brand' | 'sky' | null }) => {
               productsMap[p.id] = {
+                name: p.name ?? null,
                 rrp_price: p.rrp_price,
                 prp_price: p.prp_price,
                 image_url: p.image_url ?? null,
@@ -197,7 +237,41 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
           }
         }
 
-        const list: ShopItem[] = slots.map((s: { slot_index: number; title: string | null; image_url: string | null; product_id: string | null; link_url: string | null }) => {
+        // 2) 자동 보충용: 전체 상품에서 같은 카테고리만 추려 ID 목록 확보
+        {
+          const { data: allProducts, error: prodErr } = await supabase
+            .from('products')
+            .select('id, category, name, rrp_price, prp_price, image_url, image_urls, box_theme');
+          if (prodErr) {
+            console.warn('[Shop] products:', prodErr.message);
+          } else {
+            const all = (allProducts ?? []) as {
+              id: string;
+              category?: string | null;
+              name?: string | null;
+              rrp_price: number | null;
+              prp_price: number | null;
+              image_url: string | null;
+              image_urls?: string[] | null;
+              box_theme?: 'brand' | 'sky' | null;
+            }[];
+            const filtered = all.filter((p) => normalizeCategory(p.category) === layoutCategory);
+            all.forEach((p) => {
+              productsMap[p.id] = {
+                name: p.name ?? null,
+                rrp_price: p.rrp_price,
+                prp_price: p.prp_price,
+                image_url: p.image_url ?? null,
+                image_urls: Array.isArray(p.image_urls) && p.image_urls.length ? p.image_urls : p.image_url ? [p.image_url] : [],
+                box_theme: p.box_theme ?? 'brand',
+              };
+            });
+            categoryProductIds = filtered.map((p) => p.id);
+            allProductIds = all.map((p) => p.id);
+          }
+        }
+
+        let list: ShopItem[] = normalizedSlots.map((s: { slot_index: number; title: string | null; image_url: string | null; product_id: string | null; link_url: string | null }) => {
           const productId = s.product_id ?? null;
           const product = productId ? productsMap[productId] : null;
           const prp = product?.prp_price != null ? Number(product.prp_price) : null;
@@ -226,10 +300,73 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
             boxTheme,
           };
         });
-        setItems(list);
+        // 슬롯 저장이 일부만 된 경우(예: 4개)에도 카탈로그가 갑자기 줄어 보이지 않도록
+        // 같은 카테고리의 남은 상품을 뒤에 자동 보충(최대 5개)한다.
+        if (list.length < 5 && categoryProductIds.length > 0) {
+          const used = new Set(list.map((x) => x.productId).filter(Boolean));
+          const remain = categoryProductIds.filter((pid) => !used.has(pid));
+          const supplements: ShopItem[] = remain.map((pid, idx) => {
+            const product = productsMap[pid];
+            const prp = product?.prp_price != null ? Number(product.prp_price) : null;
+            const rrp = product?.rrp_price != null ? Number(product.rrp_price) : null;
+            const price = prp ?? rrp ?? 0;
+            const originalPrice = prp != null && rrp != null ? rrp : null;
+            const imageUrls =
+              product && Array.isArray(product.image_urls) && product.image_urls.length
+                ? product.image_urls
+                : product?.image_url
+                ? [product.image_url]
+                : [];
+            return {
+              id: pid,
+              name: product?.name?.trim() || `Слот ${list.length + idx + 1}`,
+              price,
+              originalPrice,
+              imageUrl: imageUrls[0] ?? null,
+              imageUrls,
+              productId: pid,
+              linkUrl: null,
+              boxTheme: product?.box_theme ?? 'brand',
+            };
+          });
+          list = [...list, ...supplements].slice(0, 5);
+        }
+        // 카테고리 데이터 불일치/라벨 실수로 여전히 부족하면 전체 상품에서 보충해 5개를 보장
+        if (list.length < 5 && allProductIds.length > 0) {
+          const used = new Set(list.map((x) => x.productId).filter(Boolean));
+          const remainAll = allProductIds.filter((pid) => !used.has(pid));
+          const supplementsAll: ShopItem[] = remainAll.map((pid, idx) => {
+            const product = productsMap[pid];
+            const prp = product?.prp_price != null ? Number(product.prp_price) : null;
+            const rrp = product?.rrp_price != null ? Number(product.rrp_price) : null;
+            const price = prp ?? rrp ?? 0;
+            const originalPrice = prp != null && rrp != null ? rrp : null;
+            const imageUrls =
+              product && Array.isArray(product.image_urls) && product.image_urls.length
+                ? product.image_urls
+                : product?.image_url
+                ? [product.image_url]
+                : [];
+            return {
+              id: pid,
+              name: product?.name?.trim() || `Слот ${list.length + idx + 1}`,
+              price,
+              originalPrice,
+              imageUrl: imageUrls[0] ?? null,
+              imageUrls,
+              productId: pid,
+              linkUrl: null,
+              boxTheme: product?.box_theme ?? 'brand',
+            };
+          });
+          list = [...list, ...supplementsAll].slice(0, 5);
+        }
+        setItems(list.slice(0, targetSlotCount));
       } catch (e) {
         console.warn('[ShopCatalog] load error:', e);
         setItems(layoutCategory === 'beauty' ? FALLBACK_SHOP_ITEMS : []);
+      } finally {
+        setCatalogLoading(false);
       }
     })();
   }, [layoutCategory]);
@@ -240,9 +377,14 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
     return () => clearTimeout(t);
   }, [showAddedToast]);
 
-  const maxIndex = Math.max(0, items.length - VISIBLE_DESKTOP);
+  // 3.2(3개+피크) 구성에서는 ceil을 쓰면 마지막 카드에 도달하지 못할 수 있어 floor 기준 사용
+  const maxIndex = Math.max(0, items.length - Math.floor(VISIBLE_DESKTOP));
   const goPrev = () => setCarouselIndex((i) => Math.max(0, i - 1));
   const goNext = () => setCarouselIndex((i) => Math.min(maxIndex, i + 1));
+  const middlePeekAdjust = desktopPeekPercent * 0.65;
+  const desktopTranslate = `calc(-${carouselIndex * itemWidthPercentDesktop}% + ${
+    carouselIndex > 0 ? (carouselIndex < maxIndex ? middlePeekAdjust : desktopPeekPercent) : 0
+  }%)`;
 
   const onTouchStart = (e: React.TouchEvent) => {
     touchStartX.current = e.touches[0].clientX;
@@ -278,7 +420,11 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
         ) : null}
       </header>
 
-      {items.length === 0 ? (
+      {catalogLoading ? (
+        <div className="py-16">
+          <SemoPageSpinner />
+        </div>
+      ) : items.length === 0 ? (
         <p className="py-16 text-center text-sm text-slate-500">
           {layoutCategory === 'beauty'
             ? 'Каталог временно недоступен.'
@@ -291,7 +437,7 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
             <div className="flex flex-col gap-6">
               {items.map((product) => (
                 <div key={product.id} className="w-full min-w-0">
-                  <ShopProductCard product={product} onAddToCart={handleAddToCart} layout="mobile-stack" />
+                  <ShopProductCard product={product} onAddToCart={handleAddToCart} layoutCategory={layoutCategory} layout="mobile-stack" />
                 </div>
               ))}
             </div>
@@ -302,11 +448,15 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
             <div className="overflow-hidden" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
               <div
                 className="flex transition-[transform] duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1)]"
-                style={{ transform: `translateX(-${carouselIndex * itemWidthPercentDesktop}%)` }}
+                style={{ transform: `translateX(${desktopTranslate})` }}
               >
                 {items.map((product) => (
-                  <div key={product.id} className="flex w-[33.333333%] shrink-0 flex-col px-2 sm:px-3">
-                    <ShopProductCard product={product} onAddToCart={handleAddToCart} layout="desktop-carousel" />
+                  <div
+                    key={product.id}
+                    className="flex shrink-0 flex-col px-2 sm:px-3"
+                    style={{ width: `${itemWidthPercentDesktop}%` }}
+                  >
+                    <ShopProductCard product={product} onAddToCart={handleAddToCart} layoutCategory={layoutCategory} layout="desktop-carousel" />
                   </div>
                 ))}
               </div>

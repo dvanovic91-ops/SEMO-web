@@ -19,6 +19,12 @@ import { sendMarketingTelegramBroadcast } from '../../lib/telegramBroadcast';
 import { ALL_SKIN_TYPES } from '../../config/skinTypeRecommendations';
 import { PromoImageCropModal } from '../../components/PromoImageCropModal';
 import { AuthInitializingScreen } from '../../components/SemoPageSpinner';
+import {
+  formatIngredientLines,
+  normalizeBrief,
+  parseIngredientLines,
+  type ProductIngredientBriefMap,
+} from '../../lib/productIngredients';
 
 /** 관리자 폼: 모바일 100% 폭, 터치 친화적 min-height · text-base로 iOS 입력 시 자동 확대 완화 */
 const inputClass =
@@ -314,6 +320,14 @@ type ProductStats = {
   latestReviewAt: string | null;
 };
 
+/** 상품 카테고리 문자열 정규화 — 공백/대소문자/유사 표기를 안전하게 통일 */
+function normalizeProductCategory(raw: unknown): 'beauty' | 'inner_beauty' | 'hair_beauty' {
+  const v = String(raw ?? 'beauty').trim().toLowerCase();
+  if (v === 'inner_beauty' || v === 'inner-beauty' || v === 'inner beauty' || v === 'inner') return 'inner_beauty';
+  if (v === 'hair_beauty' || v === 'hair-beauty' || v === 'hair beauty' || v === 'hair') return 'hair_beauty';
+  return 'beauty';
+}
+
 /** 관리자 리뷰 상세: 사용자명·업로드 사진 등 표시용 */
 type ProductReviewSummary = {
   id: string;
@@ -450,6 +464,11 @@ export const Admin: React.FC = () => {
   const [trafficByWeek, setTrafficByWeek] = useState<TrafficPoint[]>([]);
   const [trafficByMonth, setTrafficByMonth] = useState<TrafficPoint[]>([]);
   const [components, setComponents] = useState<ProductComponent[]>([]);
+  const [ingredientBriefsMap, setIngredientBriefsMap] = useState<ProductIngredientBriefMap>({});
+  const [ingredientStoryTitleRu, setIngredientStoryTitleRu] = useState('');
+  const [ingredientStoryBodyRu, setIngredientStoryBodyRu] = useState('');
+  const [ingredientInfographicUrl, setIngredientInfographicUrl] = useState('');
+  const [ingredientLinesDraft, setIngredientLinesDraft] = useState('');
   const [productStats, setProductStats] = useState<ProductStats | null>(null);
   const [productReviews, setProductReviews] = useState<ProductReviewSummary[]>([]);
   const [showProductReviews, setShowProductReviews] = useState(false);
@@ -484,6 +503,7 @@ export const Admin: React.FC = () => {
 
   /** 상품 대표 이미지 파일 선택용 (숨김 input 트리거) */
   const mainImageInputRef = useRef<HTMLInputElement>(null);
+  const ingredientInfographicInputRef = useRef<HTMLInputElement>(null);
   /** 구성품 이미지 파일 선택용 + 업로드 대상 인덱스 */
   const componentImageInputRef = useRef<HTMLInputElement>(null);
   const componentUploadIndexRef = useRef<number>(-1);
@@ -491,6 +511,7 @@ export const Admin: React.FC = () => {
   const componentUploadImgIdxRef = useRef<number>(0);
   /** 대표 이미지 업로드 중 여부 */
   const [uploadingMainImage, setUploadingMainImage] = useState(false);
+  const [uploadingIngredientInfographic, setUploadingIngredientInfographic] = useState(false);
   /** 업로드 중인 구성품 인덱스 (-1이면 없음) */
   const [uploadingComponentIndex, setUploadingComponentIndex] = useState<number>(-1);
   /** 저장 성공 시 토스트 표시 (타임스탬프로 키 역할) */
@@ -1006,7 +1027,7 @@ export const Admin: React.FC = () => {
   }, [isAdmin]);
 
   const categoryProducts = useMemo(
-    () => products.filter((p) => (p.category || 'beauty') === productCategory),
+    () => products.filter((p) => normalizeProductCategory(p.category) === normalizeProductCategory(productCategory)),
     [products, productCategory],
   );
 
@@ -1020,7 +1041,7 @@ export const Admin: React.FC = () => {
   /** 상품관리: 탭·카테고리 변경 시에만 DB 슬롯 재로드 (products 내용 변경만으로는 순서 리셋 방지) */
   useEffect(() => {
     if (!supabase || !isAdmin || tab !== 'products') return;
-    const catProds = products.filter((p) => (p.category || 'beauty') === productCategory);
+    const catProds = products.filter((p) => normalizeProductCategory(p.category) === normalizeProductCategory(productCategory));
     (async () => {
       try {
         const { data: slotData, error } = await supabase
@@ -1391,6 +1412,40 @@ export const Admin: React.FC = () => {
         }
       });
   }, [tab]);
+
+  // 상품 탭: 제품별 성분 인포그래픽 데이터(site_settings JSON) 로드
+  useEffect(() => {
+    if (tab !== 'products' || !supabase) return;
+    supabase
+      .from('site_settings')
+      .select('value')
+      .eq('key', 'product_ingredient_briefs')
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!data?.value) return;
+        try {
+          const parsed = JSON.parse(data.value) as ProductIngredientBriefMap;
+          setIngredientBriefsMap(parsed ?? {});
+        } catch {
+          setIngredientBriefsMap({});
+        }
+      });
+  }, [tab]);
+
+  useEffect(() => {
+    if (!selectedProduct?.id) {
+      setIngredientStoryTitleRu('');
+      setIngredientStoryBodyRu('');
+      setIngredientInfographicUrl('');
+      setIngredientLinesDraft('');
+      return;
+    }
+    const brief = normalizeBrief(ingredientBriefsMap[selectedProduct.id]);
+    setIngredientStoryTitleRu(brief.story_title_ru);
+    setIngredientStoryBodyRu(brief.story_body_ru);
+    setIngredientInfographicUrl(brief.infographic_image_url ?? '');
+    setIngredientLinesDraft(formatIngredientLines(brief.entries));
+  }, [selectedProduct?.id, ingredientBriefsMap]);
 
   const handleHeroImageUpload = async (file: File, slideIdx: number, field: 'image_url' | 'mobile_image_url' = 'image_url') => {
     if (!supabase) return;
@@ -1967,6 +2022,25 @@ export const Admin: React.FC = () => {
       if (compPayload.length > 0) {
         await supabase.from('product_components').insert(compPayload);
       }
+      const nextBriefsMap: ProductIngredientBriefMap = {
+        ...ingredientBriefsMap,
+        [productId]: {
+          story_title_ru: ingredientStoryTitleRu.trim(),
+          story_body_ru: ingredientStoryBodyRu.trim(),
+          infographic_image_url: ingredientInfographicUrl.trim() || undefined,
+          entries: parseIngredientLines(ingredientLinesDraft),
+        },
+      };
+      await supabase
+        .from('site_settings')
+        .upsert(
+          {
+            key: 'product_ingredient_briefs',
+            value: JSON.stringify(nextBriefsMap),
+          },
+          { onConflict: 'key' }
+        );
+      setIngredientBriefsMap(nextBriefsMap);
       const { data: prodData } = await supabase
         .from('products')
         .select('id, name, category, description, image_url, image_urls, rrp_price, prp_price, is_active, box_theme');
@@ -2162,6 +2236,32 @@ export const Admin: React.FC = () => {
       window.alert(`에러 발생: ${msg}`);
     } finally {
       setUploadingMainImage(false);
+    }
+  };
+
+  /** 성분 인포그래픽 이미지 업로드 후 URL 필드에 반영 */
+  const onIngredientInfographicFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const input = e.target;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    setUploadingIngredientInfographic(true);
+    setError(null);
+    try {
+      const url = await uploadProductImage(file);
+      if (!url) {
+        const msg = '인포그래픽 이미지 업로드에 실패했습니다. Storage 권한/버킷 설정을 확인해 주세요.';
+        setError(msg);
+        window.alert(msg);
+        return;
+      }
+      setIngredientInfographicUrl(url);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+      window.alert(`에러 발생: ${msg}`);
+    } finally {
+      setUploadingIngredientInfographic(false);
     }
   };
 
@@ -3488,6 +3588,78 @@ export const Admin: React.FC = () => {
                       className={inputClass}
                       value={selectedProduct.stock ?? ''}
                       onChange={(e) => handleProductField('stock', e.target.value === '' ? null : e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3">
+                  <label className={`${labelClass} font-semibold text-slate-800`}>
+                    ③ 상세 «Ключевые ингредиенты» (제품별 성분 보기)
+                  </label>
+                  <p className="mb-3 text-xs text-slate-500">
+                    한 줄에 1개 성분: <code>구성품명 | 성분명 | 역할(러시아어) | 강도(1-3)</code>. 저장하면 상세 페이지 버튼에 반영됩니다.
+                  </p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className={labelClass}>제목 (RU)</label>
+                      <input
+                        type="text"
+                        className={inputClass}
+                        value={ingredientStoryTitleRu}
+                        onChange={(e) => setIngredientStoryTitleRu(e.target.value)}
+                        placeholder="Почему этот набор вам подходит"
+                      />
+                    </div>
+                    <div>
+                      <label className={labelClass}>설득 문구 (RU)</label>
+                      <input
+                        type="text"
+                        className={inputClass}
+                        value={ingredientStoryBodyRu}
+                        onChange={(e) => setIngredientStoryBodyRu(e.target.value)}
+                        placeholder="Комбинация активов закрывает ключевые потребности кожи..."
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-3">
+                    <label className={labelClass}>인포그래픽 이미지 (선택)</label>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      ref={ingredientInfographicInputRef}
+                      className="hidden"
+                      onChange={onIngredientInfographicFileChange}
+                    />
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                      <input
+                        type="url"
+                        className={inputClass}
+                        value={ingredientInfographicUrl}
+                        onChange={(e) => setIngredientInfographicUrl(e.target.value)}
+                        placeholder="https://... (업로드 또는 URL 직접 입력)"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => ingredientInfographicInputRef.current?.click()}
+                        disabled={uploadingIngredientInfographic}
+                        className="shrink-0 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:border-brand hover:text-brand disabled:opacity-60"
+                      >
+                        {uploadingIngredientInfographic ? '업로드 중…' : '인포그래픽 업로드'}
+                      </button>
+                    </div>
+                    {ingredientInfographicUrl && (
+                      <div className="mt-2 overflow-hidden rounded-lg border border-slate-200 bg-white">
+                        <img src={ingredientInfographicUrl} alt="ingredient infographic preview" className="max-h-44 w-full object-contain" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="mt-3">
+                    <label className={labelClass}>성분 라인</label>
+                    <textarea
+                      className={`${inputClass} min-h-[130px]`}
+                      value={ingredientLinesDraft}
+                      onChange={(e) => setIngredientLinesDraft(e.target.value)}
+                      placeholder={'Тонер | Ниацинамид | Выравнивает тон и укрепляет барьер | 3\nСыворотка | Пантенол | Снижает чувствительность и успокаивает кожу | 2'}
                     />
                   </div>
                 </div>

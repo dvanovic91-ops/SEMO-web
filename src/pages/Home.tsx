@@ -337,7 +337,7 @@ function OrderProcess() {
               titleDeskVisible ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0'
             }`}
           >
-            Как заказать SEMO Box
+            Как заказть мой Beauty box
           </h2>
           <div
             className={`mx-auto mt-4 h-px w-10 bg-gradient-to-r from-transparent via-brand/35 to-transparent transition-all duration-700 delay-200 ${
@@ -443,7 +443,7 @@ function OrderProcess() {
               titleMobVisible ? 'translate-y-0 opacity-100' : 'translate-y-6 opacity-0'
             }`}
           >
-            Как заказать SEMO Box
+            Как заказть мой Beauty box
           </h2>
         </div>
         <div className="relative flex w-full flex-col gap-1 bg-white px-0">
@@ -532,6 +532,17 @@ type ShowcaseItem = {
   originalPrice: number | null;
   imageUrl: string | null;
   secondImageUrl: string | null;
+};
+
+type HomeReviewItem = {
+  id: string;
+  body: string | null;
+  rating: number;
+  created_at: string;
+  user_id: string;
+  product_id: string | null;
+  product_name?: string;
+  author_name?: string;
 };
 
 const SHOWCASE_TABS = [
@@ -654,8 +665,8 @@ function ProductShowcase() {
         ) : currentItems.length === 0 ? (
           <p className="py-16 text-center text-sm text-slate-400">Скоро здесь появятся товары!</p>
         ) : (
-          <div className="grid grid-cols-2 gap-5 sm:grid-cols-4 sm:gap-8">
-            {currentItems.slice(0, 4).map((item, idx) => (
+          <div className="grid grid-cols-2 gap-5 sm:grid-cols-5 sm:gap-6">
+            {currentItems.slice(0, 5).map((item, idx) => (
               <ShowcaseItemReveal key={`${activeTab}-${item.id}`} staggerIndex={idx}>
                 <Link
                   to={`/product/${item.id}`}
@@ -699,23 +710,120 @@ function ProductShowcase() {
           </div>
         )}
 
-        {/* 더보기 */}
-        <div
-          className={`mt-10 flex justify-center transition-all duration-700 ${
-            visible ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'
+      </div>
+    </section>
+  );
+}
+
+function HomeReviews() {
+  const { ref: sectionRef, visible } = useScrollFadeIn(0.1);
+  const [reviews, setReviews] = useState<HomeReviewItem[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!supabase) return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const { data: reviewData } = await supabase
+          .from('product_reviews')
+          .select('id, body, rating, created_at, user_id, product_id')
+          .order('created_at', { ascending: false })
+          .limit(6);
+        if (cancelled) return;
+        const rows = (reviewData ?? []) as HomeReviewItem[];
+        if (rows.length === 0) {
+          setReviews([]);
+          return;
+        }
+
+        const userIds = [...new Set(rows.map((r) => r.user_id).filter(Boolean))];
+        const productIds = [...new Set(rows.map((r) => r.product_id).filter(Boolean))] as string[];
+
+        let profileMap: Record<string, string> = {};
+        let productMap: Record<string, string> = {};
+
+        if (userIds.length > 0) {
+          const { data: profileData } = await supabase
+            .from('profiles')
+            .select('id, name')
+            .in('id', userIds);
+          (profileData ?? []).forEach((p: { id: string; name: string | null }) => {
+            profileMap[p.id] = p.name?.trim() || 'Покупатель SEMO';
+          });
+        }
+
+        if (productIds.length > 0) {
+          const { data: productData } = await supabase
+            .from('products')
+            .select('id, name')
+            .in('id', productIds);
+          (productData ?? []).forEach((p: { id: string; name: string | null }) => {
+            productMap[p.id] = p.name?.trim() || 'SEMO Box';
+          });
+        }
+
+        setReviews(
+          rows.map((r) => ({
+            ...r,
+            author_name: profileMap[r.user_id] ?? 'Покупатель SEMO',
+            product_name: r.product_id ? productMap[r.product_id] ?? 'SEMO Box' : 'SEMO Box',
+          })),
+        );
+      } catch {
+        if (!cancelled) setReviews([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <section ref={sectionRef} className="w-full pb-16 sm:pb-20">
+      <div className="mx-auto max-w-6xl px-4">
+        <h2
+          className={`mb-8 text-center text-lg font-medium tracking-normal text-slate-800 transition-all duration-700 sm:text-xl ${
+            visible ? 'translate-y-0 opacity-100' : 'translate-y-6 opacity-0'
           }`}
-          style={{ transitionDelay: visible ? '600ms' : '0ms' }}
         >
-          <Link
-            to={activeTab === 'beauty' ? '/shop' : activeTab === 'inner_beauty' ? '/inner-beauty' : '/hair-beauty'}
-            className="group inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-slate-200 px-8 py-3 text-sm font-medium tracking-normal text-slate-600 transition-all hover:border-brand hover:text-brand"
-          >
-            Смотреть все
-            <svg className="h-4 w-4 transition-transform group-hover:translate-x-0.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-            </svg>
-          </Link>
-        </div>
+          Отзывы клиентов
+        </h2>
+
+        {loading ? (
+          <div className="flex justify-center py-8">
+            <span className="h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-brand" />
+          </div>
+        ) : reviews.length === 0 ? (
+          <p className="py-8 text-center text-sm text-slate-400">Скоро здесь появятся отзывы!</p>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {reviews.map((r, idx) => (
+              <div
+                key={r.id}
+                className={`rounded-2xl border border-slate-100 bg-white p-5 shadow-[0_2px_16px_-6px_rgba(0,0,0,0.08)] transition-all duration-700 ${
+                  visible ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'
+                }`}
+                style={{ transitionDelay: visible ? `${120 + idx * 70}ms` : '0ms' }}
+              >
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="truncate text-sm font-semibold text-slate-800">{r.author_name ?? 'Покупатель SEMO'}</p>
+                  <p className="shrink-0 text-[11px] text-slate-400">
+                    {new Date(r.created_at).toLocaleDateString('ru-RU')}
+                  </p>
+                </div>
+                <p className="mb-2 line-clamp-1 text-xs font-medium text-brand">{r.product_name ?? 'SEMO Box'}</p>
+                <p className="mb-3 text-sm text-amber-500">{'★'.repeat(Math.max(1, Math.min(5, Math.round(r.rating || 0))))}</p>
+                <p className="line-clamp-4 text-sm leading-relaxed text-slate-600">
+                  {r.body?.trim() || 'Отличный набор, буду заказывать еще!'}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </section>
   );
@@ -766,6 +874,7 @@ export const Home: React.FC = () => {
       <HeroCarousel key={heroSlides === null ? 'hero-loading' : 'hero-ready'} slides={heroSlides} />
       <OrderProcess />
       <ProductShowcase />
+      <HomeReviews />
     </>
   );
 };

@@ -23,7 +23,7 @@ const NAV_LINKS: { to: string; label: string }[] = [
 
 /** SEMO Box 하위 메뉴 (드롭다운) */
 const SEMO_BOX_SUBMENU: { to: string; label: string }[] = [
-  { to: '/skin-test', label: 'Find my box' },
+  { to: '/skin-test', label: 'Find my Beauty box' },
   { to: '/shop', label: 'Beauty box' },
   { to: '/inner-beauty', label: 'Fit box' },
   { to: '/hair-beauty', label: 'Hair box' },
@@ -450,7 +450,7 @@ export const Navbar: React.FC = () => {
                         setSemoBoxPinned(true);
                       }}
                       className={`${navLinkBase} whitespace-nowrap ${
-                        isSemoBoxActive || semoBoxOpen ? activeClass : inactiveClass
+                        isSemoBoxActive ? activeClass : inactiveClass
                       }`}
                     >
                       SEMO Box
@@ -661,11 +661,11 @@ export const Navbar: React.FC = () => {
           id="semo-box-subnav"
           ref={semoBoxSubbarRef}
           className="fixed left-0 right-0 z-[39] hidden border-b border-slate-200/60 bg-white/95 backdrop-blur-md md:block"
-          style={{ top: 'var(--semo-desktop-header-h, 3.2rem)' }}
+          style={{ top: 'calc(var(--semo-desktop-header-h, 3.2rem) - 1px)' }}
           onMouseEnter={semoBoxEnter}
           onMouseLeave={semoBoxLeave}
         >
-          <nav className="mx-auto flex max-w-7xl items-center justify-center gap-x-8 px-4 py-2 lg:gap-x-12">
+          <nav className="mx-auto flex max-w-7xl items-center justify-center gap-x-8 px-4 py-1.5 lg:gap-x-12">
             {SEMO_BOX_SUBMENU.map((sub) => (
               <NavLink
                 key={sub.to}

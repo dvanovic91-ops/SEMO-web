@@ -1,15 +1,22 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useSearchParams, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useProductNavReplacement } from '../context/ProductNavReplacementContext';
 import { useCart } from '../context/CartContext';
 import { supabase } from '../lib/supabase';
 import { BackArrow } from '../components/BackArrow';
 import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../components/SemoPageSpinner';
+import {
+  mockBriefFromComponents,
+  normalizeBrief,
+  type ProductIngredientBrief,
+  type ProductIngredientBriefMap,
+} from '../lib/productIngredients';
 
 type Product = {
   id: string;
   name: string;
+  category?: 'beauty' | 'inner_beauty' | 'hair_beauty' | string | null;
   description: string | null;
   detail_description: string | null;
   image_url: string | null;
@@ -118,12 +125,15 @@ const FALLBACK_PRODUCTS: Record<string, Product> = {
 
 export const ProductDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const { isLoggedIn, userId, canGrantPermission } = useAuth();
   const { addItem } = useCart();
 
   const [product, setProduct] = useState<Product | null>(null);
   const [components, setComponents] = useState<Component[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
+  const [ingredientBrief, setIngredientBrief] = useState<ProductIngredientBrief | null>(null);
+  const [ingredientPanelOpen, setIngredientPanelOpen] = useState(false);
   /** 로드 실패/타임아웃 시 메시지. null이면 로딩 중 또는 성공 — setLoading 제거로 #310 완화 */
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -146,6 +156,33 @@ export const ProductDetail: React.FC = () => {
   const galleryScrollRef = useRef<HTMLDivElement | null>(null);
 
   const reviewFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const ingredientEntryMap = useMemo(() => {
+    const map = new Map<string, { ingredient_name: string; role_ru: string; strength: number }[]>();
+    if (!ingredientBrief) return map;
+    ingredientBrief.entries.forEach((entry) => {
+      const key = (entry.component_name || '').trim().toLowerCase();
+      if (!key) return;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push({
+        ingredient_name: entry.ingredient_name,
+        role_ru: entry.role_ru,
+        strength: entry.strength,
+      });
+    });
+    return map;
+  }, [ingredientBrief]);
+
+  const getEntriesForComponent = useCallback((compName: string | null) => {
+    const key = (compName ?? '').trim().toLowerCase();
+    if (!key) return [];
+    const direct = ingredientEntryMap.get(key);
+    if (direct?.length) return direct;
+    for (const [k, vals] of ingredientEntryMap.entries()) {
+      if (key.includes(k) || k.includes(key)) return vals;
+    }
+    return [];
+  }, [ingredientEntryMap]);
 
   const BUCKET_REVIEW_PHOTOS = 'review-photos';
   /** 리뷰 사진 1장당 최대 5MB (Supabase 기본 50MB여도, 폼에서 과도한 원본 업로드 방지) */
@@ -272,7 +309,7 @@ export const ProductDetail: React.FC = () => {
       try {
         const { data: prodData, error: prodErr } = await supabase
           .from('products')
-          .select('id, name, description, image_url, image_urls, rrp_price, prp_price')
+          .select('id, name, category, description, image_url, image_urls, rrp_price, prp_price')
           .eq('id', currentId)
           .single();
 
@@ -327,6 +364,27 @@ export const ProductDetail: React.FC = () => {
         }
         if (cancelled || currentId !== (id ?? '')) return;
         setComponents((prev) => (prev.length === compList.length && compList.length === 0 ? prev : compList));
+        const fallbackBrief = mockBriefFromComponents(
+          productRow.name,
+          compList.map((c) => (c.name ?? '').trim()).filter(Boolean)
+        );
+        setIngredientBrief(fallbackBrief);
+
+        try {
+          const { data: ingredientSetting } = await supabase
+            .from('site_settings')
+            .select('value')
+            .eq('key', 'product_ingredient_briefs')
+            .maybeSingle();
+          const raw = ingredientSetting?.value ? JSON.parse(ingredientSetting.value) : null;
+          const map = (raw ?? {}) as ProductIngredientBriefMap;
+          const selected = normalizeBrief(map[currentId]);
+          if (selected.entries.length > 0 || selected.story_body_ru || selected.story_title_ru) {
+            setIngredientBrief(selected);
+          }
+        } catch {
+          // site_settings 미설정/JSON 오류 시 fallback 유지
+        }
 
         let reviewsList: Review[] = [];
         try {
@@ -741,6 +799,10 @@ export const ProductDetail: React.FC = () => {
 
   const stickyThumb = mainImages[galleryIndex] ?? mainImages[0];
   const hasDiscount = (product?.prp_price != null) && (product?.rrp_price != null);
+  const catalogParam = searchParams.get('catalog');
+  const effectiveCatalog = (catalogParam || product?.category || 'beauty') as 'beauty' | 'inner_beauty' | 'hair_beauty';
+  const backCatalogPath = effectiveCatalog === 'inner_beauty' ? '/inner-beauty' : effectiveCatalog === 'hair_beauty' ? '/hair-beauty' : '/shop';
+  const backCatalogLabel = effectiveCatalog === 'inner_beauty' ? 'В Fit box' : effectiveCatalog === 'hair_beauty' ? 'В Hair box' : 'В Beauty box';
 
   const addToCartNavRef = useRef(handleAddToCart);
   addToCartNavRef.current = handleAddToCart;
@@ -771,7 +833,7 @@ export const ProductDetail: React.FC = () => {
         {loadError === 'timeout' && <p className="text-slate-600">Загрузка заняла слишком много времени.</p>}
         {!id?.trim() && !loadError && <p className="text-slate-600">Товар не найден.</p>}
         <p className="mt-4">
-          <Link to="/shop" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> В каталог</Link>
+          <Link to={backCatalogPath} className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> {backCatalogLabel}</Link>
         </p>
       </main>
     );
@@ -781,7 +843,7 @@ export const ProductDetail: React.FC = () => {
       <main className={SEMO_FULL_PAGE_LOADING_MAIN_CLASS}>
         <SemoPageSpinner />
         <p className="mt-8 text-center">
-          <Link to="/shop" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> В каталог</Link>
+          <Link to={backCatalogPath} className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> {backCatalogLabel}</Link>
         </p>
       </main>
     );
@@ -840,7 +902,7 @@ export const ProductDetail: React.FC = () => {
       )}
 
       <p className="mb-6">
-        <Link to="/shop" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> В каталог</Link>
+        <Link to={backCatalogPath} className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> {backCatalogLabel}</Link>
       </p>
 
       <article className="space-y-8">
@@ -998,46 +1060,96 @@ export const ProductDetail: React.FC = () => {
               {/* 3) 하단 박스: 상세 구성품 이미지 (관리자 product_components 연동) — 이미지·가격 행 아래 전체 너비 */}
               {components.length > 0 && (
                 <div className="border-t border-slate-100 bg-slate-50/50 px-4 py-4 sm:px-6 sm:py-5">
-                  <p className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">Состав набора</p>
-                  <div className="grid grid-cols-3 gap-2 sm:gap-3 sm:grid-cols-6">
-                    {components.slice(0, 6).map((comp, idx) => {
-                      const imgs = getComponentImageUrls(comp);
-                      const firstImg = imgs[0];
-                      return (
-                        <div
-                          key={comp.id}
-                          className="flex flex-col items-center rounded-xl bg-white p-2 shadow-sm ring-1 ring-slate-100"
-                        >
-                          <div className="aspect-square w-full overflow-hidden rounded-lg bg-slate-100">
-                            {firstImg ? (
-                              <img
-                                src={firstImg}
-                                alt={comp.name ?? ''}
-                                className="h-full w-full object-cover"
-                              />
-                            ) : (
-                              <div className="flex h-full w-full items-center justify-center text-slate-300 text-xs">—</div>
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Состав набора</p>
+                    <button
+                      type="button"
+                      onClick={() => setIngredientPanelOpen((v) => !v)}
+                      className="rounded-full border border-slate-200 bg-white px-[0.675rem] py-1.5 text-xs font-medium text-slate-700 transition hover:border-brand hover:text-brand"
+                    >
+                      {ingredientPanelOpen ? 'Скрыть ключевые ингредиенты' : 'Смотреть ключевые ингредиенты'}
+                    </button>
+                  </div>
+
+                  {!ingredientPanelOpen ? (
+                    <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-6 sm:gap-3">
+                      {components.slice(0, 6).map((comp) => {
+                        const imgs = getComponentImageUrls(comp);
+                        const firstImg = imgs[0];
+                        return (
+                          <div key={comp.id} className="flex flex-col items-center">
+                            <div className="aspect-square w-full overflow-hidden rounded-xl bg-slate-100/70">
+                              {firstImg ? (
+                                <img
+                                  src={firstImg}
+                                  alt={comp.name ?? ''}
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center text-slate-300 text-xs">—</div>
+                              )}
+                            </div>
+                            {comp.name && (
+                              <p className="mt-1.5 line-clamp-2 text-center text-[11px] font-medium text-slate-700 sm:text-xs">
+                                {comp.name}
+                              </p>
                             )}
                           </div>
-                          {imgs.length > 1 && (
-                            <div className="mt-1 flex gap-0.5">
-                              {imgs.slice(0, 4).map((src, i) => (
-                                <div key={i} className="h-6 w-6 overflow-hidden rounded bg-slate-100">
-                                  <img src={src} alt="" className="h-full w-full object-cover" />
-                                </div>
-                              ))}
-                              {imgs.length > 4 && <span className="text-[10px] text-slate-400">+{imgs.length - 4}</span>}
-                            </div>
-                          )}
-                          {comp.name && (
-                            <p className="mt-1.5 line-clamp-2 text-center text-[11px] font-medium text-slate-700 sm:text-xs">
-                              {comp.name}
-                            </p>
-                          )}
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {ingredientBrief?.infographic_image_url && (
+                        <div className="overflow-hidden rounded-xl bg-slate-100/60">
+                          <img
+                            src={ingredientBrief.infographic_image_url}
+                            alt="Инфографика по ингредиентам"
+                            className="w-full object-contain"
+                          />
                         </div>
-                      );
-                    })}
-                  </div>
+                      )}
+                      <div className="space-y-2.5">
+                        {components.slice(0, 6).map((comp) => {
+                          const imgs = getComponentImageUrls(comp);
+                          const firstImg = imgs[0];
+                          const entries = getEntriesForComponent(comp.name);
+                          const fallbackText = comp.description?.trim()
+                            ? comp.description
+                            : 'Подходит для базового ухода, увлажнения и поддержания защитного барьера кожи.';
+                          const isLongFallback = fallbackText.length > 90;
+                          const useTopAlign = entries.length >= 3 || isLongFallback;
+                          return (
+                            <div key={`row-${comp.id}`} className="grid grid-cols-[102px_1fr] items-start gap-3 sm:grid-cols-[128px_1fr] md:grid-cols-[176px_1fr]">
+                              <div className="aspect-square overflow-hidden rounded-xl bg-slate-100/70">
+                                {firstImg ? (
+                                  <img src={firstImg} alt={comp.name ?? ''} className="h-full w-full object-cover" />
+                                ) : (
+                                  <div className="flex h-full w-full items-center justify-center text-slate-300 text-xs">—</div>
+                                )}
+                              </div>
+                              <article className="grid h-full min-h-[6.25rem] grid-rows-[auto_1fr] rounded-xl border border-slate-200 bg-white p-2.5 sm:min-h-[7rem] md:min-h-[6.75rem]">
+                                <p className="text-[13px] font-semibold text-slate-900 sm:text-sm">{comp.name ?? 'Компонент'}</p>
+                                <div className={`mt-3 flex ${useTopAlign ? 'items-start' : 'items-center'}`}>
+                                  {entries.length > 0 ? (
+                                    <ul className="space-y-1.5">
+                                      {entries.slice(0, 3).map((entry, i) => (
+                                        <li key={i} className="text-xs leading-relaxed text-slate-700">
+                                          <span className="font-semibold text-slate-900">{entry.ingredient_name}</span> — {entry.role_ru}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  ) : (
+                                    <p className="text-xs leading-relaxed text-slate-500">{fallbackText}</p>
+                                  )}
+                                </div>
+                              </article>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
           </div>
@@ -1061,11 +1173,11 @@ export const ProductDetail: React.FC = () => {
                 const layout = comp.layout ?? 'image_left';
                 const imageBlock =
                   imgs.length > 0 ? (
-                    <div className="relative aspect-[4/3] w-full min-w-0 shrink-0 overflow-hidden rounded-xl bg-slate-100 sm:max-w-md">
+                    <div className="relative aspect-[4/3] w-full min-w-0 shrink-0 overflow-hidden rounded-xl sm:max-w-md">
                       <img
                         src={imgs[0]}
                         alt={comp.name ?? ''}
-                        className="h-full w-full object-contain p-4"
+                        className="h-full w-full object-contain"
                       />
                     </div>
                   ) : null;
