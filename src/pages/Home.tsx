@@ -555,6 +555,84 @@ function formatPrice(price: number): string {
   return `${price.toLocaleString('ru-RU')} руб.`;
 }
 
+function ShowcaseImageWithIndicator({
+  imageUrl,
+  secondImageUrl,
+  alt,
+}: {
+  imageUrl: string | null;
+  secondImageUrl: string | null;
+  alt: string;
+}) {
+  const images = [imageUrl, secondImageUrl].filter(Boolean) as string[];
+  const [activeIndex, setActiveIndex] = useState(0);
+  const touchStartXRef = useRef(0);
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [imageUrl, secondImageUrl]);
+
+  const canSlide = images.length > 1;
+
+  const onTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (!canSlide) return;
+    touchStartXRef.current = e.touches[0].clientX;
+  };
+
+  const onTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (!canSlide) return;
+    const diff = e.changedTouches[0].clientX - touchStartXRef.current;
+    if (Math.abs(diff) < 28) return;
+    if (diff < 0) {
+      setActiveIndex((prev) => (prev + 1) % images.length);
+      return;
+    }
+    setActiveIndex((prev) => (prev - 1 + images.length) % images.length);
+  };
+
+  return (
+    <div
+      className="relative mb-4 flex h-40 w-full items-center justify-center overflow-hidden rounded-2xl bg-slate-50/80 sm:h-52"
+      onMouseEnter={() => {
+        if (canSlide) setActiveIndex(1);
+      }}
+      onMouseLeave={() => {
+        setActiveIndex(0);
+      }}
+      onTouchStart={onTouchStart}
+      onTouchEnd={onTouchEnd}
+    >
+      {images.length > 0 ? (
+        images.map((src, idx) => (
+          <img
+            key={`${src}-${idx}`}
+            src={src}
+            alt={alt}
+            className={`absolute inset-0 h-full w-full object-contain transition-opacity duration-300 ${
+              idx === activeIndex ? 'opacity-100' : 'opacity-0'
+            }`}
+          />
+        ))
+      ) : (
+        <span className="text-xs text-slate-300">Нет фото</span>
+      )}
+
+      {canSlide && (
+        <div className="pointer-events-none absolute bottom-2 left-1/2 flex -translate-x-1/2 items-center gap-1">
+          {images.map((_, idx) => (
+            <span
+              key={idx}
+              className={`h-1.5 rounded-full transition-all ${
+                idx === activeIndex ? 'w-4 bg-brand/90' : 'w-1.5 bg-slate-300/90'
+              }`}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ProductShowcase() {
   const { ref: sectionRef, visible } = useScrollFadeIn(0.1);
   const [activeTab, setActiveTab] = useState<string>('beauty');
@@ -670,31 +748,15 @@ function ProductShowcase() {
               <ShowcaseItemReveal key={`${activeTab}-${item.id}`} staggerIndex={idx}>
                 <Link
                   to={`/product/${item.id}`}
-                  className="group flex flex-col items-center rounded-3xl border border-slate-100/80 bg-white p-5 shadow-[0_2px_20px_-4px_rgba(0,0,0,0.05)] transition-shadow duration-500 hover:shadow-[0_8px_30px_-6px_rgba(0,0,0,0.1)] sm:p-6"
+                  className={`group flex flex-col items-center rounded-3xl border border-slate-100/80 bg-white p-5 shadow-[0_2px_20px_-4px_rgba(0,0,0,0.05)] transition-shadow duration-500 hover:shadow-[0_8px_30px_-6px_rgba(0,0,0,0.1)] sm:p-6 ${
+                    idx >= 4 ? 'hidden sm:flex' : ''
+                  }`}
                 >
-                  {/* 이미지 — hover 시 두번째 이미지로 전환 */}
-                  <div className="relative mb-4 flex h-40 w-full items-center justify-center overflow-hidden rounded-2xl bg-slate-50/80 sm:h-52">
-                    {item.imageUrl ? (
-                      <>
-                        <img
-                          src={item.imageUrl}
-                          alt={item.name}
-                          className={`absolute inset-0 h-full w-full object-contain transition-opacity duration-500 ${
-                            item.secondImageUrl ? 'group-hover:opacity-0' : ''
-                          }`}
-                        />
-                        {item.secondImageUrl && (
-                          <img
-                            src={item.secondImageUrl}
-                            alt={item.name}
-                            className="absolute inset-0 h-full w-full object-contain opacity-0 transition-opacity duration-500 group-hover:opacity-100"
-                          />
-                        )}
-                      </>
-                    ) : (
-                      <span className="text-xs text-slate-300">Нет фото</span>
-                    )}
-                  </div>
+                  <ShowcaseImageWithIndicator
+                    imageUrl={item.imageUrl}
+                    secondImageUrl={item.secondImageUrl}
+                    alt={item.name}
+                  />
                   <p className="mb-3 line-clamp-2 text-center text-sm font-medium tracking-normal text-slate-700 transition-colors group-hover:text-brand sm:text-base">
                     {item.name}
                   </p>
@@ -709,6 +771,23 @@ function ProductShowcase() {
             ))}
           </div>
         )}
+
+        <div
+          className={`mt-8 flex justify-center transition-all duration-700 sm:hidden ${
+            visible ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'
+          }`}
+          style={{ transitionDelay: visible ? '500ms' : '0ms' }}
+        >
+          <Link
+            to={activeTab === 'beauty' ? '/shop' : activeTab === 'inner_beauty' ? '/inner-beauty' : '/hair-beauty'}
+            className="group inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-slate-200 px-6 py-2.5 text-sm font-medium tracking-normal text-slate-600 transition-all hover:border-brand hover:text-brand"
+          >
+            Смотреть все
+            <svg className="h-4 w-4 transition-transform group-hover:translate-x-0.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+          </Link>
+        </div>
 
       </div>
     </section>

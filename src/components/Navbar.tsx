@@ -1,4 +1,4 @@
-import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { Link, NavLink, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useProductNavReplacement } from '../context/ProductNavReplacementContext';
@@ -51,6 +51,7 @@ export const Navbar: React.FC = () => {
   const { productStickyReplacesNav, productDesktopNav } = useProductNavReplacement();
   const location = useLocation();
   const navigate = useNavigate();
+  const navigationType = useNavigationType();
   const { items, total, totalCount, updateQuantity } = useCart();
   const { isLoggedIn, userId } = useAuth();
   /** true: аккаунт привязан к Telegram — иконка в шапке #26A5E4; иначе тёмная */
@@ -163,6 +164,23 @@ export const Navbar: React.FC = () => {
   const isNotificationActive = notificationOpen;
   const isProfileActive = path.startsWith('/profile') || path === '/login';
   const isMenuActive = NAV_LINKS.some((l) => (path === l.to || path.startsWith(l.to + '/')));
+  const prevPathRef = useRef<string>(location.pathname + location.search);
+  const semoSiblingPopGuardRef = useRef(false);
+
+  useEffect(() => {
+    const current = location.pathname + location.search;
+    const prev = prevPathRef.current;
+    const isSemoPath = (v: string) => SEMO_BOX_SUBMENU.some((l) => v === l.to || v.startsWith(`${l.to}/`) || v.startsWith(`${l.to}?`));
+
+    if (!semoSiblingPopGuardRef.current && navigationType === 'POP' && isSemoPath(prev) && isSemoPath(current) && prev !== current) {
+      semoSiblingPopGuardRef.current = true;
+      navigate(prev, { replace: true });
+      return;
+    }
+
+    semoSiblingPopGuardRef.current = false;
+    prevPathRef.current = current;
+  }, [location.pathname, location.search, navigationType, navigate]);
 
   useEffect(() => {
     if (!cartPopoverOpen) {
@@ -670,6 +688,7 @@ export const Navbar: React.FC = () => {
               <NavLink
                 key={sub.to}
                 to={sub.to}
+                replace
                 onClick={() => {
                   setSemoBoxOpen(false);
                   setSemoBoxPinned(false);
@@ -974,6 +993,7 @@ export const Navbar: React.FC = () => {
                     <NavLink
                       key={sub.to}
                       to={sub.to}
+                      replace
                       onClick={() => setMobileMenuOpen(false)}
                       className={({ isActive }) =>
                         `rounded-xl px-3 py-2.5 text-sm ${

@@ -138,6 +138,17 @@ function normalizeRemoteCartItems(items: unknown[] | null | undefined): CartItem
     .filter((x) => x.id && x.name);
 }
 
+function toSnapshotItems(items: CartItem[]) {
+  return items.map((i) => ({
+    id: i.id,
+    name: i.name,
+    quantity: i.quantity,
+    price: i.price,
+    imageUrl: i.imageUrl ?? null,
+    originalPrice: i.originalPrice ?? null,
+  }));
+}
+
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const { userId } = useAuth();
   const storageKey = scopedKey(CART_PREFIX, userId);
@@ -160,6 +171,8 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     setRemoteReady(false);
 
     const bootstrapFromRemote = async () => {
+      const localSeed = loadCartWithMigration(userId);
+      const localUpdatedAt = loadCartMetaUpdatedAt(userId);
       const { data, error } = await supabase
         .from('cart_snapshots')
         .select('items, updated_at')
@@ -175,29 +188,43 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       const remote = data as RemoteCartSnapshot | null;
       if (remote) {
         const remoteItems = normalizeRemoteCartItems(remote.items);
-        const remoteUpdatedAt = remote.updated_at ? Date.parse(remote.updated_at) : Date.now();
+        const remoteUpdatedAt = remote.updated_at ? Date.parse(remote.updated_at) : 0;
+        const shouldRestoreLocal =
+          localSeed.length > 0 &&
+          (remoteItems.length === 0 || localUpdatedAt > remoteUpdatedAt);
+
+        if (shouldRestoreLocal) {
+          const nowIso = new Date().toISOString();
+          await supabase.from('cart_snapshots').upsert(
+            {
+              user_id: userId,
+              items: toSnapshotItems(localSeed),
+              total_cents: Math.round(localSeed.reduce((sum, x) => sum + x.price * x.quantity, 0) * 100),
+              updated_at: nowIso,
+            },
+            { onConflict: 'user_id' }
+          );
+          if (!alive) return;
+          setItems(localSeed);
+          saveCartMetaUpdatedAt(userId, Math.max(localUpdatedAt, Date.now()));
+          setRemoteReady(true);
+          return;
+        }
+
         setItems(remoteItems);
-        saveCartMetaUpdatedAt(userId, remoteUpdatedAt);
+        saveCartMetaUpdatedAt(userId, Math.max(remoteUpdatedAt, Date.now()));
         setRemoteReady(true);
         return;
       }
 
       // 서버 스냅샷이 아직 없으면 로컬 캐시를 1회 시드로 올린 뒤 서버를 기준으로 사용한다.
-      const localSeed = loadCartWithMigration(userId);
       setItems(localSeed);
       const nowIso = new Date().toISOString();
       if (localSeed.length > 0) {
         await supabase.from('cart_snapshots').upsert(
           {
             user_id: userId,
-            items: localSeed.map((i) => ({
-              id: i.id,
-              name: i.name,
-              quantity: i.quantity,
-              price: i.price,
-              imageUrl: i.imageUrl ?? null,
-              originalPrice: i.originalPrice ?? null,
-            })),
+            items: toSnapshotItems(localSeed),
             total_cents: Math.round(localSeed.reduce((sum, x) => sum + x.price * x.quantity, 0) * 100),
             updated_at: nowIso,
           },
@@ -239,14 +266,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     if (!supabase || !userId || !remoteReady) return;
     const payload = {
       user_id: userId,
-      items: items.map((i) => ({
-        id: i.id,
-        name: i.name,
-        quantity: i.quantity,
-        price: i.price,
-        imageUrl: i.imageUrl ?? null,
-        originalPrice: i.originalPrice ?? null,
-      })),
+      items: toSnapshotItems(items),
       total_cents: Math.round(items.reduce((sum, x) => sum + x.price * x.quantity, 0) * 100),
       updated_at: new Date().toISOString(),
     };
@@ -276,6 +296,21 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
           if (error) return;
           const remote = data as RemoteCartSnapshot | null;
           if (!remote) {
+            const localSeed = loadCartWithMigration(userId);
+            if (localSeed.length > 0) {
+              void supabase.from('cart_snapshots').upsert(
+                {
+                  user_id: userId,
+                  items: toSnapshotItems(localSeed),
+                  total_cents: Math.round(localSeed.reduce((sum, x) => sum + x.price * x.quantity, 0) * 100),
+                  updated_at: new Date().toISOString(),
+                },
+                { onConflict: 'user_id' }
+              );
+              setItems(localSeed);
+              saveCartMetaUpdatedAt(userId, Date.now());
+              return;
+            }
             setItems([]);
             saveCartMetaUpdatedAt(userId, Date.now());
             return;
