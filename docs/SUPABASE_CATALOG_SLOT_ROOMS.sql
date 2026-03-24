@@ -1,0 +1,2 @@
+-- 폐기됨 — 3개 분할 테이블( beauty_box_catalog_slots 등 ) 설계는 사용하지 않습니다.
+-- 대신 실행: SUPABASE_CATALOG_ROOM_SLOTS.sql (단일 테이블 catalog_room_slots)

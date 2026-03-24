@@ -1,13 +1,13 @@
 /**
- * 피부 타입별 추천 상품 매칭 (Shop 슬롯 1~5 중 1개).
- * - 슬롯 1 = 상품 1, 슬롯 2 = 상품 2, … (main_layout_slots의 slot_index 0~4)
- * - 테스트 결과에서 피부타입에 따라 이 슬롯 번호로 매칭 → 해당 슬롯에 배치된 실제 상품 상세로 연결.
- * 나중에 매칭만 아래 숫자(1~5)로 바꾸면 됨.
+ * 피부 타입별 추천 상품 매칭 — **뷰티박스(Beauty box) 슬롯만** 사용한다.
+ * 핏/헤어와 동일 테이블에서 `catalog_room` 컬럼으로만 구분 (catalog_room_slots).
  *
- * 운영 단일 소스: DB skin_type_slot_mapping 를 먼저 쓰고 (관리자 UI), 없을 때만 이 fallback.
- * 텔레그램 봇은 동일 규칙을 Supabase RPC get_recommended_product_id_for_skin_type 에 두었음
- * (docs/SUPABASE_RPC_SKIN_RECOMMEND_PRODUCT.sql). RPC의 CASE fallback 은 아래 SKIN_TYPE_SLOT_INDEX 와 맞출 것.
+ * - 슬롯 1 = 상품 1, 슬롯 2 = 상품 2, … (뷰티 슬롯의 slot_index 순)
+ * - 운영 단일 소스: DB skin_type_slot_mapping + 관리자 «테스트 매칭» 탭(뷰티 전용)
+ * - RPC: docs/SUPABASE_RPC_SKIN_RECOMMEND_PRODUCT.sql
  */
+/** 피부테스트·추천 RPC·클라이언트 폴백이 참조하는 카탈로그 — 항상 뷰티박스 */
+export const SKIN_TEST_CATALOG_CATEGORY = 'beauty' as const;
 /** 피부타입 → 슬롯 번호(1~5). 예: DRNT·DSNW → 상품1, OSNW·ORNT → 상품2. 나머지는 필요 시 1~5로 수정 */
 export const SKIN_TYPE_SLOT_INDEX: Record<string, number> = {
   DRNT: 1,

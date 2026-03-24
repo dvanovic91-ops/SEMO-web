@@ -9,7 +9,7 @@ import {
   calcSkinType,
   type SkinTypeInfo,
 } from '../data/skinTestData';
-import { getRecommendationPath } from '../config/skinTypeRecommendations';
+import { getRecommendationPath, SKIN_TEST_CATALOG_CATEGORY } from '../config/skinTypeRecommendations';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { BackArrow } from '../components/BackArrow';
@@ -18,6 +18,53 @@ import { getOrCreateVisitSessionId } from '../lib/clientSession';
 import { getRecommendedProductIdForSkinType } from '../lib/skinTypeSlotMapping';
 
 const MAX_TEST_COUNT = 2;
+
+/** products.image_urls → 테스트 결과 카드용 URL 목록 (상세와 동일 규칙 + jsonb 객체 형태 폴백) */
+function normalizePreviewImageUrls(row: { image_url?: string | null; image_urls?: unknown }): string[] {
+  const raw = row.image_urls;
+  if (Array.isArray(raw) && raw.length > 0) {
+    const out = raw
+      .filter((u): u is string => typeof u === 'string' && u.trim().length > 0)
+      .map((s) => s.trim());
+    if (out.length) return [...new Set(out)];
+  }
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    const vals = Object.values(raw as Record<string, unknown>).filter(
+      (u): u is string => typeof u === 'string' && u.trim().length > 0,
+    );
+    if (vals.length) return [...new Set(vals.map((s) => s.trim()))];
+  }
+  if (typeof raw === 'string') {
+    const t = raw.trim();
+    if (t.startsWith('[')) {
+      try {
+        const p = JSON.parse(t) as unknown;
+        if (Array.isArray(p)) {
+          const out = p.filter((u) => typeof u === 'string' && String(u).trim()).map((s) => String(s).trim());
+          if (out.length) return [...new Set(out)];
+        }
+      } catch {
+        /* fallthrough */
+      }
+    } else if (t) {
+      return [t];
+    }
+  }
+  if (row.image_url && String(row.image_url).trim()) return [String(row.image_url).trim()];
+  return [];
+}
+
+function firstComponentImageUrl(comp: {
+  image_url?: string | null;
+  image_urls?: string[] | null;
+}): string | null {
+  if (comp.image_urls && Array.isArray(comp.image_urls) && comp.image_urls.length > 0) {
+    const u = comp.image_urls.find((x) => typeof x === 'string' && x.trim());
+    if (u) return u.trim();
+  }
+  return comp.image_url && String(comp.image_url).trim() ? String(comp.image_url).trim() : null;
+}
+
 /** 어드민 이메일 — 웹에서도 테스트 횟수 제한 없음 (봇 ADMIN_IDS와 별도) */
 const ADMIN_EMAILS = ['admin@semo-box.ru', 'admin@semo-beautybox.com'];
 /** 테스트 횟수 제한 없음 (해당 이메일만) */
@@ -48,8 +95,11 @@ export const SkinTest: React.FC = () => {
   } | null>(null);
   const [recommendedProductPreview, setRecommendedProductPreview] = useState<{
     name: string;
-    imageUrl: string | null;
-    subImages: string[];
+    thumb1: string | null;
+    thumb2: string | null;
+    composition: { id: string; name: string | null; imageUrl: string | null }[];
+    /** 상품 ID 없음 / 조회 실패 등 — 무한 «Загрузка» 방지 */
+    status?: 'ok' | 'no_slot' | 'fetch_failed';
   } | null>(null);
 
   /** 회원 기준 skin_test_results 건수 조회 (2회 제한용) */
@@ -78,30 +128,106 @@ export const SkinTest: React.FC = () => {
     }
     let cancelled = false;
     (async () => {
+      const terminalNoProduct = () => {
+        if (!cancelled) {
+          setRecommendedProductPreview({
+            name: 'Beauty box',
+            thumb1: null,
+            thumb2: null,
+            composition: [],
+            status: 'no_slot',
+          });
+        }
+      };
+      const terminalFetchFailed = () => {
+        if (!cancelled) {
+          setRecommendedProductPreview({
+            name: 'Beauty box',
+            thumb1: null,
+            thumb2: null,
+            composition: [],
+            status: 'fetch_failed',
+          });
+        }
+      };
+
       try {
         const productId = await getRecommendedProductIdForSkinType(result.type);
         if (!productId || cancelled) {
-          if (!cancelled) setRecommendedProductPreview(null);
+          if (!cancelled) terminalNoProduct();
           return;
         }
-        const { data: productData } = await supabase
+
+        // category 컬럼이 없는 운영 DB에서도 조회되도록 1차: 전체, 실패 시 최소 컬럼만 재시도
+        let productData: {
+          name?: string | null;
+          image_url?: string | null;
+          image_urls?: unknown;
+          category?: string | null;
+        } | null = null;
+        const selFull = await supabase
           .from('products')
-          .select('name, image_url, image_urls')
+          .select('name, image_url, image_urls, category')
           .eq('id', productId)
           .maybeSingle();
-        if (cancelled || !productData) return;
-        const imageUrls = Array.isArray((productData as { image_urls?: string[] | null }).image_urls)
-          ? ((productData as { image_urls?: string[] | null }).image_urls ?? []).filter(Boolean)
-          : [];
-        const imageUrl = (productData as { image_url?: string | null }).image_url ?? imageUrls[0] ?? null;
-        const subImages = imageUrls.filter((u) => u && u !== imageUrl).slice(0, 6);
-        setRecommendedProductPreview({
-          name: (productData as { name?: string | null }).name ?? 'Beauty box',
-          imageUrl,
-          subImages,
-        });
+        if (selFull.error) {
+          const selMini = await supabase
+            .from('products')
+            .select('name, image_url, image_urls')
+            .eq('id', productId)
+            .maybeSingle();
+          if (!selMini.error) productData = selMini.data as typeof productData;
+        } else {
+          productData = selFull.data as typeof productData;
+        }
+
+        if (cancelled) return;
+        if (!productData) {
+          terminalFetchFailed();
+          return;
+        }
+
+        const cat = productData.category;
+        if (cat != null && cat !== SKIN_TEST_CATALOG_CATEGORY) {
+          terminalNoProduct();
+          return;
+        }
+
+        const ordered = normalizePreviewImageUrls(productData);
+        const thumb1 = ordered[0] ?? null;
+        const thumb2 = ordered[1] ?? null;
+
+        let composition: { id: string; name: string | null; imageUrl: string | null }[] = [];
+        try {
+          const { data: compRows } = await supabase
+            .from('product_components')
+            .select('id, sort_order, name, image_url, image_urls')
+            .eq('product_id', productId);
+          if (Array.isArray(compRows)) {
+            composition = (compRows as { id: string; sort_order?: number; name: string | null; image_url: string | null; image_urls?: string[] | null }[])
+              .slice()
+              .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+              .map((c) => ({
+                id: c.id,
+                name: c.name,
+                imageUrl: firstComponentImageUrl(c),
+              }));
+          }
+        } catch {
+          composition = [];
+        }
+
+        if (!cancelled) {
+          setRecommendedProductPreview({
+            name: productData.name ?? 'Beauty box',
+            thumb1,
+            thumb2,
+            composition,
+            status: 'ok',
+          });
+        }
       } catch {
-        if (!cancelled) setRecommendedProductPreview(null);
+        if (!cancelled) terminalFetchFailed();
       }
     })();
     return () => {
@@ -486,55 +612,95 @@ export const SkinTest: React.FC = () => {
             </div>
           </div>
 
-          {/* Персональный выбор SEMO — 뷰티박스 이미지 (호버 시 6분할, 각각 다른 이미지) */}
+          {/* Персональный выбор SEMO — Beauty box: кадрированные миниатюры 1 и 2 */}
           <div className="mt-8 rounded-xl border border-brand/20 bg-brand-soft/25 py-6 px-6">
             <p className="text-sm font-medium tracking-wide text-brand">
               Персональный выбор SEMO
             </p>
-            <div className="mt-4 flex justify-center">
-              <div className="group relative aspect-[3/2] w-full max-w-md overflow-hidden rounded-xl bg-slate-100">
-                {recommendedProductPreview?.imageUrl ? (
-                  <>
-                    <img
-                      src={recommendedProductPreview.imageUrl}
-                      alt={recommendedProductPreview.name}
-                      className={`h-full w-full object-cover transition ${
-                        recommendedProductPreview.subImages.length > 0 ? 'group-hover:opacity-0' : ''
-                      }`}
-                    />
-                    {recommendedProductPreview.subImages.length > 0 && (
-                      <div className="absolute inset-0 grid grid-cols-3 grid-rows-2 opacity-0 transition group-hover:opacity-100">
-                        {recommendedProductPreview.subImages.map((src, i) => (
-                          <div key={i} className="overflow-hidden">
-                            <img
-                              src={src}
-                              alt={`${recommendedProductPreview.name} ${i + 1}`}
-                              className="h-full w-full object-cover"
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center text-sm text-slate-400">
-                    Рекомендованный товар загружается...
+            {recommendedProductPreview?.status === 'no_slot' && (
+              <p className="mt-2 text-xs leading-snug text-slate-600 sm:text-sm">
+                Рекомендуемый товар не найден. В админке проверьте слоты каталога{' '}
+                <span className="whitespace-nowrap">Beauty box</span>: должно быть не меньше строк, чем номер слота для
+                вашего типа кожи (например, для 4-го слота — четыре товара в сетке), и привязку типа кожи к слоту.
+              </p>
+            )}
+            {recommendedProductPreview?.status === 'fetch_failed' && (
+              <p className="mt-2 text-xs leading-snug text-amber-800/90 sm:text-sm">
+                Не удалось загрузить карточку товара. Обновите страницу или проверьте настройки доступа к каталогу.
+              </p>
+            )}
+            <div className="mt-4 grid grid-cols-2 gap-3 sm:gap-4">
+              {[1, 2].map((n) => {
+                const url = n === 1 ? recommendedProductPreview?.thumb1 : recommendedProductPreview?.thumb2;
+                const st = recommendedProductPreview?.status;
+                const emptyLabel =
+                  recommendedProductPreview === null
+                    ? 'Загрузка...'
+                    : st === 'no_slot'
+                      ? '—'
+                      : st === 'fetch_failed'
+                        ? '—'
+                        : n === 1
+                          ? 'Нет фото'
+                          : '—';
+                return (
+                  <div key={n} className="flex flex-col items-center">
+                    <div className="relative aspect-[4/3] w-full max-w-[220px] overflow-hidden rounded-xl bg-slate-100 sm:max-w-none">
+                      {url ? (
+                        <img
+                          src={url}
+                          alt={`${recommendedProductPreview?.name ?? 'Beauty box'} — ${n}`}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center px-2 text-center text-xs text-slate-400">
+                          {emptyLabel}
+                        </div>
+                      )}
+                    </div>
+                    <span className="mt-2 text-xs font-medium tabular-nums text-slate-500">{n}</span>
                   </div>
-                )}
-              </div>
+                );
+              })}
             </div>
+
+            {recommendedProductPreview && recommendedProductPreview.composition.length > 0 && (
+              <details className="mt-5 rounded-lg border border-slate-200/80 bg-white/60 px-3 py-2 sm:px-4">
+                <summary className="cursor-pointer text-sm font-medium text-slate-700 marker:text-slate-400">
+                  Состав набора
+                </summary>
+                <ul className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+                  {recommendedProductPreview.composition.map((item) => (
+                    <li key={item.id} className="flex items-center gap-3 text-sm text-slate-700">
+                      {item.imageUrl ? (
+                        <img
+                          src={item.imageUrl}
+                          alt=""
+                          className="h-10 w-10 shrink-0 rounded-lg object-cover"
+                        />
+                      ) : (
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-xs text-slate-300">
+                          —
+                        </span>
+                      )}
+                      <span className="min-w-0 leading-snug">{item.name ?? '—'}</span>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
           </div>
 
-          {/* CTA: 비회원은 가입 유도(결과 저장 + 1회 더), 회원은 기존 */}
-          <div className="mt-12 flex flex-col gap-4">
+          {/* CTA: компактные кнопки по центру */}
+          <div className="mt-10 flex flex-col items-center gap-3">
             {!userId ? (
               <>
-                <p className="text-center text-sm text-slate-600">
+                <p className="max-w-md text-center text-sm text-slate-600">
                   Сохраните результат в личном кабинете и пройдите тест ещё раз после регистрации.
                 </p>
                 <Link
                   to="/login"
-                  className="rounded-full bg-brand py-4 text-center text-base font-semibold text-white transition hover:bg-brand/90"
+                  className="w-full max-w-[240px] rounded-full bg-brand py-2.5 text-center text-sm font-semibold text-white transition hover:bg-brand/90"
                 >
                   Зарегистрироваться! Всего 10 секунд!
                 </Link>
@@ -542,7 +708,7 @@ export const SkinTest: React.FC = () => {
             ) : (
               <Link
                 to={getRecommendationPath(result.type)}
-                className="rounded-full bg-brand py-4 text-center text-base font-semibold text-white transition hover:bg-brand/90"
+                className="w-full max-w-[240px] rounded-full bg-brand py-2.5 text-center text-sm font-semibold text-white transition hover:bg-brand/90"
               >
                 Смотреть товары
               </Link>

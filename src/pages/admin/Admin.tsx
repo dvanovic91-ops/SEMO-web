@@ -15,14 +15,13 @@ import { useAuth } from '../../context/AuthContext';
 type DashboardPeriodType = 'day' | 'week' | 'month' | 'range';
 import { deleteMappingForTypes, fetchMapping, saveMapping } from '../../lib/skinTypeSlotMapping';
 import { supabase } from '../../lib/supabase';
+import { CATALOG_ROOM_SLOTS_TABLE, type CatalogSlotRoom } from '../../lib/catalogSlotRooms';
 import { sendMarketingTelegramBroadcast } from '../../lib/telegramBroadcast';
-import { ALL_SKIN_TYPES } from '../../config/skinTypeRecommendations';
+import { ALL_SKIN_TYPES, SKIN_TEST_CATALOG_CATEGORY } from '../../config/skinTypeRecommendations';
 import { PromoImageCropModal } from '../../components/PromoImageCropModal';
 import { AuthInitializingScreen } from '../../components/SemoPageSpinner';
 import {
-  formatIngredientLines,
   normalizeBrief,
-  parseIngredientLines,
   type ProductIngredientBriefMap,
 } from '../../lib/productIngredients';
 
@@ -132,23 +131,23 @@ const BUCKET_PRODUCT_IMAGES = 'product-images';
 /** 프로모 배너 업로드용 Storage 버킷 (Public 버킷 생성 권장) */
 const BUCKET_PROMOS = 'promos';
 
-/** Промо-баннер: соотноствует `aspect-video` в меню; подсказка на русском для админки */
+/** 프로모 배너 가이드 (관리자용) */
 const PROMO_BANNER_RECOMMENDED =
-  '16:9, по ширине ориентир 1200px (например 1200×675); карточка в меню до ~280px. Файл: до 5 МБ.';
+  '16:9 비율, 권장 너비 1200px (예: 1200×675). 메뉴 카드에서는 최대 약 280px로 보입니다. 파일 크기: 5MB 이하.';
 
-/** Главные фото товара — как на витрине/карточке: блок ~768px, галерея 4:3 + object-contain */
+/** 상품 대표 이미지 가이드 (관리자용) */
 const IMG_GUIDE_PRODUCT_MAIN_RU =
-  'По горизонтали: от 1200px (лучше 1600px при 4:3 для Retina); на сайте блок ~768px. До 5 МБ.';
+  '가로 기준 1200px 이상(4:3 기준 Retina는 1600px 권장). 사이트 노출 블록은 약 768px입니다. 파일 크기: 5MB 이하.';
 
-/** Состав набора: мини-квадрат в сетке + блок 4:3 до ~448px в «Подробнее о составе» */
+/** 구성품 이미지 가이드 (관리자용) */
 const IMG_GUIDE_PRODUCT_COMPONENT_RU =
-  'Сетка — квадрат; в разделе «Подробнее» — 4:3. Исходник: от 800×800 (1:1) или 4:3 от 1200px по ширине. До 5 МБ.';
+  '구성품 그리드는 정사각형, 상세 섹션은 4:3 비율로 표시됩니다. 원본은 800×800 이상(1:1) 또는 4:3 기준 1200px 이상 권장. 파일 크기: 5MB 이하.';
 
 const IMG_GUIDE_HERO_DESKTOP_RU =
-  'Ширина от 1920px, 16:9–21:9; кадр на весь экран (object-cover). До 5 МБ.';
+  '데스크톱 히어로: 가로 1920px 이상, 비율 16:9~21:9 권장. 전체 화면(object-cover)으로 노출됩니다. 파일 크기: 5MB 이하.';
 
 const IMG_GUIDE_HERO_MOBILE_RU =
-  'Ширина 1080px, 9:16 (например 1080×1920); при отсутствии — подставится десктоп. До 5 МБ.';
+  '모바일 히어로: 가로 1080px, 9:16 비율(예: 1080×1920) 권장. 없으면 데스크톱 이미지가 대체됩니다. 파일 크기: 5MB 이하.';
 
 /** 파일을 product-images 버킷에 업로드하고 공개 URL 반환. 실패 시 null + 콘솔/alert로 에러 노출 */
 async function uploadProductImage(file: File): Promise<string | null> {
@@ -258,7 +257,7 @@ function localYmdRangeBoundsIso(startYmd: string, endYmd: string): { startIso: s
   return { startIso: b.startIso, endIso: a.endIso };
 }
 
-/** 쇼핑(SEMO Box) 카드 박스 색상: brand=주황, sky=연하늘(패밀리) */
+/** 상품 행 — box_theme 은 DB/샵 카드용(저장 시 항상 brand 고정, 폼에서는 편집 제거) */
 type Product = {
   id: string;
   name: string;
@@ -283,7 +282,7 @@ type ProductComponent = {
   /** 항목당 이미지 여러 장 (DB image_urls 또는 [image_url] 사용) */
   image_urls: string[];
   description: string | null;
-  /** 상세페이지 «Подробнее о составе» 블록 배치: 왼쪽 사진/오른쪽 텍스트 또는 그 반대 */
+  /** 상세페이지 구성 블록 배치: 왼쪽 사진/오른쪽 텍스트 또는 그 반대 */
   layout?: 'image_left' | 'image_right';
 };
 
@@ -441,18 +440,27 @@ export const Admin: React.FC = () => {
   const [productCategory, setProductCategory] = useState<string>('beauty');
 
   const [products, setProducts] = useState<Product[]>([]);
-  /** 상품 목록 표시 순서 (앞에서 5개가 쇼핑 슬롯 1~5). 드래그로 순서 변경 후 저장 시 main_layout_slots에 반영 */
+  /** 상품 목록 표시 순서 (앞에서 5개가 쇼핑 슬롯 1~5). 드래그로 순서 변경 후 저장 시 카탈로그 전용 룸 테이블에 반영 */
   const [orderedProductIds, setOrderedProductIds] = useState<string[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [savingProduct, setSavingProduct] = useState(false);
 
-  /** 상품관리에서 정의한 슬롯( main_layout_slots 기준). 개수·순서가 카탈로그·테스트 매칭과 동일 */
+  /** 상품관리에서 정의한 슬롯(카탈로그 룸 테이블). 테스트 매칭 UI는 뷰티 룸만 별도 로드(skinMatchSlots) */
   const [slots, setSlots] = useState<Slot[]>([]);
   /** 테스트 매칭 탭 전용: Beauty 슬롯만 (카테고리 분리 후에도 피부→슬롯은 뷰티 기준) */
   const [skinMatchSlots, setSkinMatchSlots] = useState<Slot[]>([]);
-  /** 카탈로그에 노출할 슬롯 개수(1~5). 저장 시 이 개수만큼 main_layout_slots에 insert */
+  /** 카탈로그에 노출할 슬롯 개수(1~5). 저장 시 해당 룸 테이블에 insert */
   const [slotCount, setSlotCount] = useState(5);
   const [savingSlots, setSavingSlots] = useState(false);
+
+  /** 탭 전환 시 다른 룸 상품이 선택된 채 이미지 업로드·저장되면 동일 UUID가 여러 카탈로그에 보이는 섞임 방지 */
+  useEffect(() => {
+    setSelectedProduct((prev) => {
+      if (!prev?.id) return prev;
+      if (normalizeProductCategory(prev.category) !== normalizeProductCategory(productCategory)) return null;
+      return prev;
+    });
+  }, [productCategory]);
 
   const [dashboardKpi, setDashboardKpi] = useState<DashboardKpi | null>(null);
   /** 실제 주문 목록(품목 포함): 매출 그래프·상품별 집계용. 목업이 아닐 때 사용 */
@@ -465,10 +473,7 @@ export const Admin: React.FC = () => {
   const [trafficByMonth, setTrafficByMonth] = useState<TrafficPoint[]>([]);
   const [components, setComponents] = useState<ProductComponent[]>([]);
   const [ingredientBriefsMap, setIngredientBriefsMap] = useState<ProductIngredientBriefMap>({});
-  const [ingredientStoryTitleRu, setIngredientStoryTitleRu] = useState('');
-  const [ingredientStoryBodyRu, setIngredientStoryBodyRu] = useState('');
   const [ingredientInfographicUrl, setIngredientInfographicUrl] = useState('');
-  const [ingredientLinesDraft, setIngredientLinesDraft] = useState('');
   const [productStats, setProductStats] = useState<ProductStats | null>(null);
   const [productReviews, setProductReviews] = useState<ProductReviewSummary[]>([]);
   const [showProductReviews, setShowProductReviews] = useState(false);
@@ -548,8 +553,8 @@ export const Admin: React.FC = () => {
   type OrderRow = { id: string; order_number?: string | null; created_at: string; total_cents: number; points_used?: number | null; status: string; receiver_name: string | null; receiver_phone: string | null; shipping_address: string | null; tracking_url?: string | null; items?: unknown; snapshot_items?: unknown; is_test?: boolean; inn?: string | null; passport_series?: string | null; passport_number?: string | null };
   /** 가짜 주문(데모) — DB에 주문이 없을 때 목록에 표시. 사용자가 만들어 둔 데모용 */
   const FAKE_ORDERS_DEMO: OrderRow[] = [
-    { id: 'demo-order-1', order_number: 'ORD-DEMO-001', created_at: new Date().toISOString(), total_cents: 45000, points_used: 0, status: 'completed', receiver_name: 'Тест Получатель', receiver_phone: '+7 999 123 4567', shipping_address: 'Москва, ул. Тестовая, 1', tracking_url: null, is_test: true },
-    { id: 'demo-order-2', order_number: 'ORD-DEMO-002', created_at: new Date(Date.now() - 86400000).toISOString(), total_cents: 32000, points_used: 500, status: 'shipped', receiver_name: 'Демо Имя', receiver_phone: null, shipping_address: 'Санкт-Петербург', tracking_url: null, is_test: true },
+    { id: 'demo-order-1', order_number: 'ORD-DEMO-001', created_at: new Date().toISOString(), total_cents: 45000, points_used: 0, status: 'completed', receiver_name: '테스트 수령인', receiver_phone: '+7 999 123 4567', shipping_address: '모스크바 테스트로 1', tracking_url: null, is_test: true },
+    { id: 'demo-order-2', order_number: 'ORD-DEMO-002', created_at: new Date(Date.now() - 86400000).toISOString(), total_cents: 32000, points_used: 500, status: 'shipped', receiver_name: '데모 사용자', receiver_phone: null, shipping_address: '상트페테르부르크', tracking_url: null, is_test: true },
     { id: 'demo-order-3', order_number: 'ORD-DEMO-003', created_at: new Date(Date.now() - 172800000).toISOString(), total_cents: 28000, points_used: null, status: 'pending', receiver_name: null, receiver_phone: null, shipping_address: null, tracking_url: null, is_test: true },
   ];
   const [ordersList, setOrdersList] = useState<OrderRow[]>([]);
@@ -1044,10 +1049,11 @@ export const Admin: React.FC = () => {
     const catProds = products.filter((p) => normalizeProductCategory(p.category) === normalizeProductCategory(productCategory));
     (async () => {
       try {
+        const room = normalizeProductCategory(productCategory) as CatalogSlotRoom;
         const { data: slotData, error } = await supabase
-          .from('main_layout_slots')
-          .select('id, slot_index, title, description, image_url, product_id, link_url, category')
-          .eq('category', productCategory);
+          .from(CATALOG_ROOM_SLOTS_TABLE)
+          .select('id, slot_index, title, description, image_url, product_id, link_url')
+          .eq('catalog_room', room);
         if (error) {
           console.warn('[Admin] slots by category:', error.message);
           setSlots([]);
@@ -1101,9 +1107,9 @@ export const Admin: React.FC = () => {
     if (!supabase || !isAdmin || tab !== 'skinMatch') return;
     (async () => {
       const { data: slotData } = await supabase
-        .from('main_layout_slots')
-        .select('id, slot_index, title, description, image_url, product_id, link_url, category')
-        .eq('category', 'beauty');
+        .from(CATALOG_ROOM_SLOTS_TABLE)
+        .select('id, slot_index, title, description, image_url, product_id, link_url')
+        .eq('catalog_room', SKIN_TEST_CATALOG_CATEGORY);
       const slotsSorted = (
         (slotData ?? []) as {
           id: number;
@@ -1434,17 +1440,11 @@ export const Admin: React.FC = () => {
 
   useEffect(() => {
     if (!selectedProduct?.id) {
-      setIngredientStoryTitleRu('');
-      setIngredientStoryBodyRu('');
       setIngredientInfographicUrl('');
-      setIngredientLinesDraft('');
       return;
     }
     const brief = normalizeBrief(ingredientBriefsMap[selectedProduct.id]);
-    setIngredientStoryTitleRu(brief.story_title_ru);
-    setIngredientStoryBodyRu(brief.story_body_ru);
     setIngredientInfographicUrl(brief.infographic_image_url ?? '');
-    setIngredientLinesDraft(formatIngredientLines(brief.entries));
   }, [selectedProduct?.id, ingredientBriefsMap]);
 
   const handleHeroImageUpload = async (file: File, slideIdx: number, field: 'image_url' | 'mobile_image_url' = 'image_url') => {
@@ -1985,14 +1985,17 @@ export const Admin: React.FC = () => {
       }
       const payload: Record<string, unknown> = {
         name: selectedProduct.name,
-        category: (selectedProduct.category && String(selectedProduct.category).trim()) || productCategory,
+        category: normalizeProductCategory(
+          (selectedProduct.category && String(selectedProduct.category).trim()) || productCategory,
+        ),
         description: selectedProduct.description,
+        detail_description: ingredientInfographicUrl.trim() || null,
         image_url: mainImages[0] ?? null,
         image_urls: mainImages,
         rrp_price: selectedProduct.rrp_price,
         prp_price: selectedProduct.prp_price,
         is_active: selectedProduct.is_active ?? true,
-        box_theme: selectedProduct.box_theme ?? 'brand',
+        box_theme: 'brand',
       };
       let productId = selectedProduct.id;
       if (selectedProduct.id) {
@@ -2005,6 +2008,13 @@ export const Admin: React.FC = () => {
         setSelectedProduct({ ...selectedProduct, id: data.id });
         setOrderedProductIds((prev) => (prev.includes(productId) ? prev : [...prev, productId]));
       }
+      const slotRoom = normalizeProductCategory(payload.category) as CatalogSlotRoom;
+      const { error: slotRmErr } = await supabase
+        .from(CATALOG_ROOM_SLOTS_TABLE)
+        .delete()
+        .eq('product_id', productId)
+        .neq('catalog_room', slotRoom);
+      if (slotRmErr) console.warn('[Admin] 상품 category 와 맞지 않는 슬롯 룸 정리 실패:', slotRmErr.message);
       // 구성품 저장: 기존 삭제 후 일괄 삽입 (layout 있으면 저장 — Supabase product_components에 layout 컬럼 추가 필요)
       const compPayload = components.map((c, i) => {
         const urls = c.image_urls?.length ? c.image_urls : c.image_url ? [c.image_url] : [];
@@ -2025,10 +2035,10 @@ export const Admin: React.FC = () => {
       const nextBriefsMap: ProductIngredientBriefMap = {
         ...ingredientBriefsMap,
         [productId]: {
-          story_title_ru: ingredientStoryTitleRu.trim(),
-          story_body_ru: ingredientStoryBodyRu.trim(),
+          story_title_ru: '',
+          story_body_ru: '',
           infographic_image_url: ingredientInfographicUrl.trim() || undefined,
-          entries: parseIngredientLines(ingredientLinesDraft),
+          entries: [],
         },
       };
       await supabase
@@ -2101,7 +2111,7 @@ export const Admin: React.FC = () => {
     const productId = selectedProduct.id;
     try {
       await supabase.from('product_components').delete().eq('product_id', productId);
-      await supabase.from('main_layout_slots').delete().eq('product_id', productId);
+      await supabase.from(CATALOG_ROOM_SLOTS_TABLE).delete().eq('product_id', productId);
       const { error: delErr } = await supabase.from('products').delete().eq('id', productId);
       if (delErr) throw delErr;
       setProducts((prev) => prev.filter((p) => p.id !== productId));
@@ -2372,37 +2382,68 @@ export const Admin: React.FC = () => {
     });
   };
 
-  /** 상품 목록 순서(orderedProductIds) 기준으로 슬롯 1~5 저장 — main_layout_slots에 반영 */
+  /** 상품 목록 순서(orderedProductIds) 기준으로 슬롯 1~5 저장 — catalog_room_slots 에서 해당 catalog_room 만 덮어씀 */
   const handleSaveSlotOrder = async () => {
     if (!supabase || !canGrantPermission) return;
     setSavingSlots(true);
     setError(null);
     try {
-      const { data: existing } = await supabase.from('main_layout_slots').select('id').eq('category', productCategory);
-      if (existing?.length) {
-        const { error: delErr } = await supabase.from('main_layout_slots').delete().in('id', existing.map((r) => r.id));
-        if (delErr) throw delErr;
-      }
+      const room = normalizeProductCategory(productCategory) as CatalogSlotRoom;
       const count = Math.min(5, Math.max(1, slotCount));
+      const candidateIds = orderedProductIds.slice(0, count).filter(Boolean) as string[];
+      if (candidateIds.length > 0) {
+        const { error: stripOtherRoomsErr } = await supabase
+          .from(CATALOG_ROOM_SLOTS_TABLE)
+          .delete()
+          .in('product_id', candidateIds)
+          .neq('catalog_room', room);
+        if (stripOtherRoomsErr) console.warn('[Admin] 다른 룸 슬롯에서 동일 product_id 제거 실패:', stripOtherRoomsErr.message);
+      }
+      const { error: delRoomErr } = await supabase.from(CATALOG_ROOM_SLOTS_TABLE).delete().eq('catalog_room', room);
+      if (delRoomErr) throw delRoomErr;
+      // 슬롯에 배치될 상품 중 카테고리 불일치 → 자동 보정
+      const mismatchIds: string[] = [];
       const toInsert = Array.from({ length: count }, (_, i) => {
-        const productId = orderedProductIds[i] ?? null;
-        const prod = productId ? products.find((p) => p.id === productId) : null;
+        const pid = orderedProductIds[i] ?? null;
+        const prod = pid ? products.find((p) => p.id === pid) : null;
+        if (pid && prod && normalizeProductCategory(prod.category) !== room) {
+          mismatchIds.push(pid);
+        }
+        const prevAtIndex = slots.find((s) => s.slot_index === i);
+        const keepSlotImage =
+          prevAtIndex && prevAtIndex.product_id === pid && prevAtIndex.image_url?.trim();
         return {
+          catalog_room: room,
           slot_index: i,
           title: prod?.name ?? null,
           description: null,
-          image_url: null,
-          product_id: productId,
+          image_url: keepSlotImage ? prevAtIndex!.image_url : null,
+          product_id: pid,
           link_url: null,
-          category: productCategory,
         };
       });
-      const { error: insErr } = await supabase.from('main_layout_slots').insert(toInsert);
+      // 카테고리 불일치 상품 → DB의 products.category를 현재 룸으로 자동 수정
+      if (mismatchIds.length > 0) {
+        const { error: fixCatErr } = await supabase
+          .from('products')
+          .update({ category: room })
+          .in('id', mismatchIds);
+        if (fixCatErr) {
+          console.warn('[Admin] 상품 category 자동 보정 실패:', fixCatErr.message);
+        } else {
+          // 로컬 상태도 동기화
+          setProducts((prev) =>
+            prev.map((p) => (mismatchIds.includes(p.id) ? { ...p, category: room } : p))
+          );
+          console.info(`[Admin] ${mismatchIds.length}개 상품의 category를 '${room}'으로 자동 보정`);
+        }
+      }
+      const { error: insErr } = await supabase.from(CATALOG_ROOM_SLOTS_TABLE).insert(toInsert);
       if (insErr) throw insErr;
       const { data: slotData } = await supabase
-        .from('main_layout_slots')
-        .select('id, slot_index, title, description, image_url, product_id, link_url, category')
-        .eq('category', productCategory);
+        .from(CATALOG_ROOM_SLOTS_TABLE)
+        .select('id, slot_index, title, description, image_url, product_id, link_url')
+        .eq('catalog_room', room);
       const slotsSortedAfterSave = ((slotData ?? []) as { id: number; slot_index: number; title: string | null; description: string | null; image_url: string | null; product_id: string | null; link_url: string | null }[]).slice().sort((a, b) => a.slot_index - b.slot_index);
       if (slotsSortedAfterSave.length > 0) {
         setSlots(
@@ -2418,7 +2459,10 @@ export const Admin: React.FC = () => {
         );
         setSlotCount(slotsSortedAfterSave.length);
         const slotProductIds = slotsSortedAfterSave.map((s) => s.product_id).filter(Boolean) as string[];
-        const restIds = products.map((p) => p.id).filter((id) => !slotProductIds.includes(id));
+        const catProdsAfter = products.filter(
+          (p) => normalizeProductCategory(p.category) === normalizeProductCategory(productCategory),
+        );
+        const restIds = catProdsAfter.map((p) => p.id).filter((id) => !slotProductIds.includes(id));
         setOrderedProductIds([...slotProductIds, ...restIds]);
       }
       setSaveSuccessAt(Date.now());
@@ -2461,9 +2505,9 @@ export const Admin: React.FC = () => {
     if (!window.confirm(`${points} 포인트를 지급할까요? (${row.user_name ?? row.user_email ?? row.user_id})`)) return;
     const defaultReply =
       points === 200
-        ? 'Спасибо за подробный отзыв! Дарим 200 баллов.'
-        : 'Ваш отзыв выбран как особенный. Дарим 500 баллов. Спасибо!';
-    const rewardReply = window.prompt('Пояснение для пользователя (ответ к отзыву):', row.admin_reply ?? defaultReply);
+        ? '상세한 리뷰 감사합니다. 200포인트가 지급되었습니다.'
+        : '특별 리뷰로 선정되어 500포인트가 지급되었습니다. 감사합니다.';
+    const rewardReply = window.prompt('사용자에게 보낼 안내 문구(리뷰 답글):', row.admin_reply ?? defaultReply);
     if (rewardReply === null) return;
     setReviewActionLoading(reviewId);
     try {
@@ -3220,7 +3264,7 @@ export const Admin: React.FC = () => {
                         className="grid gap-2 sm:gap-3"
                         style={{ gridTemplateColumns: `repeat(${Math.min(slotCount, 5)}, minmax(0, 1fr))` }}
                       >
-                        {(orderedProductIds.length ? orderedProductIds : products.map((p) => p.id))
+                        {displayProductIds
                           .slice(0, slotCount)
                           .map((productId) => {
                             const p = products.find((pr) => pr.id === productId);
@@ -3248,11 +3292,11 @@ export const Admin: React.FC = () => {
                                 <div className="mt-2 flex min-w-0 flex-col gap-0.5 sm:mt-3">
                                   {rrp != null && prp != null && (
                                     <span className="whitespace-nowrap text-[11px] text-slate-500 line-through sm:text-xs">
-                                      {formatNumber(rrp)} руб.
+                                      {formatNumber(rrp)}원
                                     </span>
                                   )}
                                   <span className="whitespace-nowrap text-xs font-semibold text-slate-900 sm:text-sm">
-                                    {prp != null ? `${formatNumber(prp)} руб.` : '—'}
+                                    {prp != null ? `${formatNumber(prp)}원` : '—'}
                                   </span>
                                 </div>
                                 <div
@@ -3260,7 +3304,7 @@ export const Admin: React.FC = () => {
                                     theme === 'sky' ? 'bg-sky-600' : 'bg-brand'
                                   }`}
                                 >
-                                  <span className="whitespace-nowrap">В корзину</span>
+                                  <span className="whitespace-nowrap">장바구니</span>
                                 </div>
                               </article>
                             );
@@ -3272,7 +3316,7 @@ export const Admin: React.FC = () => {
               </>
             )}
             <p className="mb-2 text-xs text-slate-500">
-              상단 탭(Beauty / Inner / Hair)마다 슬롯·순서가 따로 저장됩니다. 드래그로 순서 변경 후 「슬롯 순서 저장」하면 해당 카테고리 샵 페이지(/shop, /inner-beauty, /hair-beauty)에 반영됩니다. 위에서 1~{slotCount}개가 카탈로그에 노출됩니다.
+              상단 탭(Beauty / Inner / Hair)마다 <strong>슬롯·순서가 DB에서 완전히 분리</strong>되어 저장됩니다. 「슬롯 순서 저장」 시 해당 카테고리 페이지만 갱신됩니다. 피부 테스트 매칭은 <strong>뷰티박스 탭</strong>과 «테스트 매칭» 메뉴만 사용합니다. 위에서 1~{slotCount}개가 카탈로그에 노출됩니다.
             </p>
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <span className="text-xs font-medium text-slate-600">슬롯 개수:</span>
@@ -3302,7 +3346,6 @@ export const Admin: React.FC = () => {
                     is_active: true,
                     stock: 0,
                     detail_description: null,
-                    box_theme: 'brand',
                   })
                 }
                 className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 hover:border-brand hover:text-brand"
@@ -3370,8 +3413,15 @@ export const Admin: React.FC = () => {
                         )}
                       </div>
                       {p.category && (
-                        <p className="mt-0.5 text-[11px] uppercase tracking-wide text-slate-400">
+                        <p className={`mt-0.5 text-[11px] uppercase tracking-wide ${
+                          normalizeProductCategory(p.category) !== normalizeProductCategory(productCategory)
+                            ? 'font-semibold text-red-500'
+                            : 'text-slate-400'
+                        }`}>
                           {p.category}
+                          {normalizeProductCategory(p.category) !== normalizeProductCategory(productCategory) && (
+                            <span className="ml-1 normal-case"> ⚠️ 카테고리 불일치 — 저장 시 자동 보정됨</span>
+                          )}
                         </p>
                       )}
                     </div>
@@ -3519,7 +3569,7 @@ export const Admin: React.FC = () => {
                               onClick={() => setProductReviewPage((p) => Math.max(1, p - 1))}
                               className="rounded border border-slate-200 px-2 py-1 text-[11px] disabled:opacity-40"
                             >
-                              Назад
+                              이전
                             </button>
                             <span className="text-[11px] text-slate-500">
                               {productReviewPage} / {Math.ceil(productReviews.length / 10)}
@@ -3530,7 +3580,7 @@ export const Admin: React.FC = () => {
                               onClick={() => setProductReviewPage((p) => p + 1)}
                               className="rounded border border-slate-200 px-2 py-1 text-[11px] disabled:opacity-40"
                             >
-                              Вперёд
+                              다음
                             </button>
                           </div>
                         )}
@@ -3539,27 +3589,15 @@ export const Admin: React.FC = () => {
                   </div>
                 )}
 
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <label className={labelClass}>상품명</label>
-                    <input
-                      type="text"
-                      className={inputClass}
-                      value={selectedProduct.name}
-                      onChange={(e) => handleProductField('name', e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>제품 박스 색상 (SEMO Box 메뉴 카드)</label>
-                    <select
-                      className={inputClass}
-                      value={selectedProduct.box_theme ?? 'brand'}
-                      onChange={(e) => handleProductField('box_theme', e.target.value as 'brand' | 'sky')}
-                    >
-                      <option value="brand">주황색 (기본)</option>
-                      <option value="sky">연하늘색 (패밀리 케어)</option>
-                    </select>
-                  </div>
+                <div className="w-full min-w-0">
+                  <label className={labelClass}>상품명</label>
+                  <input
+                    type="text"
+                    className={`${inputClass} min-h-11 w-full text-base`}
+                    value={selectedProduct.name}
+                    onChange={(e) => handleProductField('name', e.target.value)}
+                    placeholder="상품명"
+                  />
                 </div>
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div>
@@ -3588,78 +3626,6 @@ export const Admin: React.FC = () => {
                       className={inputClass}
                       value={selectedProduct.stock ?? ''}
                       onChange={(e) => handleProductField('stock', e.target.value === '' ? null : e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3">
-                  <label className={`${labelClass} font-semibold text-slate-800`}>
-                    ③ 상세 «Ключевые ингредиенты» (제품별 성분 보기)
-                  </label>
-                  <p className="mb-3 text-xs text-slate-500">
-                    한 줄에 1개 성분: <code>구성품명 | 성분명 | 역할(러시아어) | 강도(1-3)</code>. 저장하면 상세 페이지 버튼에 반영됩니다.
-                  </p>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div>
-                      <label className={labelClass}>제목 (RU)</label>
-                      <input
-                        type="text"
-                        className={inputClass}
-                        value={ingredientStoryTitleRu}
-                        onChange={(e) => setIngredientStoryTitleRu(e.target.value)}
-                        placeholder="Почему этот набор вам подходит"
-                      />
-                    </div>
-                    <div>
-                      <label className={labelClass}>설득 문구 (RU)</label>
-                      <input
-                        type="text"
-                        className={inputClass}
-                        value={ingredientStoryBodyRu}
-                        onChange={(e) => setIngredientStoryBodyRu(e.target.value)}
-                        placeholder="Комбинация активов закрывает ключевые потребности кожи..."
-                      />
-                    </div>
-                  </div>
-                  <div className="mt-3">
-                    <label className={labelClass}>인포그래픽 이미지 (선택)</label>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      ref={ingredientInfographicInputRef}
-                      className="hidden"
-                      onChange={onIngredientInfographicFileChange}
-                    />
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                      <input
-                        type="url"
-                        className={inputClass}
-                        value={ingredientInfographicUrl}
-                        onChange={(e) => setIngredientInfographicUrl(e.target.value)}
-                        placeholder="https://... (업로드 또는 URL 직접 입력)"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => ingredientInfographicInputRef.current?.click()}
-                        disabled={uploadingIngredientInfographic}
-                        className="shrink-0 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:border-brand hover:text-brand disabled:opacity-60"
-                      >
-                        {uploadingIngredientInfographic ? '업로드 중…' : '인포그래픽 업로드'}
-                      </button>
-                    </div>
-                    {ingredientInfographicUrl && (
-                      <div className="mt-2 overflow-hidden rounded-lg border border-slate-200 bg-white">
-                        <img src={ingredientInfographicUrl} alt="ingredient infographic preview" className="max-h-44 w-full object-contain" />
-                      </div>
-                    )}
-                  </div>
-                  <div className="mt-3">
-                    <label className={labelClass}>성분 라인</label>
-                    <textarea
-                      className={`${inputClass} min-h-[130px]`}
-                      value={ingredientLinesDraft}
-                      onChange={(e) => setIngredientLinesDraft(e.target.value)}
-                      placeholder={'Тонер | Ниацинамид | Выравнивает тон и укрепляет барьер | 3\nСыворотка | Пантенол | Снижает чувствительность и успокаивает кожу | 2'}
                     />
                   </div>
                 </div>
@@ -3809,11 +3775,11 @@ export const Admin: React.FC = () => {
                   </div>
                 </div>
 
-                {/* ② 상세 페이지 구성품 이미지 (최대 6장) */}
+                {/* ② 구성품 이미지 및 내용 (최대 6장) */}
                 <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3">
                   <div className="mb-2 flex items-center justify-between">
                     <label className={`${labelClass} font-semibold text-slate-800`}>
-                      ② 상세 페이지 구성품 이미지 (최대 6장)
+                      ② 구성품 이미지 및 내용 (최대 6장)
                     </label>
                     <button
                       type="button"
@@ -3827,7 +3793,7 @@ export const Admin: React.FC = () => {
                     </button>
                   </div>
                   <p className="mb-3 text-xs text-slate-500">
-                    상세 페이지 하단 구성품 그리드. 항목당 사진 여러 장 넣을 수 있습니다.
+                    구성품 영역에 사진 + 텍스트로 연동됩니다. 항목당 사진 여러 장을 넣을 수 있습니다.
                   </p>
                   <p className="mb-3 text-xs leading-relaxed text-slate-600">{IMG_GUIDE_PRODUCT_COMPONENT_RU}</p>
                   <input
@@ -3868,15 +3834,6 @@ export const Admin: React.FC = () => {
                                   </span>
                                 </div>
                                 <div className="flex flex-col gap-1">
-                                  <select
-                                    value={comp.layout ?? 'image_left'}
-                                    onChange={(e) => handleComponentChange(idx, { layout: e.target.value as 'image_left' | 'image_right' })}
-                                    className="rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700"
-                                    title="상세페이지 «Подробнее о составе» 블록 배치"
-                                  >
-                                    <option value="image_left">왼쪽 사진 / 오른쪽 텍스트</option>
-                                    <option value="image_right">왼쪽 텍스트 / 오른쪽 사진</option>
-                                  </select>
                                   <div className="flex gap-1">
                                     <button
                                       type="button"
@@ -3931,7 +3888,7 @@ export const Admin: React.FC = () => {
                                   onChange={(e) => handleComponentChange(idx, { name: e.target.value || null })}
                                 />
                                 <textarea
-                                  placeholder="설명 (상세 블록 오른쪽/왼쪽 텍스트)"
+                                  placeholder="상세블록 내용 텍스트 (구성품 영역 연동)"
                                   className="min-h-[60px] w-full rounded border border-slate-200 px-2 py-1.5 text-xs text-slate-700"
                                   value={comp.description ?? ''}
                                   onChange={(e) => handleComponentChange(idx, { description: e.target.value || null })}
@@ -3940,6 +3897,47 @@ export const Admin: React.FC = () => {
                             </div>
                           );
                         })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3">
+                  <label className={`${labelClass} font-semibold text-slate-800`}>
+                    ③ 상세페이지 이미지
+                  </label>
+                  <p className="mb-3 text-xs text-slate-500">
+                    상세페이지 본문에는 텍스트 없이 이 이미지만 노출됩니다. 세로 긴 이미지도 제한 없이 전체 폭으로 표시됩니다.
+                  </p>
+                  <div>
+                    <label className={labelClass}>상세페이지 이미지</label>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      ref={ingredientInfographicInputRef}
+                      className="hidden"
+                      onChange={onIngredientInfographicFileChange}
+                    />
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                      <input
+                        type="url"
+                        className={inputClass}
+                        value={ingredientInfographicUrl}
+                        onChange={(e) => setIngredientInfographicUrl(e.target.value)}
+                        placeholder="https://... (업로드 또는 URL 직접 입력)"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => ingredientInfographicInputRef.current?.click()}
+                        disabled={uploadingIngredientInfographic}
+                        className="shrink-0 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:border-brand hover:text-brand disabled:opacity-60"
+                      >
+                        {uploadingIngredientInfographic ? '업로드 중…' : '인포그래픽 업로드'}
+                      </button>
+                    </div>
+                    {ingredientInfographicUrl && (
+                      <div className="mt-2 overflow-hidden rounded-lg border border-slate-200 bg-white">
+                        <img src={ingredientInfographicUrl} alt="detail page preview" className="w-full object-contain" />
                       </div>
                     )}
                   </div>
@@ -3955,9 +3953,9 @@ export const Admin: React.FC = () => {
       {tab === 'skinMatch' && (
         <section className="mt-4">
           <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <h2 className="mb-2 text-sm font-semibold text-slate-900">테스트 결과–상품 매칭</h2>
+            <h2 className="mb-2 text-sm font-semibold text-slate-900">테스트 결과–상품 매칭 (뷰티박스 전용)</h2>
             <p className="mb-4 text-xs text-slate-500">
-              피부 타입을 아래 슬롯으로 드래그하면, 해당 타입 결과일 때 그 슬롯의 상품 상세로 연결됩니다. 슬롯은 <strong>뷰티박스</strong> 카탈로그 기준입니다(상품관리 → 뷰티박스 탭 슬롯). 저장 버튼을 눌러 반영하세요.
+              <strong>피부 테스트</strong>와 <strong>«Рекомендуемые товары»</strong> 링크는 <strong>뷰티박스 슬롯만</strong> 사용합니다. 핏박스·헤어박스와 데이터가 섞이지 않습니다. 아래 슬롯은 상품관리 → <strong>뷰티박스</strong> 탭에서 저장한 순서와 동일합니다. 피부 타입을 드래그해 슬롯에 넣은 뒤 저장하세요.
             </p>
             {skinMatchLoading ? (
               <p className="py-8 text-center text-sm text-slate-500">불러오는 중…</p>
@@ -4499,14 +4497,14 @@ export const Admin: React.FC = () => {
                 type="text"
                 value={broadcastTitle}
                 onChange={(e) => setBroadcastTitle(e.target.value)}
-                placeholder="Заголовок"
+                placeholder="제목"
                 className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400"
               />
               <label className="mt-4 block text-xs font-medium text-slate-700">내용</label>
               <textarea
                 value={broadcastBody}
                 onChange={(e) => setBroadcastBody(e.target.value)}
-                placeholder="Текст объявления"
+                placeholder="공지 내용"
                 rows={5}
                 className="mt-1 w-full resize-y rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400"
               />
@@ -4735,7 +4733,7 @@ export const Admin: React.FC = () => {
               )}
             </div>
             <p className="mb-3 text-[11px] text-slate-500">
-              주문을 클릭하면 수령인(ФИО)·전화·배송 주소를 수정할 수 있습니다. 고객이 나중에 수령인 정보 변경을 요청할 때 여기서 수정하세요. 금액은 포인트 사용 반영 후 결제금액입니다.
+              주문을 클릭하면 수령인(이름)·전화·배송 주소를 수정할 수 있습니다. 고객이 나중에 수령인 정보 변경을 요청할 때 여기서 수정하세요. 금액은 포인트 사용 반영 후 결제금액입니다.
             </p>
             {/* 주문 상태·배송 레전드: 결제 관련(좌) / 배송 관련(우). flex-wrap으로 환불 등이 잘리지 않게 */}
             <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2.5 sm:gap-6">
@@ -6116,7 +6114,7 @@ export const Admin: React.FC = () => {
             <h3 className="mb-3 text-sm font-semibold text-slate-900">수령인 정보 수정 · 주문 {selectedOrder.order_number ?? selectedOrder.id.slice(0, 8)}</h3>
             <div className="space-y-3">
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">ФИО (수령인 이름)</label>
+                <label className="mb-1 block text-xs font-medium text-slate-600">수령인 이름</label>
                 <input
                   type="text"
                   className={inputClass}
@@ -6126,7 +6124,7 @@ export const Admin: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">Телефон</label>
+                <label className="mb-1 block text-xs font-medium text-slate-600">전화번호</label>
                 <input
                   type="text"
                   className={inputClass}
@@ -6136,17 +6134,17 @@ export const Admin: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">Адрес доставки</label>
+                <label className="mb-1 block text-xs font-medium text-slate-600">배송 주소</label>
                 <textarea
                   rows={3}
                   className={`${inputClass} min-h-[120px] resize-y`}
                   value={orderEditForm.shipping_address}
                   onChange={(e) => setOrderEditForm((f) => ({ ...f, shipping_address: e.target.value }))}
-                  placeholder="Индекс, город, улица, дом..."
+                  placeholder="우편번호, 도시, 도로명, 건물번호..."
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">배송 추적 URL (СДЭК, Почта России 등)</label>
+                <label className="mb-1 block text-xs font-medium text-slate-600">배송 추적 URL (택배사 링크 등)</label>
                 <input
                   type="url"
                   className={inputClass}

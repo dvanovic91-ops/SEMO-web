@@ -1,4 +1,4 @@
--- main_layout_slots에 category 컬럼이 있을 때: 피부 테스트 추천은 Beauty Box 슬롯만 사용
+-- 피부 테스트 추천: catalog_room_slots 중 catalog_room = 'beauty'
 -- 기존 get_recommended_product_id_for_skin_type 함수가 있다면 이 정의로 교체하세요.
 
 CREATE OR REPLACE FUNCTION public.get_recommended_product_id_for_skin_type(p_skin_type text)
@@ -53,8 +53,8 @@ BEGIN
     SELECT
       mls.product_id,
       row_number() OVER (ORDER BY mls.slot_index ASC) AS rn
-    FROM public.main_layout_slots mls
-    WHERE coalesce(mls.category, 'beauty') = 'beauty'
+    FROM public.catalog_room_slots mls
+    WHERE mls.catalog_room = 'beauty'
   ) x
   WHERE x.rn = v_slot
   LIMIT 1;

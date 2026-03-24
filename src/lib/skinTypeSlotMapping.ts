@@ -1,15 +1,17 @@
 /**
  * 피부 타입–슬롯 매칭: DB(skin_type_slot_mapping) 우선, 없으면 config fallback.
+ * 뷰티 슬롯은 **catalog_room_slots** 에서 `catalog_room = 'beauty'` 행만 사용.
  */
 import { supabase } from './supabase';
-import { getRecommendationSlotIndex } from '../config/skinTypeRecommendations';
+import { CATALOG_ROOM_SLOTS_TABLE } from './catalogSlotRooms';
+import { getRecommendationSlotIndex, SKIN_TEST_CATALOG_CATEGORY } from '../config/skinTypeRecommendations';
 
 const TABLE = 'skin_type_slot_mapping';
 
 /**
  * 피부 타입에 맞는 추천 상품 UUID.
  * Supabase RPC `get_recommended_product_id_for_skin_type` 우선(봇·웹 동일 규칙),
- * 실패·null 시 main_layout_slots + 슬롯 매핑으로 클라이언트 계산(레거시 폴백).
+ * 실패·null 시 catalog_room_slots(뷰티) + 슬롯 매핑으로 클라이언트 계산(폴백).
  */
 export async function getRecommendedProductIdForSkinType(skinType: string | null): Promise<string | null> {
   const normalized = (skinType ?? '').trim().toUpperCase();
@@ -21,7 +23,15 @@ export async function getRecommendedProductIdForSkinType(skinType: string | null
     });
     if (!error && data != null) {
       const id = String(data).trim();
-      if (id) return id;
+      if (id) {
+        // RPC가 category 필터 없이 배포된 경우 inner_beauty 등이 나올 수 있음 → 뷰티박스만 허용
+        const { data: prow } = await supabase.from('products').select('category').eq('id', id).maybeSingle();
+        if (prow) {
+          const cat = (prow as { category?: string | null }).category;
+          if (cat == null || cat === SKIN_TEST_CATALOG_CATEGORY) return id;
+        }
+        // 상품 행을 읽지 못함(RLS 등)이거나 inner_beauty 등 → RPC 결과 무시하고 뷰티 슬롯 폴백
+      }
     }
   }
 
@@ -29,8 +39,9 @@ export async function getRecommendedProductIdForSkinType(skinType: string | null
   if (slotIndex == null || slotIndex < 1 || !supabase) return null;
 
   const { data: slotRows, error: slotErr } = await supabase
-    .from('main_layout_slots')
+    .from(CATALOG_ROOM_SLOTS_TABLE)
     .select('slot_index, product_id')
+    .eq('catalog_room', SKIN_TEST_CATALOG_CATEGORY)
     .order('slot_index', { ascending: true });
 
   if (slotErr) return null;

@@ -381,17 +381,24 @@ export const Navbar: React.FC = () => {
             <div className="pointer-events-none absolute inset-0 z-[15] hidden justify-center px-4 sm:px-6 md:flex">
               <div className="pointer-events-auto relative flex h-full w-full max-w-3xl items-center">
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="relative inline-block max-w-[min(58vw,22rem)]">
+                  <div className="relative inline-flex max-w-[min(66vw,26rem)] items-center gap-[27px]">
+                    {productDesktopNav.thumbUrl ? (
+                      <div className="h-8 w-8 shrink-0 -translate-x-1 overflow-hidden rounded-md border border-slate-200 bg-slate-50">
+                        <img src={productDesktopNav.thumbUrl} alt="" className="h-full w-full object-cover" />
+                      </div>
+                    ) : null}
+                    <div className="inline-flex max-w-[min(58vw,22rem)] items-center gap-1.5 sm:gap-2">
                     {productDesktopNav.rrp != null &&
                       productDesktopNav.prp != null &&
                       productDesktopNav.rrp !== productDesktopNav.prp && (
-                        <span className="absolute right-full top-1/2 mr-1.5 max-w-[28vw] -translate-y-1/2 truncate text-left text-xs tabular-nums text-slate-500 line-through sm:mr-2 sm:max-w-none sm:text-sm sm:whitespace-nowrap">
+                        <span className="max-w-[28vw] truncate text-left text-xs tabular-nums text-slate-500 line-through sm:max-w-none sm:text-sm sm:whitespace-nowrap">
                           {formatPrice(productDesktopNav.rrp)}
                         </span>
                       )}
-                    <span className="block min-w-0 max-w-[42vw] truncate text-center text-sm font-semibold tabular-nums text-slate-900 sm:max-w-[min(50vw,16rem)] sm:text-base">
+                    <span className="block min-w-0 max-w-[42vw] truncate text-left text-sm font-semibold tabular-nums text-slate-900 sm:max-w-[min(50vw,16rem)] sm:text-base">
                       {formatPrice(productDesktopNav.prp ?? productDesktopNav.rrp ?? 0)}
                     </span>
+                    </div>
                   </div>
                 </div>
                 <button

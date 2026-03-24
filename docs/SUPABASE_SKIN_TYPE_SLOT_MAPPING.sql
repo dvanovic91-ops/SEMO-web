@@ -1,5 +1,5 @@
 -- 피부 타입별 추천 슬롯 매칭 (관리자에서 드래그로 설정, 앱에서 이 테이블 우선 사용)
--- 슬롯 1~5 = Shop 상품 1~5 (main_layout_slots.slot_index 0~4)
+-- 슬롯 1~5 = 뷰티 Shop 상품 1~5 (catalog_room_slots, catalog_room=beauty, slot_index 0~4)
 
 create table if not exists public.skin_type_slot_mapping (
   skin_type text primary key,

@@ -5,6 +5,7 @@ export type ProductDesktopNavBridge = {
   compact: boolean;
   rrp: number | null;
   prp: number | null;
+  thumbUrl?: string | null;
   onAddToCart: () => void;
 };
 

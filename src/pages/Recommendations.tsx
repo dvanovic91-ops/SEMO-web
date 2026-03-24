@@ -5,8 +5,8 @@ import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../component
 import { getRecommendedProductIdForSkinType } from '../lib/skinTypeSlotMapping';
 
 /**
- * 피부 타입별 추천 상품 페이지. Supabase RPC `get_recommended_product_id_for_skin_type`로
- * 상품 ID를 결정(봇과 동일 규칙); 실패 시 레거시 슬롯 조합 폴백.
+ * 피부 타입별 추천 → **뷰티박스** 슬롯·상품만 사용 (getRecommendedProductIdForSkinType).
+ * 핏/헤어 카탈로그와 분리됨.
  */
 export const Recommendations: React.FC = () => {
   const { skinType } = useParams<{ skinType?: string }>();

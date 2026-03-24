@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { CATALOG_ROOM_SLOTS_TABLE, type CatalogSlotRoom } from '../lib/catalogSlotRooms';
 
 /* ─── 히어로 이미지 타입 ─── */
 type HeroSlide = { image_url: string; mobile_image_url?: string; link_url?: string };
@@ -644,28 +645,39 @@ function ProductShowcase() {
     (async () => {
       setLoading(true);
       try {
-        const { data: slotData } = await supabase
-          .from('main_layout_slots')
-          .select('slot_index, title, image_url, product_id, category')
+        const { data: slotRowsRaw } = await supabase
+          .from(CATALOG_ROOM_SLOTS_TABLE)
+          .select('catalog_room, slot_index, title, image_url, product_id')
+          .in('catalog_room', ['beauty', 'inner_beauty', 'hair_beauty'])
+          .order('catalog_room', { ascending: true })
           .order('slot_index', { ascending: true });
 
-        const slots = (slotData ?? []) as {
+        type SlotRow = {
           slot_index: number;
           title: string | null;
           image_url: string | null;
           product_id: string | null;
-          category: string | null;
-        }[];
+          groupKey: CatalogSlotRoom;
+        };
+        const slots: SlotRow[] = ((slotRowsRaw ?? []) as { catalog_room: CatalogSlotRoom; slot_index: number; title: string | null; image_url: string | null; product_id: string | null }[]).map(
+          (row) => ({
+            slot_index: row.slot_index,
+            title: row.title,
+            image_url: row.image_url,
+            product_id: row.product_id,
+            groupKey: row.catalog_room,
+          }),
+        );
 
-        const productIds = slots.filter((s) => s.product_id).map((s) => s.product_id!);
-        let priceMap: Record<string, { rrp_price: number; prp_price: number | null; image_url: string | null; image_urls: string[] | null }> = {};
+        const productIds = [...new Set(slots.map((s) => s.product_id).filter(Boolean))] as string[];
+        let priceMap: Record<string, { rrp_price: number; prp_price: number | null; image_url: string | null; image_urls: string[] | null; category: string | null }> = {};
         if (productIds.length > 0) {
           const { data: prods } = await supabase
             .from('products')
-            .select('id, rrp_price, prp_price, image_url, image_urls')
+            .select('id, category, rrp_price, prp_price, image_url, image_urls')
             .in('id', productIds);
           if (prods) {
-            for (const p of prods as { id: string; rrp_price: number; prp_price: number | null; image_url: string | null; image_urls: string[] | null }[]) {
+            for (const p of prods as { id: string; category: string | null; rrp_price: number; prp_price: number | null; image_url: string | null; image_urls: string[] | null }[]) {
               priceMap[p.id] = p;
             }
           }
@@ -673,11 +685,24 @@ function ProductShowcase() {
 
         const grouped: Record<string, ShowcaseItem[]> = {};
         for (const slot of slots) {
-          const cat = slot.category || 'beauty';
+          const cat = slot.groupKey;
           if (!grouped[cat]) grouped[cat] = [];
           const prod = slot.product_id ? priceMap[slot.product_id] : null;
-          const primaryImg = slot.image_url ?? prod?.image_url ?? null;
-          const imgUrls = prod?.image_urls ?? [];
+          // 카테고리 불일치 상품은 제외 (뷰티 슬롯에 헤어 상품 등 방지)
+          if (prod?.category) {
+            const nc = String(prod.category).trim().toLowerCase().replace(/[-\s]/g, '_');
+            if (nc && nc !== cat && nc !== 'null' && nc !== 'undefined') continue;
+          }
+          // 상품에 연결된 경우 대표 이미지는 상품 기준 우선 — 슬롯 image_url이 남아 있으면 관리자가 상품만 갱신해도 메인에 안 보이는 문제(헤어 등) 방지
+          const imgUrls =
+            prod && Array.isArray(prod.image_urls) && prod.image_urls.length > 0
+              ? prod.image_urls.filter((u): u is string => !!u)
+              : prod?.image_url
+                ? [prod.image_url]
+                : [];
+          const productPrimary = imgUrls[0] ?? prod?.image_url ?? null;
+          const slotImg = slot.image_url?.trim() || null;
+          const primaryImg = productPrimary ?? slotImg ?? null;
           // 두번째 이미지: image_urls에서 첫번째 이미지와 다른 것 선택
           const secondImg = imgUrls.find((u) => u && u !== primaryImg) ?? (imgUrls.length > 1 ? imgUrls[1] : null);
           grouped[cat].push({

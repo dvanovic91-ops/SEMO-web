@@ -379,7 +379,12 @@ export const ProductDetail: React.FC = () => {
           const raw = ingredientSetting?.value ? JSON.parse(ingredientSetting.value) : null;
           const map = (raw ?? {}) as ProductIngredientBriefMap;
           const selected = normalizeBrief(map[currentId]);
-          if (selected.entries.length > 0 || selected.story_body_ru || selected.story_title_ru) {
+          if (
+            selected.entries.length > 0 ||
+            selected.story_body_ru ||
+            selected.story_title_ru ||
+            selected.infographic_image_url
+          ) {
             setIngredientBrief(selected);
           }
         } catch {
@@ -818,9 +823,10 @@ export const ProductDetail: React.FC = () => {
       compact: desktopPriceSticky,
       rrp: product.rrp_price != null ? Number(product.rrp_price) : null,
       prp: product.prp_price != null ? Number(product.prp_price) : null,
+      thumbUrl: stickyThumb ?? null,
       onAddToCart: () => addToCartNavRef.current(),
     });
-  }, [product, id, desktopPriceSticky, setProductDesktopNav]);
+  }, [product, id, desktopPriceSticky, setProductDesktopNav, stickyThumb]);
 
   useEffect(() => {
     return () => setProductDesktopNav(null);
@@ -842,9 +848,6 @@ export const ProductDetail: React.FC = () => {
     return (
       <main className={SEMO_FULL_PAGE_LOADING_MAIN_CLASS}>
         <SemoPageSpinner />
-        <p className="mt-8 text-center">
-          <Link to={backCatalogPath} className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> {backCatalogLabel}</Link>
-        </p>
       </main>
     );
   }
@@ -854,7 +857,7 @@ export const ProductDetail: React.FC = () => {
       {/* 모바일: 스크롤 시 상단 고정 — 이전가격·최종가격·В корзину */}
       {stickyAddBar && (
         <div
-          className="fixed left-0 right-0 z-40 flex items-center gap-1.5 border-b border-slate-200 bg-white/95 px-2.5 py-1.5 shadow-sm backdrop-blur-md md:hidden"
+          className="fixed left-0 right-0 z-40 grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-1.5 border-b border-slate-200 bg-white/95 px-2.5 py-1.5 shadow-sm backdrop-blur-md md:hidden"
           style={{
             /* Navbar 숨김과 동시에 top:0 — 세모 헤더와 동일 슬롯 대체 */
             top: 0,
@@ -862,14 +865,14 @@ export const ProductDetail: React.FC = () => {
           }}
         >
           {/* 모바일 고정바: 대표 썸네일 + 가격 + 버튼 (~20% 축소) */}
-          <div className="flex h-9 w-9 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-50">
+          <div className="flex h-9 w-9 shrink-0 translate-x-8 overflow-hidden rounded-md border border-slate-200 bg-slate-50">
             {stickyThumb ? (
               <img src={stickyThumb} alt="" className="h-full w-full object-cover" />
             ) : (
               <span className="flex h-full w-full items-center justify-center text-[9px] text-slate-400">—</span>
             )}
           </div>
-          <div className="flex min-w-0 flex-1 items-center justify-center gap-1.5 overflow-hidden whitespace-nowrap">
+          <div className="flex min-w-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap px-0.5">
             {product?.rrp_price != null && (
               <span
                 className={`shrink truncate text-[10px] leading-none tabular-nums ${hasDiscount ? 'text-slate-500 line-through' : 'text-slate-500'}`}
@@ -884,7 +887,7 @@ export const ProductDetail: React.FC = () => {
           <button
             type="button"
             onClick={handleAddToCart}
-            className="shrink-0 rounded-full bg-brand px-3 py-2 text-xs font-semibold text-white min-h-9 min-w-0"
+            className="shrink-0 rounded-full border border-brand/90 bg-brand px-3 py-1.5 text-xs font-medium leading-tight text-white min-h-8 min-w-0 transition hover:bg-brand/90"
           >
             В корзину
           </button>
@@ -942,7 +945,7 @@ export const ProductDetail: React.FC = () => {
                         key={`${i}-${src.slice(-32)}`}
                         className="w-full min-w-0 flex-[0_0_100%] snap-center"
                       >
-                        <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl bg-slate-100 ring-1 ring-slate-200/50">
+                        <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl bg-white ring-1 ring-slate-200/70">
                           <img
                             src={src}
                             alt={i === 0 ? product?.name ?? '' : ''}
@@ -993,7 +996,7 @@ export const ProductDetail: React.FC = () => {
               </div>
             ) : (
               <div
-                className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl bg-slate-100 ring-1 ring-slate-200/50"
+                className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl bg-white ring-1 ring-slate-200/70"
               >
                 {mainImages.length > 0 ? (
                   <img
@@ -1042,12 +1045,12 @@ export const ProductDetail: React.FC = () => {
                   </p>
                 </div>
               </div>
-              <div className="flex w-full justify-end md:absolute md:right-0 md:top-1/2 md:z-[2] md:max-w-[min(42%,11rem)] md:-translate-y-1/2 md:pl-3">
+              <div className="flex w-full justify-center px-4 md:absolute md:right-6 md:top-1/2 md:z-[2] md:max-w-[min(42%,11rem)] md:-translate-y-1/2 md:justify-end md:px-0 md:pl-3">
                 <button
                   ref={addToCartBtnRef}
                   type="button"
                   onClick={handleAddToCart}
-                  className="min-h-11 w-full shrink-0 rounded-full bg-brand py-2.5 px-6 text-base font-semibold text-white transition hover:bg-brand/90 md:min-h-10 md:w-full md:px-4 md:py-2 md:text-xs lg:px-5 lg:text-sm whitespace-nowrap"
+                  className="min-h-9 w-[11.4rem] max-w-full shrink-0 rounded-full border border-brand/90 bg-brand py-2 px-6 text-sm font-medium leading-tight text-white transition hover:bg-brand/90 md:min-h-8 md:w-full md:px-4 md:py-1.5 md:text-xs lg:px-5 lg:text-sm whitespace-nowrap"
                 >
                   В корзину
                 </button>
@@ -1056,16 +1059,16 @@ export const ProductDetail: React.FC = () => {
           </div>
 
           {/* 구성품 그리드가 있으면 같은 카드 안에 */}
-          <div className="mt-6 overflow-hidden rounded-2xl bg-slate-100 shadow-sm ring-1 ring-slate-200/50">
+          <div className="mt-6 overflow-hidden rounded-2xl bg-white shadow-[0_1px_10px_-6px_rgba(15,23,42,0.2)] ring-1 ring-slate-200/70">
               {/* 3) 하단 박스: 상세 구성품 이미지 (관리자 product_components 연동) — 이미지·가격 행 아래 전체 너비 */}
               {components.length > 0 && (
-                <div className="border-t border-slate-100 bg-slate-50/50 px-4 py-4 sm:px-6 sm:py-5">
+                <div className="border-t border-slate-100 bg-white px-4 py-4 sm:px-6 sm:py-5">
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Состав набора</p>
                     <button
                       type="button"
                       onClick={() => setIngredientPanelOpen((v) => !v)}
-                      className="rounded-full border border-slate-200 bg-white px-[0.675rem] py-1.5 text-xs font-medium text-slate-700 transition hover:border-brand hover:text-brand"
+                      className="w-[11.4rem] shrink-0 rounded-full border border-slate-300 bg-white px-2 py-1.75 text-[13px] font-medium leading-snug text-slate-600 transition hover:border-slate-500 hover:text-slate-800 sm:w-auto sm:px-3 sm:py-1.5 sm:text-xs"
                     >
                       {ingredientPanelOpen ? 'Скрыть ключевые ингредиенты' : 'Смотреть ключевые ингредиенты'}
                     </button>
@@ -1078,7 +1081,7 @@ export const ProductDetail: React.FC = () => {
                         const firstImg = imgs[0];
                         return (
                           <div key={comp.id} className="flex flex-col items-center">
-                            <div className="aspect-square w-full overflow-hidden rounded-xl bg-slate-100/70">
+                            <div className="aspect-square w-full overflow-hidden rounded-xl bg-slate-50">
                               {firstImg ? (
                                 <img
                                   src={firstImg}
@@ -1100,28 +1103,18 @@ export const ProductDetail: React.FC = () => {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {ingredientBrief?.infographic_image_url && (
-                        <div className="overflow-hidden rounded-xl bg-slate-100/60">
-                          <img
-                            src={ingredientBrief.infographic_image_url}
-                            alt="Инфографика по ингредиентам"
-                            className="w-full object-contain"
-                          />
-                        </div>
-                      )}
                       <div className="space-y-2.5">
                         {components.slice(0, 6).map((comp) => {
                           const imgs = getComponentImageUrls(comp);
                           const firstImg = imgs[0];
-                          const entries = getEntriesForComponent(comp.name);
                           const fallbackText = comp.description?.trim()
                             ? comp.description
-                            : 'Подходит для базового ухода, увлажнения и поддержания защитного барьера кожи.';
+                            : '구성품 설명을 입력해주세요.';
                           const isLongFallback = fallbackText.length > 90;
-                          const useTopAlign = entries.length >= 3 || isLongFallback;
+                          const useTopAlign = isLongFallback;
                           return (
                             <div key={`row-${comp.id}`} className="grid grid-cols-[102px_1fr] items-start gap-3 sm:grid-cols-[128px_1fr] md:grid-cols-[176px_1fr]">
-                              <div className="aspect-square overflow-hidden rounded-xl bg-slate-100/70">
+                              <div className="aspect-square overflow-hidden rounded-xl bg-slate-50">
                                 {firstImg ? (
                                   <img src={firstImg} alt={comp.name ?? ''} className="h-full w-full object-cover" />
                                 ) : (
@@ -1131,17 +1124,7 @@ export const ProductDetail: React.FC = () => {
                               <article className="grid h-full min-h-[6.25rem] grid-rows-[auto_1fr] rounded-xl border border-slate-200 bg-white p-2.5 sm:min-h-[7rem] md:min-h-[6.75rem]">
                                 <p className="text-[13px] font-semibold text-slate-900 sm:text-sm">{comp.name ?? 'Компонент'}</p>
                                 <div className={`mt-3 flex ${useTopAlign ? 'items-start' : 'items-center'}`}>
-                                  {entries.length > 0 ? (
-                                    <ul className="space-y-1.5">
-                                      {entries.slice(0, 3).map((entry, i) => (
-                                        <li key={i} className="text-xs leading-relaxed text-slate-700">
-                                          <span className="font-semibold text-slate-900">{entry.ingredient_name}</span> — {entry.role_ru}
-                                        </li>
-                                      ))}
-                                    </ul>
-                                  ) : (
-                                    <p className="text-xs leading-relaxed text-slate-500">{fallbackText}</p>
-                                  )}
+                                  <p className="whitespace-pre-line text-xs leading-relaxed text-slate-500">{fallbackText}</p>
                                 </div>
                               </article>
                             </div>
@@ -1155,55 +1138,18 @@ export const ProductDetail: React.FC = () => {
           </div>
         </header>
 
-        {product?.detail_description && (
-          <section id="product-description">
-            <h2 className="mb-3 text-lg font-semibold text-slate-900">Описание</h2>
-            <div className="whitespace-pre-line rounded-xl border border-slate-100 bg-slate-50/50 p-4 text-slate-700">
-              {product.detail_description}
+        {(ingredientBrief?.infographic_image_url || (product?.detail_description && /^https?:\/\//i.test(product.detail_description))) && (
+          <section id="product-description" className="mt-6 overflow-hidden rounded-2xl bg-white shadow-[0_1px_10px_-6px_rgba(15,23,42,0.2)] ring-1 ring-slate-200/70">
+            <div className="px-4 py-4 sm:px-6 sm:py-5">
+              <p className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">Подробнее о составе</p>
+              <div className="overflow-hidden rounded-xl border border-slate-200/70 bg-white">
+                <img
+                  src={ingredientBrief?.infographic_image_url || product?.detail_description || ''}
+                  alt={`${product?.name ?? 'SEMO Box'} 상세 이미지`}
+                  className="block h-auto w-full object-cover"
+                />
+              </div>
             </div>
-          </section>
-        )}
-
-        {components.length > 0 && (
-          <section id="product-components">
-            <h2 className="mb-3 text-lg font-semibold text-slate-900">Подробнее о составе</h2>
-            <ul className="space-y-6">
-              {components.map((comp, idx) => {
-                const imgs = getComponentImageUrls(comp);
-                const layout = comp.layout ?? 'image_left';
-                const imageBlock =
-                  imgs.length > 0 ? (
-                    <div className="relative aspect-[4/3] w-full min-w-0 shrink-0 overflow-hidden rounded-xl sm:max-w-md">
-                      <img
-                        src={imgs[0]}
-                        alt={comp.name ?? ''}
-                        className="h-full w-full object-contain"
-                      />
-                    </div>
-                  ) : null;
-                const textBlock = (
-                  <div className="min-w-0 flex-1">
-                    {comp.name && <p className="font-medium text-slate-800">{comp.name}</p>}
-                    {comp.description && <p className={comp.name ? 'mt-2 whitespace-pre-line text-sm text-slate-600' : 'whitespace-pre-line text-sm text-slate-600'}>{comp.description}</p>}
-                  </div>
-                );
-                return (
-                  <li key={comp.id} className="flex flex-col gap-4 rounded-xl border border-slate-100 bg-white p-4 sm:flex-row sm:items-stretch sm:gap-6">
-                    {layout === 'image_left' ? (
-                      <>
-                        {imageBlock}
-                        {textBlock}
-                      </>
-                    ) : (
-                      <>
-                        {textBlock}
-                        {imageBlock}
-                      </>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
           </section>
         )}
 
@@ -1371,14 +1317,14 @@ export const ProductDetail: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => reviewFileInputRef.current?.click()}
-                  className="flex-1 rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  className="flex-1 rounded-full border border-slate-300 bg-white px-4 py-1.5 text-sm font-medium leading-tight text-slate-700 hover:bg-slate-50"
                 >
                   Выбрать файлы
                 </button>
                 <button
                   type="submit"
                   disabled={submittingReview}
-                  className="flex-1 rounded-full bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand/90 disabled:opacity-60"
+                  className="flex-1 rounded-full border border-brand/90 bg-brand px-4 py-1.5 text-sm font-medium leading-tight text-white hover:bg-brand/90 disabled:opacity-60"
                 >
                   {submittingReview ? 'Отправка…' : 'Отправить отзыв'}
                 </button>

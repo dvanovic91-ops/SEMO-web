@@ -4,7 +4,7 @@
 -- 규칙 (웹 src/lib/skinTypeSlotMapping.ts + src/config/skinTypeRecommendations.ts 와 동일):
 -- 1) skin_type_slot_mapping 에 행이 있으면 slot_index 사용
 -- 2) 없으면 아래 CASE (SKIN_TYPE_SLOT_INDEX) — 운영에서는 매핑을 DB에만 두면 CASE는 사용되지 않음
--- 3) main_layout_slots 를 slot_index 오름차순으로 정렬한 뒤 N번째 행(1-based)의 product_id
+-- 3) catalog_room_slots 중 catalog_room = 'beauty' 를 slot_index 오름차순으로 정렬한 뒤 N번째 행(1-based)의 product_id
 
 CREATE OR REPLACE FUNCTION public.get_recommended_product_id_for_skin_type(p_skin_type text)
 RETURNS uuid
@@ -58,7 +58,8 @@ BEGIN
     SELECT
       mls.product_id,
       row_number() OVER (ORDER BY mls.slot_index ASC) AS rn
-    FROM public.main_layout_slots mls
+    FROM public.catalog_room_slots mls
+    WHERE mls.catalog_room = 'beauty'
   ) x
   WHERE x.rn = v_slot
   LIMIT 1;
