@@ -5,7 +5,7 @@ import { ShopCatalog } from './Shop';
 export const InnerBeauty: React.FC = () => (
   <ShopCatalog
     category="inner_beauty"
-    pageTitle="Inner Beauty Box"
+    pageTitle="Fit box"
     pageSubtitle="Красота изнутри — витамины, коллаген и добавки для здоровья кожи, волос и ногтей."
   />
 );

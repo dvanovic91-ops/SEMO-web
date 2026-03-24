@@ -126,8 +126,23 @@ const BUCKET_PRODUCT_IMAGES = 'product-images';
 /** 프로모 배너 업로드용 Storage 버킷 (Public 버킷 생성 권장) */
 const BUCKET_PROMOS = 'promos';
 
-/** 프로모 배너 권장 크기 — 16:9 비율, 웹에서 선명하게 보이도록 */
-const PROMO_BANNER_RECOMMENDED = '업로드 시 비율·자르기 도구 사용 (권장 16:9, 약 1200×675px)';
+/** Промо-баннер: соотноствует `aspect-video` в меню; подсказка на русском для админки */
+const PROMO_BANNER_RECOMMENDED =
+  '16:9, по ширине ориентир 1200px (например 1200×675); карточка в меню до ~280px. Файл: до 5 МБ.';
+
+/** Главные фото товара — как на витрине/карточке: блок ~768px, галерея 4:3 + object-contain */
+const IMG_GUIDE_PRODUCT_MAIN_RU =
+  'По горизонтали: от 1200px (лучше 1600px при 4:3 для Retina); на сайте блок ~768px. До 5 МБ.';
+
+/** Состав набора: мини-квадрат в сетке + блок 4:3 до ~448px в «Подробнее о составе» */
+const IMG_GUIDE_PRODUCT_COMPONENT_RU =
+  'Сетка — квадрат; в разделе «Подробнее» — 4:3. Исходник: от 800×800 (1:1) или 4:3 от 1200px по ширине. До 5 МБ.';
+
+const IMG_GUIDE_HERO_DESKTOP_RU =
+  'Ширина от 1920px, 16:9–21:9; кадр на весь экран (object-cover). До 5 МБ.';
+
+const IMG_GUIDE_HERO_MOBILE_RU =
+  'Ширина 1080px, 9:16 (например 1080×1920); при отсутствии — подставится десктоп. До 5 МБ.';
 
 /** 파일을 product-images 버킷에 업로드하고 공개 URL 반환. 실패 시 null + 콘솔/alert로 에러 노출 */
 async function uploadProductImage(file: File): Promise<string | null> {
@@ -403,11 +418,11 @@ export const Admin: React.FC = () => {
   const [heroUploading, setHeroUploading] = useState<string | null>(null);
   const heroFileRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
-  /** 상품관리 카테고리 선택 (뷰티박스/이너뷰티/헤어뷰티) */
+  /** 상품관리 카테고리 선택 */
   const PRODUCT_CATEGORIES = [
-    { key: 'beauty', label: 'Beauty Box' },
-    { key: 'inner_beauty', label: 'Inner Beauty Box' },
-    { key: 'hair_beauty', label: 'Hair Beauty Box' },
+    { key: 'beauty', label: '뷰티박스 · Beauty box' },
+    { key: 'inner_beauty', label: '핏박스 · Fit box' },
+    { key: 'hair_beauty', label: '헤어박스 · Hair box' },
   ] as const;
   const [productCategory, setProductCategory] = useState<string>('beauty');
 
@@ -2532,8 +2547,30 @@ export const Admin: React.FC = () => {
           <p className="text-xs text-slate-500">
             메인 페이지 최상단 전체 너비 캐러셀입니다. 최대 4장, 5초마다 자동 전환.
             <br />
-            <span className="text-slate-600">아래 탭에서 데스크톱 / 모바일 이미지를 각각 관리합니다. 모바일 이미지가 없으면 데스크톱 이미지가 모바일에서도 사용됩니다.</span>
+            <span className="text-slate-600">
+              아래 탭에서 데스크톱 / 모바일 이미지를 각각 관리합니다. 모바일 이미지가 없으면 데스크톱 이미지가 모바일에서도 사용됩니다.
+            </span>
           </p>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50/90 p-4 text-xs text-slate-700 shadow-sm">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">화면 꽉 채움 — 업로드 가이드</p>
+            <ul className="mt-2 list-inside list-disc space-y-1.5 leading-relaxed">
+              <li>
+                실제 표시 높이는 CSS <code className="rounded bg-white px-1 py-0.5 font-mono text-[11px] text-slate-800">--semo-hero-h</code> ={' '}
+                <strong>100svh − 상단 네비 높이</strong> (모바일 주소창에 덜 흔들리도록 <code className="font-mono">svh</code> 사용).
+              </li>
+              <li>
+                <strong>모바일 전용</strong>: 세로 <strong>9:16</strong> 권장 — 예: <strong>1080×1920px</strong>, 레티나 여유{' '}
+                <strong>1170×2532px</strong>. 표시는 <strong>object-cover</strong>라 가로는 뷰포트 100%, 위·아래는 중앙 기준으로 잘릴 수 있음.
+              </li>
+              <li>
+                <strong>데스크톱</strong>: 가로형 <strong>1920×1080px</strong> 이상, 비율 <strong>16:9 ~ 21:9</strong>.
+              </li>
+              <li>
+                중요한 카피·얼굴은 <strong>중앙·안전 영역</strong>에 두면 잘림이 적음 (노치·홈 인디케이터는 하단에 여백 있음).
+              </li>
+            </ul>
+          </div>
 
           <div className="flex w-full max-w-md rounded-full border border-slate-200 bg-slate-50 p-0.5 text-xs font-medium">
             <button
@@ -2604,6 +2641,7 @@ export const Admin: React.FC = () => {
                       })}
                     />
                   </div>
+                  <p className="mt-1.5 text-[11px] leading-relaxed text-slate-600">{IMG_GUIDE_HERO_DESKTOP_RU}</p>
                 </div>
               ) : (
                 <div>
@@ -2642,6 +2680,7 @@ export const Admin: React.FC = () => {
                       })}
                     />
                   </div>
+                  <p className="mt-1.5 text-[11px] leading-relaxed text-slate-600">{IMG_GUIDE_HERO_MOBILE_RU}</p>
                 </div>
               )}
 
@@ -3461,6 +3500,7 @@ export const Admin: React.FC = () => {
                   <p className="mb-2 text-xs text-slate-500">
                     쇼핑/상세 페이지에 쓰이는 대표 사진입니다. 최대 2장까지 업로드할 수 있고, 아래에서 순서를 바꿀 수 있습니다.
                   </p>
+                  <p className="mb-2 text-xs leading-relaxed text-slate-600">{IMG_GUIDE_PRODUCT_MAIN_RU}</p>
                   <input
                     type="file"
                     accept="image/*"
@@ -3617,6 +3657,7 @@ export const Admin: React.FC = () => {
                   <p className="mb-3 text-xs text-slate-500">
                     상세 페이지 하단 구성품 그리드. 항목당 사진 여러 장 넣을 수 있습니다.
                   </p>
+                  <p className="mb-3 text-xs leading-relaxed text-slate-600">{IMG_GUIDE_PRODUCT_COMPONENT_RU}</p>
                   <input
                     type="file"
                     accept="image/*"
@@ -3744,7 +3785,7 @@ export const Admin: React.FC = () => {
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <h2 className="mb-2 text-sm font-semibold text-slate-900">테스트 결과–상품 매칭</h2>
             <p className="mb-4 text-xs text-slate-500">
-              피부 타입을 아래 슬롯으로 드래그하면, 해당 타입 결과일 때 그 슬롯의 상품 상세로 연결됩니다. 슬롯은 <strong>Beauty Box</strong> 카탈로그 기준입니다(상품관리 → Beauty Box 탭 슬롯). 저장 버튼을 눌러 반영하세요.
+              피부 타입을 아래 슬롯으로 드래그하면, 해당 타입 결과일 때 그 슬롯의 상품 상세로 연결됩니다. 슬롯은 <strong>뷰티박스</strong> 카탈로그 기준입니다(상품관리 → 뷰티박스 탭 슬롯). 저장 버튼을 눌러 반영하세요.
             </p>
             {skinMatchLoading ? (
               <p className="py-8 text-center text-sm text-slate-500">불러오는 중…</p>
@@ -3794,7 +3835,7 @@ export const Admin: React.FC = () => {
                 {/* 슬롯 1~5: 활성 개수만 드롭 가능, 나머지는 회색·비활성 */}
                 {skinMatchSlots.length === 0 ? (
                   <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs text-amber-800">
-                    Beauty Box 슬롯이 없습니다. 상품관리에서 Beauty Box 탭을 선택한 뒤 슬롯을 저장하세요.
+                    뷰티박스 슬롯이 없습니다. 상품관리에서 뷰티박스 탭을 선택한 뒤 슬롯을 저장하세요.
                   </p>
                 ) : (
                   <div className="mb-4 flex flex-wrap gap-3">
@@ -4093,7 +4134,7 @@ export const Admin: React.FC = () => {
                           {uploadingPromoImage ? '업로드 중…' : '파일 올리기'}
                         </button>
                       </div>
-                      <p className="mt-1 text-xs text-slate-400">* 권장 배너 크기: {PROMO_BANNER_RECOMMENDED}</p>
+                      <p className="mt-1 text-xs leading-relaxed text-slate-600">{PROMO_BANNER_RECOMMENDED}</p>
                     </div>
                     <div>
                       <label className="mb-1 block text-xs font-medium text-slate-600">종료일 (까지, 연·월·일 4·2·2자, 오늘 이후만)</label>

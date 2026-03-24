@@ -14,6 +14,7 @@ import {
 import { isValidEmailFormat } from '../lib/emailValidation';
 import { clampDigits } from '../lib/digitsOnly';
 import { CustomsPassportNotice } from '../components/CustomsPassportNotice';
+import { LegalDocLinksRu } from '../components/LegalDocLinksRu';
 
 /**
  * 회원가입 — 기본인적 / 배송(주소 세분화). 이메일 인증 구조, 전화 포맷, INN/우편 제한.
@@ -64,6 +65,8 @@ export const Register: React.FC = () => {
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  /** Согласие с политикой / офертой / доставкой — обязательно перед отправкой формы */
+  const [legalConsent, setLegalConsent] = useState(false);
   const [fioLast, setFioLast] = useState('');
   const [fioFirst, setFioFirst] = useState('');
   const [fioMiddle, setFioMiddle] = useState('');
@@ -110,6 +113,10 @@ export const Register: React.FC = () => {
       setSubmitError('Укажите имя для обращения.');
     }
     if (hasError) return;
+    if (!legalConsent) {
+      setSubmitError('Подтвердите согласие с условиями обработки данных и доставки.');
+      return;
+    }
 
     if (!supabase) {
       setSubmitError('Сервис регистрации временно недоступен.');
@@ -560,6 +567,22 @@ export const Register: React.FC = () => {
           </div>
           {/* 하단 안내 문구는 제거 — 화면을 더 간결하게 유지 */}
         </section>
+
+        <label className="flex cursor-pointer items-start gap-2.5 rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-3 text-left text-[13px] leading-snug text-slate-600 sm:text-sm">
+          <input
+            type="checkbox"
+            checked={legalConsent}
+            onChange={(e) => {
+              setLegalConsent(e.target.checked);
+              if (submitError?.includes('согласие')) setSubmitError(null);
+            }}
+            className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-brand focus:ring-brand"
+            required
+          />
+          <span>
+            Я соглашаюсь с <LegalDocLinksRu />.
+          </span>
+        </label>
 
         <button
           type="submit"

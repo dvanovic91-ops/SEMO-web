@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { supabase, setRememberMe } from '../lib/supabase';
 import { isValidEmailFormat } from '../lib/emailValidation';
 import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../components/SemoPageSpinner';
+import { LegalDocLinksRu } from '../components/LegalDocLinksRu';
 
 const inputClass =
   'w-full min-h-[44px] rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-base text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand sm:min-h-0';
@@ -185,6 +186,10 @@ export const Login: React.FC = () => {
           {loginLoading ? 'Вход…' : 'Войти'}
         </button>
       </form>
+
+      <p className="mt-4 text-center text-[12px] leading-relaxed text-slate-500 sm:text-[13px]">
+        Продолжая вход (email или соцсети), вы подтверждаете ознакомление с <LegalDocLinksRu />.
+      </p>
 
       <label className="mt-6 flex cursor-pointer items-center gap-2">
         <input

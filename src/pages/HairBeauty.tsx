@@ -5,7 +5,7 @@ import { ShopCatalog } from './Shop';
 export const HairBeauty: React.FC = () => (
   <ShopCatalog
     category="hair_beauty"
-    pageTitle="Hair Beauty Box"
+    pageTitle="Hair box"
     pageSubtitle="Корейский уход за волосами — шампуни, маски, сыворотки и масла для здоровых и блестящих волос."
   />
 );

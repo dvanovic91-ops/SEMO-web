@@ -25,8 +25,8 @@ const NAV_LINKS: { to: string; label: string }[] = [
 const SEMO_BOX_SUBMENU: { to: string; label: string }[] = [
   { to: '/skin-test', label: 'Find my box' },
   { to: '/shop', label: 'Beauty box' },
-  { to: '/inner-beauty', label: 'Inner Beauty box' },
-  { to: '/hair-beauty', label: 'Hair Beauty box' },
+  { to: '/inner-beauty', label: 'Fit box' },
+  { to: '/hair-beauty', label: 'Hair box' },
   { to: '/promo', label: 'Promo' },
 ];
 
@@ -59,12 +59,13 @@ export const Navbar: React.FC = () => {
     useNotifications(isLoggedIn ? userId : null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [semoBoxOpen, setSemoBoxOpen] = useState(false);
-  const [mobileSemoBoxOpen, setMobileSemoBoxOpen] = useState(false);
+  /** 데스크톱: SEMO Box를 클릭해 연 경우 — 마우스가 벗어나도 호버처럼 서브바 유지 */
+  const [semoBoxPinned, setSemoBoxPinned] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [cartPopoverOpen, setCartPopoverOpen] = useState(false);
-  /** 모바일 하단바 맨 앞 샵 아이콘 — 한 열 메뉴 (다른 하단 버튼 누르면 닫힘) */
-  const [mobileShopMenuOpen, setMobileShopMenuOpen] = useState(false);
   const semoBoxDesktopRef = useRef<HTMLDivElement>(null);
+  /** 데스크톱 SEMO Box 하단 서브바 — 외부 클릭 시 헤더 트리거와 함께 «안쪽»으로 인식 */
+  const semoBoxSubbarRef = useRef<HTMLDivElement>(null);
   const semoBoxCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /** SEMO Box hover 영역 진입 — 타이머 취소 후 열기 */
@@ -72,11 +73,15 @@ export const Navbar: React.FC = () => {
     if (semoBoxCloseTimer.current) { clearTimeout(semoBoxCloseTimer.current); semoBoxCloseTimer.current = null; }
     setSemoBoxOpen(true);
   }, []);
-  /** SEMO Box hover 영역 이탈 — 딜레이 후 닫기 (서브바로 이동 시 취소됨) */
+  /** SEMO Box hover 영역 이탈 — 딜레이 후 닫기 (서브바로 이동 시 취소됨). 클릭으로 고정(pin)된 경우는 닫지 않음 */
   const semoBoxLeave = useCallback(() => {
+    if (semoBoxPinned) return;
     if (semoBoxCloseTimer.current) clearTimeout(semoBoxCloseTimer.current);
-    semoBoxCloseTimer.current = setTimeout(() => { setSemoBoxOpen(false); semoBoxCloseTimer.current = null; }, 200);
-  }, []);
+    semoBoxCloseTimer.current = setTimeout(() => {
+      setSemoBoxOpen(false);
+      semoBoxCloseTimer.current = null;
+    }, 200);
+  }, [semoBoxPinned]);
   /** 데스크톱: FAB + 팝오버 / 모바일: 하단 시트 — 외부 클릭 감지용 */
   const cartDesktopRef = useRef<HTMLDivElement>(null);
   const cartMobileRef = useRef<HTMLDivElement>(null);
@@ -91,11 +96,6 @@ export const Navbar: React.FC = () => {
       setNotificationOpen(false);
       setCartPopoverOpen(false);
     }
-  }, [location.pathname]);
-
-  /** 라우트 이동 시 모바일 샵 팝업 닫기 */
-  useEffect(() => {
-    setMobileShopMenuOpen(false);
   }, [location.pathname]);
 
   const refreshTelegramLinkedNav = useCallback(() => {
@@ -159,7 +159,6 @@ export const Navbar: React.FC = () => {
   /** 모바일 하단바: 현재 화면에 따른 아이콘 활성화 (강조용) */
   const path = location.pathname;
   const isSemoBoxActive = SEMO_BOX_SUBMENU.some((l) => path === l.to || path.startsWith(l.to + '/'));
-  const isShop = isSemoBoxActive;
   const isCartActive = path === '/cart' || cartPopoverOpen;
   const isNotificationActive = notificationOpen;
   const isProfileActive = path.startsWith('/profile') || path === '/login';
@@ -219,13 +218,15 @@ export const Navbar: React.FC = () => {
     };
   }, [notificationOpen]);
 
-  // SEMO Box: 데스크톱 — 외부 클릭 시 닫기
+  // SEMO Box: 데스크톱 — 외부 클릭 시 닫기 (헤더 트리거 + 하단 서브바는 안쪽)
   useEffect(() => {
     if (!semoBoxOpen) return;
     const onDocClick = (e: MouseEvent) => {
       const t = e.target as Node;
       if (semoBoxDesktopRef.current?.contains(t)) return;
+      if (semoBoxSubbarRef.current?.contains(t)) return;
       setSemoBoxOpen(false);
+      setSemoBoxPinned(false);
     };
     const timer = setTimeout(() => document.addEventListener('click', onDocClick), 0);
     return () => { clearTimeout(timer); document.removeEventListener('click', onDocClick); };
@@ -239,7 +240,7 @@ export const Navbar: React.FC = () => {
   // 라우트 변경 시 SEMO Box 드롭다운 닫기
   useEffect(() => {
     setSemoBoxOpen(false);
-    setMobileSemoBoxOpen(false);
+    setSemoBoxPinned(false);
   }, [location.pathname]);
 
   /** 장바구니 미리보기 패널 — 데스크톱(헤더) / 모바일(시트) 공용 내용 */
@@ -422,21 +423,38 @@ export const Navbar: React.FC = () => {
                   >
                     Journey to SEMO
                   </NavLink>
-                  {/* SEMO Box — 호버 시 하단 서브바 표시 */}
+                  {/* SEMO Box — 호버·클릭 시 하단 서브바만 표시 (/shop 등으로 이동하지 않음) */}
                   <div
                     ref={semoBoxDesktopRef}
                     className="relative flex items-center"
                     onMouseEnter={semoBoxEnter}
                     onMouseLeave={semoBoxLeave}
                   >
-                    <NavLink
-                      to="/shop"
-                      className={({ isActive }) =>
-                        `${navLinkBase} whitespace-nowrap ${isActive || isSemoBoxActive ? activeClass : inactiveClass}`
-                      }
+                    <button
+                      type="button"
+                      aria-expanded={semoBoxOpen}
+                      aria-haspopup="true"
+                      aria-controls="semo-box-subnav"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!semoBoxOpen) {
+                          setSemoBoxPinned(true);
+                          setSemoBoxOpen(true);
+                          return;
+                        }
+                        if (semoBoxPinned) {
+                          setSemoBoxPinned(false);
+                          setSemoBoxOpen(false);
+                          return;
+                        }
+                        setSemoBoxPinned(true);
+                      }}
+                      className={`${navLinkBase} whitespace-nowrap ${
+                        isSemoBoxActive || semoBoxOpen ? activeClass : inactiveClass
+                      }`}
                     >
                       SEMO Box
-                    </NavLink>
+                    </button>
                   </div>
                   <NavLink
                     to="/support"
@@ -460,7 +478,6 @@ export const Navbar: React.FC = () => {
                 aria-label="Корзина"
                 onClick={() => {
                   setNotificationOpen(false);
-                  setMobileShopMenuOpen(false);
                   setCartPopoverOpen((v) => !v);
                 }}
                 className={`relative flex h-10 w-10 items-center justify-center rounded-full border border-slate-200/90 bg-white text-slate-700 transition hover:border-brand/40 hover:bg-brand-soft/15 ${
@@ -491,7 +508,6 @@ export const Navbar: React.FC = () => {
                 onClick={() => {
                   setCartPopoverOpen(false);
                   setMobileMenuOpen(false);
-                  setMobileShopMenuOpen(false);
                   setNotificationOpen((v) => !v);
                 }}
                 aria-label={
@@ -642,6 +658,8 @@ export const Navbar: React.FC = () => {
       {/* SEMO Box 서브 네비게이션 바 — 데스크톱: 호버 시 표시, 상단바 바로 아래 횡 메뉴 (틈 없이 경계선만) */}
       {semoBoxOpen && !productDesktopNav?.compact && (
         <div
+          id="semo-box-subnav"
+          ref={semoBoxSubbarRef}
           className="fixed left-0 right-0 z-[39] hidden border-b border-slate-200/60 bg-white/95 backdrop-blur-md md:block"
           style={{ top: 'var(--semo-desktop-header-h, 3.2rem)' }}
           onMouseEnter={semoBoxEnter}
@@ -652,7 +670,10 @@ export const Navbar: React.FC = () => {
               <NavLink
                 key={sub.to}
                 to={sub.to}
-                onClick={() => setSemoBoxOpen(false)}
+                onClick={() => {
+                  setSemoBoxOpen(false);
+                  setSemoBoxPinned(false);
+                }}
                 className={({ isActive }) =>
                   `whitespace-nowrap text-sm transition-colors ${
                     isActive
@@ -676,14 +697,13 @@ export const Navbar: React.FC = () => {
             aria-hidden
             onClick={() => {
               if (cartDismissGuardRef.current) return;
-              setMobileShopMenuOpen(false);
               setCartPopoverOpen(false);
             }}
           />
           <div
             ref={cartMobileRef}
             className="fixed left-2 right-2 z-50 flex min-h-[13rem] max-h-[min(75vh,32rem)] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl md:hidden"
-            style={{ bottom: 'calc(3.5rem + env(safe-area-inset-bottom, 0px))' }}
+            style={{ bottom: 'var(--semo-mobile-tabbar-h)' }}
           >
             {cartPanelInner}
           </div>
@@ -697,13 +717,12 @@ export const Navbar: React.FC = () => {
             className="fixed inset-0 z-40 bg-black/40 md:hidden"
             aria-hidden
             onClick={() => {
-              setMobileShopMenuOpen(false);
               setNotificationOpen(false);
             }}
           />
           <div
             className="fixed left-2 right-2 z-50 flex max-h-[min(75vh,32rem)] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl md:hidden"
-            style={{ bottom: 'calc(3.5rem + env(safe-area-inset-bottom, 0px))' }}
+            style={{ bottom: 'var(--semo-mobile-tabbar-h)' }}
           >
             <div className="relative shrink-0 border-b border-slate-100 px-4 py-3 pr-12">
               <p className="text-sm font-semibold text-slate-800">Уведомления</p>
@@ -789,110 +808,28 @@ export const Navbar: React.FC = () => {
         </>
       )}
 
-      {/* 모바일: 하단바 바로 위 풀폭 리스트(팝업 카드 대신 구분선 리스트) */}
-      {mobileShopMenuOpen && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-black/30 md:hidden"
-            aria-hidden
-            onClick={() => setMobileShopMenuOpen(false)}
-          />
-          <div
-            className="fixed left-0 right-0 z-50 flex max-h-[min(55vh,20rem)] flex-col overflow-hidden border-t border-slate-200 bg-white md:hidden"
-            style={{ bottom: 'calc(3.5rem + env(safe-area-inset-bottom, 0px))' }}
-            role="menu"
-            aria-label="SEMO Box"
-          >
-            <div className="shrink-0 border-b border-slate-200 bg-slate-50/90 px-4 py-2">
-              <p className="text-[11px] font-medium text-slate-500">SEMO Box</p>
-            </div>
-            <nav className="min-h-0 flex-1 divide-y divide-slate-100 overflow-y-auto overscroll-contain" aria-label="SEMO Box">
-              {SEMO_BOX_SUBMENU.map((sub) => (
-                <NavLink
-                  key={sub.to}
-                  to={sub.to}
-                  role="menuitem"
-                  onClick={() => setMobileShopMenuOpen(false)}
-                  className={({ isActive }) =>
-                    `flex w-full items-center px-4 py-3.5 text-left text-sm font-normal transition-colors ${
-                      isActive ? 'bg-brand-soft/25 text-brand' : 'text-slate-800 active:bg-slate-50'
-                    }`
-                  }
-                >
-                  {sub.label}
-                </NavLink>
-              ))}
-            </nav>
-          </div>
-        </>
-      )}
-
-      {/* 모바일 전용: 하단 고정 바 — 맨 앞: 햄버거, 둘째: 샵(리스트) */}
+      {/* 모바일 전용: 하단 고정 바 — SEMO Box(샵) 단추 없음, 메뉴 드로어에서 하위 링크 이용 */}
       <nav
         className="fixed bottom-0 left-0 right-0 z-30 flex items-center justify-around border-t border-slate-200 bg-white/95 backdrop-blur-md md:hidden"
-        style={{ paddingTop: '0.25rem', paddingBottom: 'max(0.35rem, env(safe-area-inset-bottom))' }}
+        style={{ paddingTop: '0.125rem', paddingBottom: 'max(0.2rem, env(safe-area-inset-bottom))' }}
       >
         <button
           type="button"
           onClick={() => {
-            setMobileShopMenuOpen(false);
             setMobileMenuOpen(true);
           }}
           aria-label="Open menu"
-          className={`flex h-10 items-center justify-center rounded-full px-3 transition ${
+          className={`flex h-9 items-center justify-center rounded-full px-2.5 transition ${
             isMenuActive ? 'bg-brand-soft/50 text-brand' : 'text-slate-600'
           }`}
         >
-          <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth={isMenuActive ? 2.2 : 2} viewBox="0 0 24 24">
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={isMenuActive ? 2.2 : 2} viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
         <button
           type="button"
-          aria-label="SEMO Box"
-          aria-expanded={mobileShopMenuOpen}
-          aria-haspopup="menu"
           onClick={() => {
-            setMobileMenuOpen(false);
-            setNotificationOpen(false);
-            setCartPopoverOpen(false);
-            setMobileShopMenuOpen((v) => !v);
-          }}
-          className={`flex h-10 items-center justify-center rounded-full px-3 transition ${
-            mobileShopMenuOpen || isShop ? 'bg-brand-soft/50 text-brand' : 'text-slate-600'
-          }`}
-        >
-          <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth={mobileShopMenuOpen || isShop ? 2.2 : 2} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          aria-label="Корзина"
-          onClick={() => {
-            setMobileShopMenuOpen(false);
-            setNotificationOpen(false);
-            setCartPopoverOpen((v) => !v);
-          }}
-          className={`relative flex h-10 items-center justify-center rounded-full px-3 transition ${
-            isCartActive ? 'bg-brand-soft/50 text-brand' : 'text-slate-600'
-          }`}
-        >
-          <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth={isCartActive ? 2.2 : 1.8}>
-            <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
-            <line x1="3" y1="6" x2="21" y2="6" />
-            <path d="M16 10a4 4 0 0 1-8 0" />
-          </svg>
-          {totalCount > 0 && (
-            <span className="absolute right-0 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand text-[10px] font-semibold text-white">
-              {totalCount > 99 ? '99+' : totalCount}
-            </span>
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setMobileShopMenuOpen(false);
             setCartPopoverOpen(false);
             setMobileMenuOpen(false);
             setNotificationOpen((v) => !v);
@@ -902,11 +839,11 @@ export const Navbar: React.FC = () => {
               ? `Уведомления, непрочитано: ${unreadCount}`
               : 'Уведомления'
           }
-          className={`relative flex h-10 items-center justify-center rounded-full px-3 transition ${
+          className={`relative flex h-9 items-center justify-center rounded-full px-2.5 transition ${
             isNotificationActive ? 'bg-brand-soft/50 text-brand' : 'text-slate-600 hover:text-brand'
           }`}
         >
-          <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth={isNotificationActive ? 2.2 : 1.8}>
+          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={isNotificationActive ? 2.2 : 1.8}>
             <path d="M12 3a4 4 0 0 0-4 4v2.09c0 .46-.16.91-.46 1.26L6.3 12.76A2 2 0 0 0 6 14v1h12v-1a2 2 0 0 0-.3-1.24l-1.24-1.41A2 2 0 0 1 16 9.09V7a4 4 0 0 0-4-4z" />
             <path d="M10 18a2 2 0 0 0 4 0" />
           </svg>
@@ -919,6 +856,28 @@ export const Navbar: React.FC = () => {
             </span>
           )}
         </button>
+        <button
+          type="button"
+          aria-label="Корзина"
+          onClick={() => {
+            setNotificationOpen(false);
+            setCartPopoverOpen((v) => !v);
+          }}
+          className={`relative flex h-9 items-center justify-center rounded-full px-2.5 transition ${
+            isCartActive ? 'bg-brand-soft/50 text-brand' : 'text-slate-600'
+          }`}
+        >
+          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={isCartActive ? 2.2 : 1.8}>
+            <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <path d="M16 10a4 4 0 0 1-8 0" />
+          </svg>
+          {totalCount > 0 && (
+            <span className="absolute right-0 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand text-[10px] font-semibold text-white">
+              {totalCount > 99 ? '99+' : totalCount}
+            </span>
+          )}
+        </button>
         <a
           href={telegramLinkedNav === true ? TELEGRAM_BOT_URL : undefined}
           target={telegramLinkedNav === true ? '_blank' : undefined}
@@ -926,24 +885,22 @@ export const Navbar: React.FC = () => {
           aria-label="Telegram"
           aria-disabled={telegramLinkedNav !== true}
           onClick={(e) => {
-            setMobileShopMenuOpen(false);
             if (telegramLinkedNav !== true) e.preventDefault();
           }}
-          className={`flex h-10 items-center justify-center rounded-full px-3 transition ${
+          className={`flex h-9 items-center justify-center rounded-full px-2.5 transition ${
             telegramLinkedNav === true
               ? 'bg-[#26A5E4]/15 text-[#26A5E4]'
               : 'cursor-not-allowed text-slate-300'
           }`}
         >
-          <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor" aria-hidden>
+          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden>
             <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
           </svg>
         </a>
         <Link
           to={isLoggedIn ? '/profile' : '/login'}
           aria-label={isLoggedIn ? 'Profile' : 'Личный кабинет'}
-          onClick={() => setMobileShopMenuOpen(false)}
-          className={`flex h-10 items-center justify-center rounded-full px-3 transition ${
+          className={`flex h-9 items-center justify-center rounded-full px-2.5 transition ${
             isProfileActive
               ? isLoggedIn
                 ? 'border-2 border-[#0088cc] bg-[#0088cc]/10 text-[#0088cc]'
@@ -953,7 +910,7 @@ export const Navbar: React.FC = () => {
                 : 'text-slate-600'
           }`}
         >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.6">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.6">
             <circle cx="12" cy="9" r="3.5" />
             <path d="M6 19.5c1.4-2.3 3.3-3.5 6-3.5s4.6 1.2 6 3.5" />
           </svg>
@@ -967,7 +924,6 @@ export const Navbar: React.FC = () => {
             className="fixed inset-0 z-40 bg-black/40 md:hidden"
             aria-hidden
             onClick={() => {
-              setMobileShopMenuOpen(false);
               setMobileMenuOpen(false);
             }}
           />
@@ -985,7 +941,7 @@ export const Navbar: React.FC = () => {
                 </svg>
               </button>
             </div>
-            <nav className="flex flex-1 flex-col gap-0.5 overflow-auto p-4">
+            <nav className="flex flex-1 flex-col gap-3 overflow-auto p-4">
               <NavLink
                 to="/about"
                 onClick={() => setMobileMenuOpen(false)}
@@ -1004,46 +960,33 @@ export const Navbar: React.FC = () => {
               >
                 Journey to SEMO
               </NavLink>
-              {/* SEMO Box — 접히는 서브메뉴 */}
-              <div>
-                <button
-                  type="button"
-                  onClick={() => setMobileSemoBoxOpen((v) => !v)}
-                  className={`flex w-full items-center justify-between rounded-xl px-4 py-3.5 text-base ${
+              {/* SEMO Box — 상단 행은 예전 접기 버튼과 동일 스타일, 하위는 항상 펼침(이전 펼친 상태와 동일) */}
+              <div role="group" aria-label="SEMO Box">
+                <div
+                  className={`flex w-full items-center rounded-xl px-4 py-3.5 text-base ${
                     isSemoBoxActive ? 'bg-brand-soft/30 text-brand font-semibold' : 'text-slate-700 font-medium'
                   }`}
                 >
                   SEMO Box
-                  <svg
-                    className={`h-4 w-4 transition-transform ${mobileSemoBoxOpen ? 'rotate-180' : ''}`}
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                    viewBox="0 0 24 24"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                {mobileSemoBoxOpen && (
-                  <div className="ml-3 mt-0.5 flex flex-col gap-0.5 border-l-2 border-brand/20 pl-2">
-                    {SEMO_BOX_SUBMENU.map((sub) => (
-                      <NavLink
-                        key={sub.to}
-                        to={sub.to}
-                        onClick={() => setMobileMenuOpen(false)}
-                        className={({ isActive }) =>
-                          `rounded-xl px-3 py-2.5 text-sm ${
-                            isActive
-                              ? 'bg-brand-soft/30 text-brand font-semibold'
-                              : 'text-slate-600 font-medium'
-                          }`
-                        }
-                      >
-                        {sub.label}
-                      </NavLink>
-                    ))}
-                  </div>
-                )}
+                </div>
+                <div className="ml-0 mt-1 flex flex-col gap-1 pl-3">
+                  {SEMO_BOX_SUBMENU.map((sub) => (
+                    <NavLink
+                      key={sub.to}
+                      to={sub.to}
+                      onClick={() => setMobileMenuOpen(false)}
+                      className={({ isActive }) =>
+                        `rounded-xl px-3 py-2.5 text-sm ${
+                          isActive
+                            ? 'bg-brand-soft/30 text-brand font-semibold'
+                            : 'text-slate-600 font-medium'
+                        }`
+                      }
+                    >
+                      {sub.label}
+                    </NavLink>
+                  ))}
+                </div>
               </div>
               <NavLink
                 to="/support"

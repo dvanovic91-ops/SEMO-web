@@ -71,6 +71,7 @@ import { ProfileReviews } from './pages/profile/ProfileReviews';
 import { ProfileTestResults } from './pages/profile/ProfileTestResults';
 import { ProfileTestResultDetail } from './pages/profile/ProfileTestResultDetail';
 import { Support } from './pages/Support';
+import { Legal } from './pages/Legal';
 import { Journey } from './pages/Journey';
 import { Promo } from './pages/Promo';
 import { Recommendations } from './pages/Recommendations';
@@ -96,7 +97,7 @@ function AppLayout() {
       <TrackVisit />
       <ScrollToTop />
       <div
-        className={`min-w-0 flex-1 overflow-x-hidden pb-16 pt-[var(--semo-mobile-header-h)] md:pb-0 ${mdProductPad}`}
+        className={`min-w-0 flex-1 overflow-x-hidden pb-[var(--semo-mobile-tabbar-h)] pt-[var(--semo-mobile-header-h)] md:pb-0 ${mdProductPad}`}
       >
         <Routes>
               <Route path="/" element={<Home />} />
@@ -114,6 +115,7 @@ function AppLayout() {
               <Route path="/checkout" element={<Checkout />} />
               <Route path="/checkout/complete" element={<CheckoutComplete />} />
               <Route path="/support" element={<Support />} />
+              <Route path="/legal" element={<Legal />} />
               <Route path="/profile" element={<Profile />} />
               <Route path="/profile/edit" element={<ProfileEdit />} />
               <Route path="/profile/points" element={<ProfilePoints />} />

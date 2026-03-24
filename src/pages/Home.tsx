@@ -5,10 +5,18 @@ import { supabase } from '../lib/supabase';
 /* ─── 히어로 이미지 타입 ─── */
 type HeroSlide = { image_url: string; mobile_image_url?: string; link_url?: string };
 
-/* ─── 히어로 캐러셀 — 무한 루프, object-cover 풀 와이드 ─── */
-function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
-  const len = slides.length;
-  const extSlides = len > 1 ? [slides[len - 1], ...slides, slides[0]] : slides;
+/** 높이는 index.css `--semo-hero-h` (100svh − 헤더) — 모바일 주소창에 따른 dvh 리플로우 최소화 */
+const HERO_SECTION_HEIGHT_STYLE: React.CSSProperties = {
+  height: 'var(--semo-hero-h)',
+};
+
+const heroImgBlockClass =
+  'h-full w-full select-none [-webkit-touch-callout:none] [touch-action:pan-y]';
+
+/* ─── 히어로 캐러셀 — 무한 루프 / null=로딩 스켈레톤(레이아웃 유지) ─── */
+function HeroCarousel({ slides }: { slides: HeroSlide[] | null }) {
+  const len = slides?.length ?? 0;
+  const extSlides = len > 1 && slides ? [slides[len - 1], ...slides, slides[0]] : slides ?? [];
   const extLen = extSlides.length;
 
   const [current, setCurrent] = useState(len > 1 ? 1 : 0);
@@ -22,6 +30,7 @@ function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
     if (len <= 1) return;
     timerRef.current = setInterval(() => {
       if (jumpingRef.current) return;
+      if (typeof document !== 'undefined' && document.hidden) return;
       setCurrent((c) => c + 1);
     }, 5000);
   }, [len]);
@@ -29,6 +38,18 @@ function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
   useEffect(() => {
     startAutoSlide();
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [startAutoSlide]);
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.hidden) {
+        if (timerRef.current) clearInterval(timerRef.current);
+      } else {
+        startAutoSlide();
+      }
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
   }, [startAutoSlide]);
 
   useEffect(() => {
@@ -63,12 +84,35 @@ function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
 
   const realIndex = len > 1 ? (current === 0 ? len - 1 : current === extLen - 1 ? 0 : current - 1) : 0;
 
-  if (len === 0) return null;
+  /** site_settings 로딩 중 — 히어로 자리 확보(주문법이 위로 밀리지 않음) */
+  if (slides === null) {
+    return (
+      <section
+        className="relative w-full overflow-hidden bg-white"
+        style={HERO_SECTION_HEIGHT_STYLE}
+        aria-busy
+        aria-label="Загрузка баннера"
+      >
+        <div className="h-full w-full animate-pulse bg-gradient-to-br from-slate-100 via-white to-slate-50" />
+      </section>
+    );
+  }
+
+  if (len === 0) {
+    return (
+      <section
+        className="relative w-full overflow-hidden bg-gradient-to-b from-slate-50 to-white"
+        style={HERO_SECTION_HEIGHT_STYLE}
+        aria-hidden
+      />
+    );
+  }
 
   return (
     <section
       className="relative w-full select-none overflow-hidden bg-white"
-      style={{ height: 'calc(100dvh - var(--semo-mobile-header-h, 3.5rem))' }}
+      style={HERO_SECTION_HEIGHT_STYLE}
+      onContextMenu={(e) => e.preventDefault()}
       onTouchStart={(e) => { touchStartX.current = e.touches[0].clientX; }}
       onTouchEnd={(e) => {
         const diff = e.changedTouches[0].clientX - touchStartX.current;
@@ -76,23 +120,42 @@ function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
       }}
     >
       <div
-        className={`flex h-full ${noTransition ? '' : 'transition-transform duration-1000 ease-[cubic-bezier(0.25,0.1,0.25,1)]'}`}
+        className={`flex h-full ${noTransition ? '' : 'transition-transform duration-1000 ease-[cubic-bezier(0.25,0.1,0.25,1)] md:will-change-transform'}`}
         style={{ width: `${extLen * 100}%`, transform: `translateX(-${current * (100 / extLen)}%)` }}
       >
         {extSlides.map((slide, i) => {
+          const isLcp = i === (len > 1 ? 1 : 0);
           const inner = (
             <>
-              {/* 데스크톱 이미지 */}
-              <img src={slide.image_url} alt={`SEMO box ${i + 1}`} className={`h-full w-full object-cover object-center ${slide.mobile_image_url ? 'hidden md:block' : ''}`} draggable={false} />
-              {/* 모바일 전용 — 세로 비율 깨짐 완화: contain + 배경 */}
+              <img
+                src={slide.image_url}
+                alt={`SEMO box ${i + 1}`}
+                className={`${heroImgBlockClass} object-cover object-center ${slide.mobile_image_url ? 'hidden md:block' : ''}`}
+                draggable={false}
+                decoding="async"
+                fetchPriority={isLcp ? 'high' : 'low'}
+              />
               {slide.mobile_image_url && (
-                <img src={slide.mobile_image_url} alt={`SEMO box ${i + 1}`} className="h-full w-full object-contain object-center bg-white md:hidden" draggable={false} />
+                <img
+                  src={slide.mobile_image_url}
+                  alt={`SEMO box ${i + 1}`}
+                  className={`${heroImgBlockClass} object-cover object-center md:hidden`}
+                  draggable={false}
+                  decoding="async"
+                  fetchPriority={isLcp ? 'high' : 'low'}
+                />
               )}
             </>
           );
           return (
             <div key={i} className="relative h-full shrink-0" style={{ width: `${100 / extLen}%` }}>
-              {slide.link_url ? <Link to={slide.link_url} className="block h-full w-full">{inner}</Link> : inner}
+              {slide.link_url ? (
+                <Link to={slide.link_url} className="block h-full w-full" draggable={false}>
+                  {inner}
+                </Link>
+              ) : (
+                inner
+              )}
             </div>
           );
         })}
@@ -108,10 +171,10 @@ function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
         </>
       )}
       {len > 1 && (
-        <div className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 gap-2.5">
+        <div className="absolute bottom-[max(3rem,calc(0.35rem+env(safe-area-inset-bottom,0px)))] left-1/2 z-10 flex -translate-x-1/2 gap-2.5 md:bottom-6">
           {slides.map((_, i) => (
             <button key={i} type="button" aria-label={`Slide ${i + 1}`} onClick={() => goToReal(i)}
-              className={`rounded-full transition-all duration-300 ${i === realIndex ? 'h-2.5 w-6 bg-brand shadow-sm' : 'h-2.5 w-2.5 bg-white/60 hover:bg-white/80'}`}
+              className={`rounded-full transition-all duration-300 ${i === realIndex ? 'h-2.5 w-6 bg-brand shadow-sm' : 'h-2.5 w-2.5 bg-white/70 shadow-sm ring-1 ring-black/10 hover:bg-white md:ring-0'}`}
             />
           ))}
         </div>
@@ -137,7 +200,7 @@ function useScrollFadeIn(threshold = 0.15) {
   return { ref, visible };
 }
 
-/** 각 도형/카드마다 뷰포트 진입 시 한 번 등장 (스크롤에 반응). staggerIndex로 동시에 보일 때 순차 딜레이 */
+/** 각 도형/카드마다 뷰포트에 처음 들어올 때만 등장 — 고정 헤더와 겹칠 때마다 깜빡이지 않음 */
 function OrderStepReveal({
   children,
   className = '',
@@ -155,8 +218,13 @@ function OrderStepReveal({
     const el = ref.current;
     if (!el) return;
     const io = new IntersectionObserver(
-      ([e]) => setShown(e.isIntersecting),
-      { threshold: 0.12, rootMargin: '0px 0px -6% 0px' },
+      ([e]) => {
+        if (e.isIntersecting) {
+          setShown(true);
+          io.disconnect();
+        }
+      },
+      { threshold: 0.08, rootMargin: '0px 0px -4% 0px' },
     );
     io.observe(el);
     return () => io.disconnect();
@@ -164,8 +232,8 @@ function OrderStepReveal({
   return (
     <div
       ref={ref}
-      className={`transform-gpu transition-[opacity,transform] duration-[800ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform ${
-        shown ? 'translate-y-0 opacity-100 scale-100' : 'translate-y-9 opacity-0 scale-[0.97]'
+      className={`transform-gpu transition-[opacity,transform] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-auto md:duration-[800ms] md:will-change-transform ${
+        shown ? 'translate-y-0 opacity-100 scale-100' : 'max-md:translate-y-4 max-md:scale-[0.99] translate-y-9 opacity-0 scale-[0.97]'
       } ${className}`}
       style={{
         ...style,
@@ -177,15 +245,15 @@ function OrderStepReveal({
   );
 }
 
-/* ─── 주문 과정 — PPT 스타일 비정형 사선 '띠' (clip-path) ─── */
+/* ─── 주문 과정 — 데스크톱: 겹친 책갈피 / 모바일: 세로 클립 스택 ─── */
 const ORDER_STEPS = [
   {
     num: '01',
     title: 'Тест кожи',
     desc: 'Пройдите тест и узнайте свой тип кожи',
-    /** md+ 호버 시 짧은 설명 대신 표시 */
+    /** md+ 호버: 01만 제목·아이콘·짧은 설명 대신 상세(스킨타입 추천) */
     hoverDetail:
-      'Ответьте на вопросы о типе кожи, чувствительности и целях ухода — мы подберём состав и рекомендации именно под вас.',
+      'Узнайте продукты, которые SEMO рекомендует для вашего типа кожи — персональные подборки и понятные советы по уходу.',
     icon: (
       <svg className="h-8 w-8 sm:h-10 sm:w-10" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
         <circle cx="24" cy="17" r="7" /><path d="M13 38c0-6 5-11 11-11s11 5 11 11" />
@@ -233,12 +301,12 @@ const ORDER_STEPS = [
   },
 ];
 
-/* 데스크톱: 슬라이스마다 다른 사선·꺾임으로 PPT처럼 비정형 느낌 (간격은 얇은 흰 gap) */
-const STEP_CLIP_PATHS = [
-  'polygon(0 0, 100% 1.5%, calc(100% - min(4.5vw, 40px)) 100%, 0 96%)',
-  'polygon(min(3.2vw, 18px) 0, 100% 0, calc(100% - min(2.2vw, 14px)) 97%, 0 100%)',
-  'polygon(min(2.8vw, 14px) 2.5%, 100% 0, calc(100% - min(5vw, 44px)) 100%, 0 100%)',
-  'polygon(min(4vw, 22px) 0, 100% 0, 100% 100%, 0 calc(100% - min(1.8vw, 10px)))',
+/** 데스크톱 책갈피: 겹침마다 살짝 다른 톤(왼쪽 밝음 → 오른쪽 주황) */
+const BOOKMARK_GRADIENTS = [
+  'linear-gradient(165deg, #ffffff 0%, #fff3eb 45%, #ffe0cc 100%)',
+  'linear-gradient(165deg, #fff6ee 0%, #ffd4bc 50%, #ffb088 100%)',
+  'linear-gradient(165deg, #ffe8d8 0%, #ff9b6a 55%, #f06e35 100%)',
+  'linear-gradient(165deg, #ff9a5c 0%, #e65427 55%, #c73f18 100%)',
 ] as const;
 
 /* 모바일: 풀폭 세로 스택용 비정형 클립(각 행 좌우 끝까지) */
@@ -249,20 +317,15 @@ const MOBILE_STEP_CLIP_PATHS = [
   'polygon(10px 0, 100% 4px, 100% 100%, 0 100%)',
 ] as const;
 
-/* brand #E65427 — 오른쪽으로 갈수록 투명도 ↑; 2번째부터는 글자는 어두운 톤으로 대비 유지 */
-const STEP_COLORS = [
-  'rgba(230, 84, 39, 0.97)',
-  'rgba(230, 84, 39, 0.72)',
-  'rgba(230, 84, 39, 0.38)',
-  'rgba(230, 84, 39, 0.1)',
-];
+const STEP_GRADIENT_MOBILE =
+  'linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(230, 84, 39, 0.2) 45%, rgba(230, 84, 39, 0.72) 78%, rgba(230, 84, 39, 0.96) 100%)';
 
 function OrderProcess() {
   const { ref: titleDeskRef, visible: titleDeskVisible } = useScrollFadeIn(0.08);
   const { ref: titleMobRef, visible: titleMobVisible } = useScrollFadeIn(0.08);
 
-  /** 01: 흰 글자 / 02~04: 배경이 옅어져 slate 계열 */
-  const textOnLight = (idx: number) => idx >= 1;
+  /** 그라데이션 반전 후: 왼쪽(밝음)=짙은 글자, 오른쪽(주황)=밝은 글자 */
+  const textOnLight = (idx: number) => idx < 2;
 
   return (
     <section className="relative w-full overflow-hidden bg-white">
@@ -282,70 +345,92 @@ function OrderProcess() {
             }`}
           />
         </div>
-        {/* 좌우 끝까지 풀블리드, 도형 사이 간격 최소화 */}
+        {/* 겹친 책갈피: 왼쪽이 안쪽 레이어, 오른쪽이 위로 포개짐 — 호버 시 앞으로·확대 */}
         <div className="bg-white pb-14">
           <div
-            className="flex w-full gap-px bg-white"
-            style={{ height: 'clamp(17rem, 30vw, 27rem)' }}
+            className="relative mx-auto w-full max-w-[58rem] px-2 sm:px-4"
+            style={{ height: 'clamp(18rem, 34vw, 28rem)' }}
           >
-            {ORDER_STEPS.map((step, idx) => (
-              <OrderStepReveal
-                key={step.num}
-                staggerIndex={idx}
-                className="relative min-w-0 flex-1 overflow-hidden"
-                style={{
-                  clipPath: STEP_CLIP_PATHS[idx],
-                  background: STEP_COLORS[idx],
-                }}
-              >
-                <div
-                  className={`group/step flex h-full flex-col items-center justify-center gap-1.5 px-1.5 py-3 text-center sm:gap-2 sm:px-3 md:gap-3 ${
-                    textOnLight(idx) ? '' : '[&_svg]:drop-shadow-[0_1px_2px_rgba(0,0,0,0.25)]'
-                  }`}
-                >
-                  <span
-                    className={`block font-serif text-[2.35rem] font-extralight leading-none tracking-normal sm:text-[3rem] lg:text-[3.75rem] ${
-                      textOnLight(idx) ? 'text-slate-800/35' : 'text-white/40 [text-shadow:0_1px_3px_rgba(0,0,0,0.2)]'
-                    }`}
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 top-8 rounded-t-3xl bg-gradient-to-b from-slate-50/80 to-white md:top-10" aria-hidden />
+            <div className="relative h-full w-full">
+              {ORDER_STEPS.map((step, idx) => {
+                const leftPct = [0, 17.5, 35, 52.5][idx];
+                return (
+                  <OrderStepReveal
+                    key={step.num}
+                    staggerIndex={idx}
+                    className="group/bookmark absolute bottom-0 top-7 min-h-0 w-[26%] min-w-[5.75rem] max-w-[13.5rem] transition-[z-index] duration-300 ease-out hover:z-[50] sm:top-9 md:top-10 md:max-w-none md:min-w-[7rem]"
+                    style={{
+                      left: `${leftPct}%`,
+                      zIndex: 12 + idx,
+                    }}
                   >
-                    {step.num}
-                  </span>
-                  <div
-                    className={
-                      textOnLight(idx)
-                        ? 'text-slate-800'
-                        : 'text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.2)]'
-                    }
-                  >
-                    {step.icon}
-                  </div>
-                  <p
-                    className={`text-[11px] font-semibold tracking-normal sm:text-sm lg:text-[0.95rem] ${
-                      textOnLight(idx) ? 'text-slate-900' : 'text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.25)]'
-                    }`}
-                  >
-                    {step.title}
-                  </p>
-                  {/* md+: 호버 시 짧은 문구 → 상세 문구 교체 */}
-                  <div className="relative mx-auto min-h-[3.25rem] w-full max-w-[13rem] px-0.5">
-                    <p
-                      className={`text-[9px] leading-snug sm:text-[10px] lg:text-[11px] md:transition-opacity md:duration-300 md:ease-out md:group-hover/step:pointer-events-none md:group-hover/step:opacity-0 ${
-                        textOnLight(idx) ? 'text-slate-700' : 'text-white/90 [text-shadow:0_1px_2px_rgba(0,0,0,0.2)]'
-                      } max-md:static md:absolute md:inset-x-0 md:top-0`}
+                    <div className="h-full origin-bottom transition-transform duration-300 ease-out will-change-transform group-hover/bookmark:-translate-y-2 group-hover/bookmark:scale-[1.05] md:group-hover/bookmark:-translate-y-3 md:group-hover/bookmark:scale-[1.07]">
+                    <div
+                      className="flex h-full min-h-0 flex-col overflow-hidden rounded-t-[1.25rem] border border-white/50 shadow-[6px_4px_20px_-6px_rgba(0,0,0,0.18)] md:rounded-t-[1.4rem]"
+                      style={{ backgroundImage: BOOKMARK_GRADIENTS[idx] }}
                     >
-                      {step.desc}
-                    </p>
-                    <p
-                      className={`hidden text-[9px] leading-snug lg:text-[10px] md:absolute md:inset-x-0 md:top-0 md:block md:opacity-0 md:transition-opacity md:duration-300 md:ease-out md:group-hover/step:opacity-100 ${
-                        textOnLight(idx) ? 'text-slate-800' : 'text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.2)]'
-                      }`}
-                    >
-                      {step.hoverDetail}
-                    </p>
-                  </div>
-                </div>
-              </OrderStepReveal>
-            ))}
+                      <div
+                        className={`flex min-h-0 flex-1 flex-col items-center justify-between gap-1 px-1.5 py-3 text-center sm:gap-1.5 sm:px-2.5 sm:py-4 md:gap-2 ${
+                          textOnLight(idx) ? '' : '[&_svg]:drop-shadow-[0_1px_2px_rgba(0,0,0,0.25)]'
+                        }`}
+                      >
+                        <span
+                          className={`shrink-0 font-serif text-[2rem] font-extralight leading-none tracking-normal sm:text-[2.35rem] lg:text-[2.85rem] ${
+                            textOnLight(idx) ? 'text-slate-800/35' : 'text-white/45 [text-shadow:0_1px_3px_rgba(0,0,0,0.2)]'
+                          }`}
+                        >
+                          {step.num}
+                        </span>
+                        <div className="flex min-h-0 w-full flex-1 flex-col items-center justify-center">
+                          <p
+                            className={`mb-1 line-clamp-2 shrink-0 text-[10px] font-medium leading-tight tracking-normal transition-opacity duration-300 sm:text-[11px] md:group-hover/bookmark:invisible md:group-hover/bookmark:opacity-0 lg:text-xs ${
+                              textOnLight(idx) ? 'text-slate-900' : 'text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.25)]'
+                            }`}
+                          >
+                            {step.title}
+                          </p>
+                          <div className="relative flex min-h-0 w-full flex-1 flex-col items-center justify-center">
+                            <div className="flex min-h-0 min-w-0 flex-col items-center gap-1.5 transition-opacity duration-300 md:group-hover/bookmark:opacity-0 md:group-hover/bookmark:invisible">
+                              <div
+                                className={
+                                  textOnLight(idx)
+                                    ? 'shrink-0 text-slate-800 [&_svg]:h-7 [&_svg]:w-7 sm:[&_svg]:h-7 sm:[&_svg]:w-7 md:[&_svg]:h-8 md:[&_svg]:w-8'
+                                    : 'shrink-0 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.2)] [&_svg]:h-7 [&_svg]:w-7 md:[&_svg]:h-8 md:[&_svg]:w-8'
+                                }
+                              >
+                                {step.icon}
+                              </div>
+                              <p
+                                className={`line-clamp-3 w-full max-w-[11rem] text-[9px] leading-snug sm:max-w-[12rem] sm:text-[10px] md:line-clamp-4 ${
+                                  textOnLight(idx)
+                                    ? 'text-slate-700'
+                                    : 'text-white/92 [text-shadow:0_1px_2px_rgba(0,0,0,0.2)]'
+                                }`}
+                              >
+                                {step.desc}
+                              </p>
+                            </div>
+                            <div className="pointer-events-none absolute inset-x-0 bottom-0 top-0 flex items-center justify-center px-1.5 opacity-0 transition-opacity duration-300 md:group-hover/bookmark:opacity-100">
+                              <p
+                                className={`max-h-full w-full text-center text-[length:clamp(0.5625rem,0.65vw+0.42rem,0.8125rem)] font-normal leading-[1.25] [text-wrap:balance] md:line-clamp-6 md:text-[clamp(0.625rem,0.55vw+0.45rem,0.8125rem)] lg:leading-snug ${
+                                  textOnLight(idx)
+                                    ? 'text-slate-900'
+                                    : 'text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.22)]'
+                                }`}
+                              >
+                                {step.hoverDetail}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    </div>
+                  </OrderStepReveal>
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
@@ -361,34 +446,40 @@ function OrderProcess() {
             Как заказать SEMO Box
           </h2>
         </div>
-        <div className="flex w-full flex-col gap-1 bg-white px-0">
+        <div className="relative flex w-full flex-col gap-1 bg-white px-0">
+          <div
+            className="pointer-events-none absolute inset-0 z-0"
+            style={{ backgroundImage: STEP_GRADIENT_MOBILE }}
+            aria-hidden
+          />
+          <div className="relative z-10 flex w-full flex-col gap-1">
           {ORDER_STEPS.map((step, idx) => (
             <OrderStepReveal
               key={step.num}
               staggerIndex={idx}
-              className="relative w-full overflow-hidden"
+              className="relative w-full overflow-hidden bg-transparent"
               style={{
                 clipPath: MOBILE_STEP_CLIP_PATHS[idx],
-                background: STEP_COLORS[idx],
                 minHeight: '9.25rem',
               }}
             >
               <div className="flex flex-col items-center justify-center gap-2 px-4 py-6 text-center">
                 <span
-                  className={`font-serif text-[2.25rem] font-extralight leading-none tracking-normal ${idx >= 1 ? 'text-slate-800/35' : 'text-white/40'}`}
+                  className={`font-serif text-[2.25rem] font-extralight leading-none tracking-normal ${idx < 2 ? 'text-slate-800/35' : 'text-white/40'}`}
                 >
                   {step.num}
                 </span>
-                <div className={idx >= 1 ? 'text-slate-800' : 'text-white'}>{step.icon}</div>
-                <p className={`text-sm font-medium tracking-normal ${idx >= 1 ? 'text-slate-900' : 'text-white'}`}>
+                <div className={idx < 2 ? 'text-slate-800' : 'text-white'}>{step.icon}</div>
+                <p className={`text-sm font-medium tracking-normal ${idx < 2 ? 'text-slate-900' : 'text-white'}`}>
                   {step.title}
                 </p>
-                <p className={`max-w-md text-[11px] leading-relaxed ${idx >= 1 ? 'text-slate-700' : 'text-white/90'}`}>
+                <p className={`max-w-md text-[11px] leading-relaxed ${idx < 2 ? 'text-slate-700' : 'text-white/90'}`}>
                   {step.desc}
                 </p>
               </div>
             </OrderStepReveal>
           ))}
+          </div>
         </div>
       </div>
     </section>
@@ -423,8 +514,8 @@ function ShowcaseItemReveal({
   return (
     <div
       ref={ref}
-      className={`transform-gpu transition-[opacity,transform] duration-[780ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
-        shown ? 'translate-y-0 opacity-100' : 'translate-y-14 opacity-0'
+      className={`transform-gpu transition-[opacity,transform] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-auto md:duration-[780ms] md:will-change-transform ${
+        shown ? 'translate-y-0 opacity-100' : 'max-md:translate-y-6 translate-y-14 opacity-0'
       }`}
       style={{ transitionDelay: shown ? `${staggerIndex * 95}ms` : '0ms' }}
     >
@@ -444,9 +535,9 @@ type ShowcaseItem = {
 };
 
 const SHOWCASE_TABS = [
-  { key: 'beauty', label: 'Beauty Box', category: 'beauty' },
-  { key: 'inner', label: 'Inner Beauty Box', category: 'inner_beauty' },
-  { key: 'hair', label: 'Hair Beauty Box', category: 'hair_beauty' },
+  { key: 'beauty', label: 'Beauty box', category: 'beauty' },
+  { key: 'inner', label: 'Fit box', category: 'inner_beauty' },
+  { key: 'hair', label: 'Hair box', category: 'hair_beauty' },
 ] as const;
 
 function formatPrice(price: number): string {
@@ -532,9 +623,9 @@ function ProductShowcase() {
           SEMO Box
         </h2>
 
-        {/* 탭 — 볼드 제거, 버튼 간격 2배(모바일·데스크톱 공통) */}
+        {/* 탭 — 3열 동일 너비, 본문·네비와 맞는 Montserrat 계열 크기(모바일 과소 글자 제거) */}
         <div
-          className={`mb-10 flex flex-wrap items-center justify-center gap-4 transition-all duration-700 sm:gap-8 ${
+          className={`mx-auto mb-10 grid w-full max-w-3xl grid-cols-3 gap-3 transition-all duration-700 sm:gap-6 md:gap-8 ${
             visible ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'
           }`}
           style={{ transitionDelay: visible ? '100ms' : '0ms' }}
@@ -544,13 +635,13 @@ function ProductShowcase() {
               key={t.key}
               type="button"
               onClick={() => setActiveTab(t.category)}
-              className={`shrink-0 rounded-full border px-3 py-2 text-center text-[length:clamp(0.5625rem,2vw+0.15rem,0.8125rem)] font-normal leading-tight tracking-normal transition-all sm:px-4 sm:py-2 sm:text-xs md:text-sm whitespace-nowrap max-w-[min(100%,10.5rem)] sm:max-w-none ${
+              className={`flex min-h-[44px] w-full min-w-0 items-center justify-center rounded-full border px-2 py-2.5 text-center text-sm font-medium leading-snug tracking-normal transition-all sm:min-h-11 sm:px-3 sm:text-sm md:text-[0.9375rem] ${
                 activeTab === t.category
                   ? 'border-brand bg-brand text-white shadow-md'
                   : 'border-slate-200 bg-white text-slate-600 shadow-sm hover:border-slate-300 hover:text-slate-800'
               }`}
             >
-              {t.label}
+              <span className="block max-w-full hyphens-auto whitespace-normal [overflow-wrap:anywhere]">{t.label}</span>
             </button>
           ))}
         </div>
@@ -632,10 +723,15 @@ function ProductShowcase() {
 
 /* ─── Home 메인 ─── */
 export const Home: React.FC = () => {
-  const [heroSlides, setHeroSlides] = useState<HeroSlide[]>([]);
+  /** null = site_settings 로딩 중(히어로 자리 스켈레톤), [] = 슬라이드 없음, [...] = 캐러셀 */
+  const [heroSlides, setHeroSlides] = useState<HeroSlide[] | null>(null);
 
   useEffect(() => {
-    if (!supabase) return;
+    if (!supabase) {
+      setHeroSlides([]);
+      return;
+    }
+    let cancelled = false;
     (async () => {
       try {
         const { data } = await supabase
@@ -643,23 +739,31 @@ export const Home: React.FC = () => {
           .select('key, value')
           .eq('key', 'hero_images')
           .maybeSingle();
+        if (cancelled) return;
         if (data?.value) {
           try {
             const parsed = JSON.parse(data.value);
-            if (Array.isArray(parsed)) setHeroSlides(parsed.filter((s: HeroSlide) => s.image_url));
+            if (Array.isArray(parsed)) {
+              setHeroSlides(parsed.filter((s: HeroSlide) => s.image_url));
+              return;
+            }
           } catch {
             // invalid JSON
           }
         }
+        setHeroSlides([]);
       } catch {
-        // ignore
+        if (!cancelled) setHeroSlides([]);
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
     <>
-      {heroSlides.length > 0 && <HeroCarousel slides={heroSlides} />}
+      <HeroCarousel key={heroSlides === null ? 'hero-loading' : 'hero-ready'} slides={heroSlides} />
       <OrderProcess />
       <ProductShowcase />
     </>

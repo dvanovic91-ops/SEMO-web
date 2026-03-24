@@ -451,7 +451,7 @@ export const SkinTest: React.FC = () => {
               <div className="group relative aspect-[3/2] w-full max-w-md overflow-hidden rounded-xl bg-slate-100">
                 <img
                   src="https://placehold.co/600x400/fef0eb/E65427?text=Beauty+Box1"
-                  alt="Beauty Box"
+                  alt="Beauty box"
                   className="h-full w-full object-cover transition group-hover:opacity-0"
                 />
                 <div className="absolute inset-0 grid grid-cols-3 grid-rows-2 opacity-0 transition group-hover:opacity-100">

@@ -832,7 +832,7 @@ export const ProductDetail: React.FC = () => {
       {/* 장바구니 담기 토스트 — 하단 네비 위 */}
       {cartToast && (
         <div
-          className="fixed left-1/2 z-50 max-w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-slate-200 bg-slate-900 px-4 py-3 text-center text-sm font-medium text-white shadow-lg max-md:bottom-[calc(4.25rem+env(safe-area-inset-bottom,0px))] md:bottom-8"
+          className="fixed left-1/2 z-50 max-w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-slate-200 bg-slate-900 px-4 py-3 text-center text-sm font-medium text-white shadow-lg max-md:bottom-[calc(var(--semo-mobile-tabbar-h)+0.5rem)] md:bottom-8"
           role="status"
         >
           Добавлен в корзину
