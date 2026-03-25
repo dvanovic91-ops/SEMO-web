@@ -121,7 +121,7 @@ const FALLBACK_PRODUCTS: Record<string, Product> = {
 
 export const ProductDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { isLoggedIn, userId, canGrantPermission } = useAuth();
   const { addItem } = useCart();
 
@@ -138,14 +138,32 @@ export const ProductDetail: React.FC = () => {
   const [submittingReview, setSubmittingReview] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [deletingReviewId, setDeletingReviewId] = useState<string | null>(null);
+  /** 목록에서 인라인 수정 중인 리뷰 id */
+  const [editingReviewId, setEditingReviewId] = useState<string | null>(null);
+  const [editReviewBody, setEditReviewBody] = useState('');
+  const [editReviewRating, setEditReviewRating] = useState(5);
+  const [updatingReviewId, setUpdatingReviewId] = useState<string | null>(null);
+  /** 인라인 수정 폼 전용 (reviewError 쓰면 composer 강제 오픈됨) */
+  const [reviewEditError, setReviewEditError] = useState<string | null>(null);
+  /** 수정 시 유지할 기존 사진 URL · 수정 시작 시 스냅샷(삭제 diff) · 새로 첨부한 파일 */
+  const [editReviewKeptPhotoUrls, setEditReviewKeptPhotoUrls] = useState<string[]>([]);
+  const [editReviewInitialPhotoUrls, setEditReviewInitialPhotoUrls] = useState<string[]>([]);
+  const [editReviewNewFiles, setEditReviewNewFiles] = useState<File[]>([]);
   /** 이 상품을 실제 구매한 주문 id (있을 때만 리뷰 작성 가능) */
   const [reviewOrderId, setReviewOrderId] = useState<string | null>(null);
+  /** 리뷰 작성 가능 여부(구매 이력) 확인 중 */
+  const [reviewOrderCheckLoading, setReviewOrderCheckLoading] = useState(false);
   /** 리뷰/사진 업로드 토스트: uploading | success | error (러시아어 메시지) */
   const [reviewToast, setReviewToast] = useState<{ type: 'uploading' | 'success' | 'error'; message: string } | null>(null);
   /** 리뷰 섹션 인포 툴팁 토글 */
   const [reviewInfoOpen, setReviewInfoOpen] = useState(false);
+  /** 리뷰 작성 평점 드롭다운(iOS 기본 select 팝업 대체) */
+  const [reviewRatingMenuOpen, setReviewRatingMenuOpen] = useState(false);
   /** Отзыв: по умолчанию свёрнуто — разворачивается по нажатию на заголовок */
   const [reviewComposerOpen, setReviewComposerOpen] = useState(false);
+  /** 리뷰 사진 라이트박스 — 새 창 대신 모달에서 좌우 탐색 */
+  const [reviewPhotoLightbox, setReviewPhotoLightbox] = useState<{ urls: string[]; index: number } | null>(null);
+  const reviewLightboxTouchRef = useRef<{ x: number } | null>(null);
   /** 장바구니 담기 성공 토스트 — useEffect보다 먼저 선언 (TDZ 오류·흰 화면 방지) */
   const [cartToast, setCartToast] = useState(false);
   /** 메인 상품 사진 여러 장 — 가로 스와이프 시 현재 슬라이드 */
@@ -153,15 +171,60 @@ export const ProductDetail: React.FC = () => {
   const galleryScrollRef = useRef<HTMLDivElement | null>(null);
 
   const reviewFileInputRef = useRef<HTMLInputElement | null>(null);
+  const editReviewFileInputRef = useRef<HTMLInputElement | null>(null);
+  /** ?editReview= 한 번만 적용 (Strict Mode·재렌더 중복 방지) */
+  const editReviewQueryHandledRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (reviewError) setReviewComposerOpen(true);
   }, [reviewError]);
 
   useEffect(() => {
+    if (!reviewRatingMenuOpen) return;
+    const onDocClick = () => setReviewRatingMenuOpen(false);
+    document.addEventListener('click', onDocClick);
+    return () => document.removeEventListener('click', onDocClick);
+  }, [reviewRatingMenuOpen]);
+
+  useEffect(() => {
     setReviewComposerOpen(false);
     setReviewInfoOpen(false);
+    setReviewRatingMenuOpen(false);
+    setEditingReviewId(null);
+    setReviewEditError(null);
+    setEditReviewKeptPhotoUrls([]);
+    setEditReviewInitialPhotoUrls([]);
+    setEditReviewNewFiles([]);
+    setReviewPhotoLightbox(null);
+    editReviewQueryHandledRef.current = null;
   }, [id]);
+
+  /** 리뷰 사진 라이트박스: Esc·화살표, 스크롤 잠금 */
+  useEffect(() => {
+    if (!reviewPhotoLightbox) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setReviewPhotoLightbox(null);
+        return;
+      }
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        setReviewPhotoLightbox((prev) => {
+          if (!prev || prev.urls.length <= 1) return prev;
+          const n = prev.urls.length;
+          const delta = e.key === 'ArrowLeft' ? -1 : 1;
+          return { ...prev, index: (prev.index + delta + n) % n };
+        });
+      }
+    };
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [reviewPhotoLightbox]);
 
   const ingredientEntryMap = useMemo(() => {
     const map = new Map<string, { ingredient_name: string; role_ru: string; strength: number }[]>();
@@ -239,6 +302,158 @@ export const ProductDetail: React.FC = () => {
     }
     e.target.value = '';
   };
+  const beginEditReview = useCallback((r: Review) => {
+    const urls = (r.review_photos ?? []).map((p) => p.image_url).filter(Boolean);
+    setEditingReviewId(r.id);
+    setEditReviewBody(r.body?.trim() ?? '');
+    setEditReviewRating(Math.min(5, Math.max(1, Number(r.rating) || 5)));
+    setEditReviewKeptPhotoUrls([...urls]);
+    setEditReviewInitialPhotoUrls([...urls]);
+    setEditReviewNewFiles([]);
+    setReviewComposerOpen(false);
+    setReviewEditError(null);
+  }, []);
+
+  const cancelEditReview = () => {
+    setEditingReviewId(null);
+    setReviewEditError(null);
+    setEditReviewKeptPhotoUrls([]);
+    setEditReviewInitialPhotoUrls([]);
+    setEditReviewNewFiles([]);
+  };
+
+  /** 프로필 «Мои отзывы» → «Изменить»: /product/:id?editReview=:id 로 진입 시 해당 리뷰 수정 폼 오픈 */
+  useEffect(() => {
+    const rid = searchParams.get('editReview');
+    if (!rid || !userId || !id || reviews.length === 0) return;
+    const r = reviews.find((x) => x.id === rid && x.user_id === userId);
+    if (!r) return;
+    const key = `${id}:${rid}`;
+    if (editReviewQueryHandledRef.current === key) return;
+    editReviewQueryHandledRef.current = key;
+    beginEditReview(r);
+    const next = new URLSearchParams(searchParams);
+    next.delete('editReview');
+    setSearchParams(next, { replace: true });
+    requestAnimationFrame(() => {
+      document.getElementById('product-reviews')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }, [reviews, searchParams, userId, id, setSearchParams, beginEditReview]);
+
+  const handleEditReviewFilesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files?.length) return;
+    const valid: File[] = [];
+    const tooBig: string[] = [];
+    for (let i = 0; i < files.length; i++) {
+      if (files[i].size > MAX_REVIEW_PHOTO_BYTES) tooBig.push(files[i].name);
+      else valid.push(files[i]);
+    }
+    if (tooBig.length > 0) {
+      setReviewToast({ type: 'error', message: `Файл слишком большой. Макс. 5 МБ.` });
+      setReviewEditError(tooBig.length === 1 ? `«${tooBig[0]}» — больше 5 МБ.` : `${tooBig.length} файлов больше 5 МБ.`);
+    }
+    if (valid.length > 0) {
+      setEditReviewNewFiles((prev) => {
+        const next = [...prev, ...valid];
+        const cap = MAX_REVIEW_PHOTOS - editReviewKeptPhotoUrls.length;
+        if (next.length > cap) {
+          setReviewToast({ type: 'error', message: `Макс. ${MAX_REVIEW_PHOTOS} фото.` });
+          setReviewEditError(`Максимум ${MAX_REVIEW_PHOTOS} фото (с учётом уже прикреплённых).`);
+          return next.slice(0, Math.max(0, cap));
+        }
+        setReviewEditError(null);
+        return next;
+      });
+    }
+    e.target.value = '';
+  };
+
+  const handleUpdateReview = async (reviewId: string) => {
+    if (!supabase || !id || !userId) return;
+    const trimmed = editReviewBody.trim();
+    if (!trimmed) {
+      setReviewEditError('Напишите текст отзыва.');
+      return;
+    }
+    const totalPhotos = editReviewKeptPhotoUrls.length + editReviewNewFiles.length;
+    if (totalPhotos > MAX_REVIEW_PHOTOS) {
+      setReviewEditError(`Максимум ${MAX_REVIEW_PHOTOS} фото.`);
+      return;
+    }
+    setUpdatingReviewId(reviewId);
+    setReviewEditError(null);
+    try {
+      const { error } = await supabase
+        .from('product_reviews')
+        .update({ body: trimmed, rating: editReviewRating })
+        .eq('id', reviewId);
+      if (error) throw error;
+
+      const removedUrls = editReviewInitialPhotoUrls.filter((u) => !editReviewKeptPhotoUrls.includes(u));
+      for (const url of removedUrls) {
+        const { error: delPh } = await supabase.from('review_photos').delete().eq('review_id', reviewId).eq('image_url', url);
+        if (delPh) throw delPh;
+      }
+
+      const uploadedUrls: string[] = [];
+      if (editReviewNewFiles.length > 0) {
+        setReviewToast({ type: 'uploading', message: 'Загрузка…' });
+      }
+      for (let i = 0; i < editReviewNewFiles.length; i++) {
+        const file = editReviewNewFiles[i];
+        const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+        const safeExt = /^[a-z0-9]+$/i.test(ext) ? ext : 'jpg';
+        const path = `${userId}/${Date.now()}_e${i}.${safeExt}`;
+        const { error: upErr } = await supabase.storage
+          .from(BUCKET_REVIEW_PHOTOS)
+          .upload(path, file, { cacheControl: '3600', upsert: false, contentType: file.type || `image/${safeExt}` });
+        if (upErr) {
+          setReviewToast({ type: 'error', message: 'Ошибка загрузки.' });
+          throw new Error(upErr.message || 'Не удалось загрузить фото.');
+        }
+        const { data: urlData } = supabase.storage.from(BUCKET_REVIEW_PHOTOS).getPublicUrl(path);
+        uploadedUrls.push(urlData.publicUrl);
+      }
+
+      const { data: sortRows } = await supabase
+        .from('review_photos')
+        .select('sort_order')
+        .eq('review_id', reviewId)
+        .order('sort_order', { ascending: false })
+        .limit(1);
+      let nextOrder = (sortRows?.[0]?.sort_order != null ? Number(sortRows[0].sort_order) : -1) + 1;
+      if (uploadedUrls.length > 0) {
+        const { error: insErr } = await supabase.from('review_photos').insert(
+          uploadedUrls.map((url, j) => ({
+            review_id: reviewId,
+            image_url: url,
+            sort_order: nextOrder + j,
+          })),
+        );
+        if (insErr) throw insErr;
+      }
+
+      const finalPhotos = [...editReviewKeptPhotoUrls.map((image_url) => ({ image_url })), ...uploadedUrls.map((image_url) => ({ image_url }))];
+
+      setReviews((prev) =>
+        prev.map((x) =>
+          x.id === reviewId ? { ...x, body: trimmed, rating: editReviewRating, review_photos: finalPhotos } : x,
+        ),
+      );
+      setEditingReviewId(null);
+      setEditReviewKeptPhotoUrls([]);
+      setEditReviewInitialPhotoUrls([]);
+      setEditReviewNewFiles([]);
+      setReviewToast({ type: 'success', message: 'Отзыв обновлён.' });
+    } catch (e) {
+      setReviewEditError(e instanceof Error ? e.message : 'Не удалось сохранить отзыв.');
+      setReviewToast({ type: 'error', message: 'Не удалось сохранить отзыв.' });
+    } finally {
+      setUpdatingReviewId(null);
+    }
+  };
+
   const handleDeleteReview = async (reviewId: string) => {
     if (!supabase || !id) return;
     if (!window.confirm('Удалить этот отзыв?')) return;
@@ -312,6 +527,7 @@ export const ProductDetail: React.FC = () => {
     }
 
     const load = async () => {
+      setReviewOrderCheckLoading(!!userId);
       try {
         const { data: prodData, error: prodErr } = await supabase
           .from('products')
@@ -359,10 +575,21 @@ export const ProductDetail: React.FC = () => {
         try {
           const { data: compData, error: compErr } = await supabase
             .from('product_components')
-            .select('*')
+            .select('*, sku_items(display_name, description, image_url)')
             .eq('product_id', currentId);
           if (!compErr && compData && Array.isArray(compData)) {
-            const rows = compData as (Component & { created_at?: string })[];
+            const rows = (compData as any[]).map((r) => {
+              const sku = r.sku_items as { display_name?: string | null; description?: string | null; image_url?: string | null } | null;
+              // sku_id가 연결된 경우 SKU 데이터 우선 사용
+              const hasSkuImage = !!sku?.image_url;
+              return {
+                ...r,
+                name: (sku?.display_name) ? sku.display_name : r.name,
+                description: (sku?.description) ? sku.description : r.description,
+                image_url: hasSkuImage ? sku.image_url : r.image_url,
+                image_urls: hasSkuImage ? [sku.image_url!] : (r.image_urls ?? []),
+              } as Component & { created_at?: string };
+            });
             compList = rows.slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
           }
         } catch (_) {
@@ -478,8 +705,10 @@ export const ProductDetail: React.FC = () => {
           setProduct(null);
           setComponents([]);
           setReviews([]);
+          setReviewOrderId(null);
         }
       } finally {
+        if (!cancelled && currentId === (id ?? '')) setReviewOrderCheckLoading(false);
         if (loadingTimeoutRef.current != null) {
           window.clearTimeout(loadingTimeoutRef.current);
           loadingTimeoutRef.current = null;
@@ -1094,7 +1323,7 @@ export const ProductDetail: React.FC = () => {
               <li key={r.id} className="rounded-xl border border-slate-100 bg-slate-50/30 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
-                    <span className="font-medium text-slate-800">
+                    <span className="font-medium text-[length:calc(1rem-1pt)] text-slate-800">
                       {r.profiles?.name?.trim()
                         ? r.profiles.name.trim()
                         : r.profiles?.email
@@ -1102,37 +1331,163 @@ export const ProductDetail: React.FC = () => {
                         : 'Гость'}
                     </span>
                     <span className="text-amber-500">{'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}</span>
-                    <span className="text-xs text-slate-400">
+                    <span className="text-[length:calc(0.75rem-1pt)] text-slate-400">
                       {new Date(r.created_at).toLocaleDateString('ru-RU')}
                     </span>
                   </div>
                   {canDeleteReview(r) && (
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteReview(r.id)}
-                      disabled={deletingReviewId === r.id}
-                      className="rounded border border-slate-200 p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
-                      title="Удалить"
-                      aria-label="Удалить"
-                    >
-                      {deletingReviewId === r.id ? (
-                        <span className="text-xs">…</span>
-                      ) : (
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => (editingReviewId === r.id ? cancelEditReview() : beginEditReview(r))}
+                        disabled={deletingReviewId === r.id || updatingReviewId === r.id}
+                        className="rounded border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-50"
+                        title={editingReviewId === r.id ? 'Отменить редактирование' : 'Изменить отзыв'}
+                        aria-label={editingReviewId === r.id ? 'Отменить редактирование' : 'Изменить отзыв'}
+                      >
                         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+                          />
                         </svg>
-                      )}
-                    </button>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteReview(r.id)}
+                        disabled={deletingReviewId === r.id || updatingReviewId === r.id}
+                        className="rounded border border-slate-200 p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                        title="Удалить"
+                        aria-label="Удалить"
+                      >
+                        {deletingReviewId === r.id ? (
+                          <span className="text-xs">…</span>
+                        ) : (
+                          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
                   )}
                 </div>
-                {r.body && <p className="mt-2 text-sm text-slate-700">{r.body}</p>}
-                {r.review_photos?.length ? (
+                {editingReviewId === r.id ? (
+                  <div className="mt-3 space-y-3 rounded-lg border border-slate-200 bg-white p-3">
+                    <label className="text-xs font-medium text-slate-600">Текст</label>
+                    <textarea
+                      value={editReviewBody}
+                      onChange={(e) => setEditReviewBody(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800"
+                      rows={4}
+                    />
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-medium text-slate-600">Оценка</span>
+                      <select
+                        value={editReviewRating}
+                        onChange={(e) => setEditReviewRating(Number(e.target.value))}
+                        className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm"
+                      >
+                        {[5, 4, 3, 2, 1].map((n) => (
+                          <option key={n} value={n}>
+                            {n} ★
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <p className="mb-1 text-xs font-medium text-slate-600">Фото</p>
+                      <div className="flex flex-wrap gap-2">
+                        {editReviewKeptPhotoUrls.map((url) => (
+                          <div key={url} className="relative h-12 w-12 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                            <img src={url} alt="" className="h-full w-full object-cover" />
+                            <button
+                              type="button"
+                              onClick={() => setEditReviewKeptPhotoUrls((prev) => prev.filter((u) => u !== url))}
+                              className="absolute right-0.5 top-0.5 rounded-full bg-white/80 px-1 text-[10px] text-slate-600 hover:bg-red-50 hover:text-red-600"
+                              aria-label="Убрать фото"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                        {editReviewNewFiles.map((f, i) => (
+                          <div key={`${f.name}-${i}`} className="relative h-12 w-12 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                            <img src={URL.createObjectURL(f)} alt="" className="h-full w-full object-cover" />
+                            <button
+                              type="button"
+                              onClick={() => setEditReviewNewFiles((prev) => prev.filter((_, j) => j !== i))}
+                              className="absolute right-0.5 top-0.5 rounded-full bg-white/80 px-1 text-[10px] text-slate-600 hover:bg-red-50 hover:text-red-600"
+                              aria-label="Удалить"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        * До {MAX_REVIEW_PHOTOS} фото, 5 МБ каждое ({editReviewKeptPhotoUrls.length + editReviewNewFiles.length}/
+                        {MAX_REVIEW_PHOTOS})
+                      </p>
+                    </div>
+                    <div className="flex flex-row items-stretch gap-2">
+                      <button
+                        type="button"
+                        onClick={() => editReviewFileInputRef.current?.click()}
+                        disabled={updatingReviewId === r.id || editReviewKeptPhotoUrls.length + editReviewNewFiles.length >= MAX_REVIEW_PHOTOS}
+                        className="min-w-0 basis-0 flex-1 rounded-full border border-slate-300 bg-white px-4 py-1.5 text-sm font-medium leading-tight text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        +Фото
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelEditReview}
+                        disabled={updatingReviewId === r.id}
+                        className="min-w-0 basis-0 flex-1 rounded-full border border-slate-300 bg-white px-4 py-1.5 text-sm font-medium leading-tight text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        Отмена
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateReview(r.id)}
+                        disabled={updatingReviewId === r.id}
+                        className="min-w-0 basis-0 flex-1 rounded-full border border-brand/90 bg-brand px-4 py-1.5 text-sm font-medium leading-tight text-white hover:bg-brand/90 disabled:opacity-60"
+                      >
+                        {updatingReviewId === r.id ? 'Сохранение…' : 'Сохранить'}
+                      </button>
+                      <input
+                        ref={editReviewFileInputRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={handleEditReviewFilesChange}
+                        className="hidden"
+                      />
+                    </div>
+                    {reviewEditError && editingReviewId === r.id ? (
+                      <p className="text-sm text-red-600">{reviewEditError}</p>
+                    ) : null}
+                  </div>
+                ) : (
+                  r.body && <p className="mt-2 text-[length:calc(0.875rem-1pt)] text-slate-700">{r.body}</p>
+                )}
+                {editingReviewId !== r.id && r.review_photos?.length ? (
                   <div className="mt-2 flex flex-wrap gap-2">
-                    {r.review_photos.map((ph, i) => (
-                      <a key={i} href={ph.image_url} target="_blank" rel="noopener noreferrer" className="block">
-                        <img src={ph.image_url} alt="" className="h-20 w-20 rounded-lg object-cover" />
-                      </a>
-                    ))}
+                    {r.review_photos.map((ph, i) => {
+                      const urls = r.review_photos!.map((p) => p.image_url);
+                      return (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => setReviewPhotoLightbox({ urls, index: i })}
+                          className="block overflow-hidden rounded-lg ring-offset-2 transition hover:opacity-95 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                          aria-label={`Фото ${i + 1} из ${urls.length}`}
+                        >
+                          <img src={ph.image_url} alt="" className="h-20 w-20 object-cover" />
+                        </button>
+                      );
+                    })}
                   </div>
                 ) : null}
               </li>
@@ -1174,72 +1529,101 @@ export const ProductDetail: React.FC = () => {
                 role="region"
                 aria-labelledby="review-composer-toggle"
               >
-              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <span className="text-xs font-semibold text-slate-700 sm:text-sm">Фотоотзыв и бонусные баллы 🎁</span>
-                <div className="flex items-center justify-start gap-2 sm:justify-end">
-                  <div
-                    className="relative inline-flex items-center"
-                    onMouseEnter={() => {
-                      if (typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches) {
-                        setReviewInfoOpen(true);
-                      }
-                    }}
-                    onMouseLeave={() => {
-                      if (typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches) {
-                        setReviewInfoOpen(false);
+              <div className="mb-3 flex items-center justify-start gap-1.5">
+                <span className="text-xs font-semibold text-slate-700 sm:text-sm">Фотоотзыв и бонусные баллы</span>
+                <div
+                  className="relative inline-flex items-center"
+                  onMouseEnter={() => {
+                    if (typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches) {
+                      setReviewInfoOpen(true);
+                    }
+                  }}
+                  onMouseLeave={() => {
+                    if (typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches) {
+                      setReviewInfoOpen(false);
+                    }
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-amber-300 bg-amber-50 text-[11px] font-semibold leading-none text-amber-700"
+                    aria-label="Информация о бонусных баллах"
+                    aria-expanded={reviewInfoOpen}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches) {
+                        setReviewInfoOpen((v) => !v);
                       }
                     }}
                   >
-                    <button
-                      type="button"
-                      className="flex h-5 w-5 items-center justify-center rounded-full border border-amber-300 bg-amber-50 text-[11px] text-amber-700"
-                      aria-label="Информация о бонусных баллах"
-                      aria-expanded={reviewInfoOpen}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches) {
-                          setReviewInfoOpen((v) => !v);
-                        }
-                      }}
-                    >
-                      i
-                    </button>
-                    {reviewInfoOpen && (
-                      <>
-                        <div
-                          className="fixed inset-0 z-[55] bg-black/20 md:hidden"
-                          aria-hidden
-                          onClick={() => setReviewInfoOpen(false)}
-                        />
-                        <div className="fixed left-1/2 top-[calc(50vh-5.5rem)] z-[60] w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] leading-snug text-slate-700 shadow-lg md:hidden">
-                          <p>• Искренние, подробные отзывы получают бонусные баллы (до 500 pt). ⭐</p>
-                          <p className="mt-1">• Неподходящие материалы могут быть удалены без предупреждения. ⚠️</p>
-                          <p className="mt-1">• Авторские права на отзывы принадлежат SEMO. ©</p>
-                        </div>
-                        <div className="absolute right-0 top-full z-20 mt-1 hidden max-w-[min(100vw-2rem,22rem)] rounded-lg border border-slate-200 bg-white px-4 py-2 text-[11px] leading-snug text-slate-700 shadow-lg md:block">
-                          <p>• Искренние, подробные отзывы получают бонусные баллы (до 500 pt). ⭐</p>
-                          <p className="mt-1">• Неподходящие материалы могут быть удалены без предупреждения. ⚠️</p>
-                          <p className="mt-1">• Авторские права на отзывы принадлежат SEMO. ©</p>
-                        </div>
-                      </>
-                    )}
-                  </div>
+                    !
+                  </button>
+                  {reviewInfoOpen && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-[55] bg-black/20 md:hidden"
+                        aria-hidden
+                        onClick={() => setReviewInfoOpen(false)}
+                      />
+                      <div className="fixed left-1/2 top-[calc(50vh-5.5rem)] z-[60] w-[min(36rem,calc(100vw-1.5rem))] max-w-[calc(100vw-1.5rem)] -translate-x-1/2 rounded-lg border border-slate-200 bg-white px-4 py-3 text-[10px] leading-snug text-slate-700 shadow-lg md:hidden">
+                        <p>• Содержательный и искренний отзыв: бонус до 500 pt. ⭐</p>
+                        <p className="mt-2">• Неподходящие материалы могут быть удалены без предупреждения. ⚠️</p>
+                        <p className="mt-2">• Авторские права на отзывы принадлежат SEMO. ©</p>
+                      </div>
+                      <div className="absolute left-0 top-full z-20 mt-1 hidden w-max max-w-[min(30rem,calc(100vw-2rem))] rounded-lg border border-slate-200 bg-white px-4 py-3 text-[11px] leading-snug text-slate-700 shadow-lg md:block">
+                        <p>• Содержательный и искренний отзыв: бонус до 500 pt. ⭐</p>
+                        <p className="mt-2">• Неподходящие материалы могут быть удалены без предупреждения. ⚠️</p>
+                        <p className="mt-2">• Авторские права на отзывы принадлежат SEMO. ©</p>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
               <div className="mb-3">
                 <div className="mb-1 flex items-center justify-between gap-3">
-                  <label className="text-xs font-medium text-slate-600">Текст отзыва</label>
                   <div className="flex items-center gap-2">
+                    <label className="text-xs font-medium text-slate-600">Текст отзыва</label>
+                  </div>
+                  <div className="relative flex items-center gap-2">
                     <span className="text-xs font-medium text-slate-600">Оценка</span>
-                    <select
-                      value={reviewRating}
-                      onChange={(e) => setReviewRating(Number(e.target.value))}
-                      className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm"
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setReviewRatingMenuOpen((v) => !v);
+                      }}
+                      className="inline-flex min-w-[4.2rem] items-center justify-center rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm text-slate-700"
+                      aria-haspopup="listbox"
+                      aria-expanded={reviewRatingMenuOpen}
                     >
-                      {[5, 4, 3, 2, 1].map((n) => (
-                        <option key={n} value={n}>{n} ★</option>
-                      ))}
-                    </select>
+                      <span className="font-medium">{reviewRating}</span>
+                      <span className="ml-1 text-amber-500">★</span>
+                    </button>
+                    {reviewRatingMenuOpen && (
+                      <div
+                        className="absolute right-0 top-full z-30 mt-1 w-20 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {[5, 4, 3, 2, 1].map((n) => (
+                          <button
+                            key={n}
+                            type="button"
+                            onClick={() => {
+                              setReviewRating(n);
+                              setReviewRatingMenuOpen(false);
+                            }}
+                            className={`flex w-full items-center justify-center rounded-lg px-2 py-1.5 text-sm ${
+                              reviewRating === n ? 'bg-amber-50 font-semibold text-slate-900' : 'text-slate-700 hover:bg-slate-50'
+                            }`}
+                            role="option"
+                            aria-selected={reviewRating === n}
+                          >
+                            <span>{n}</span>
+                            <span className="ml-1 text-amber-500">★</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="rounded-xl border border-slate-200 px-3 py-2">
@@ -1276,18 +1660,18 @@ export const ProductDetail: React.FC = () => {
                   * До {MAX_REVIEW_PHOTOS} фото, 5 МБ каждое
                 </p>
               </div>
-              <div className="mb-3 flex flex-col gap-2 sm:flex-row">
+              <div className="mb-3 flex flex-row items-stretch gap-2">
                 <button
                   type="button"
                   onClick={() => reviewFileInputRef.current?.click()}
-                  className="flex-1 rounded-full border border-slate-300 bg-white px-4 py-1.5 text-sm font-medium leading-tight text-slate-700 hover:bg-slate-50"
+                  className="min-w-0 basis-0 flex-1 rounded-full border border-slate-300 bg-white px-4 py-1.5 text-sm font-medium leading-tight text-slate-700 hover:bg-slate-50"
                 >
-                  Выбрать файлы
+                  +Фото
                 </button>
                 <button
                   type="submit"
                   disabled={submittingReview}
-                  className="flex-1 rounded-full border border-brand/90 bg-brand px-4 py-1.5 text-sm font-medium leading-tight text-white hover:bg-brand/90 disabled:opacity-60"
+                  className="min-w-0 basis-0 flex-1 rounded-full border border-brand/90 bg-brand px-4 py-1.5 text-sm font-medium leading-tight text-white hover:bg-brand/90 disabled:opacity-60"
                 >
                   {submittingReview ? 'Отправка…' : 'Отправить отзыв'}
                 </button>
@@ -1313,11 +1697,11 @@ export const ProductDetail: React.FC = () => {
               </div>
             )}
             </>
-            ) : (
+            ) : !reviewOrderCheckLoading ? (
               <p className="mt-4 text-sm text-slate-500">
                 Оставить отзыв могут только покупатели этого набора. Оформите заказ, чтобы поделиться впечатлением.
               </p>
-            )
+            ) : null
           ) : !isLoggedIn ? (
             <p className="mt-4 text-sm text-slate-500">
               <Link to="/login" className="text-brand hover:underline">Войдите</Link>, чтобы оставить отзыв.
@@ -1325,6 +1709,105 @@ export const ProductDetail: React.FC = () => {
           ) : null}
         </section>
       </article>
+
+      {/* 리뷰 사진 라이트박스 — 새 탭 없이 확대·좌우 이동(버튼·키보드·스와이프) */}
+      {reviewPhotoLightbox && reviewPhotoLightbox.urls.length > 0 && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/88 p-3 sm:p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Просмотр фото отзыва"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 cursor-default"
+            aria-label="Закрыть"
+            onClick={() => setReviewPhotoLightbox(null)}
+          />
+          <div
+            className="relative z-[1] flex max-h-full max-w-full flex-col items-center"
+            onClick={(e) => e.stopPropagation()}
+            onTouchStart={(e) => {
+              reviewLightboxTouchRef.current = { x: e.touches[0].clientX };
+            }}
+            onTouchEnd={(e) => {
+              const start = reviewLightboxTouchRef.current;
+              reviewLightboxTouchRef.current = null;
+              if (!start) return;
+              const endX = e.changedTouches[0].clientX;
+              const dx = endX - start.x;
+              if (Math.abs(dx) < 48) return;
+              setReviewPhotoLightbox((prev) => {
+                if (!prev || prev.urls.length <= 1) return prev;
+                const n = prev.urls.length;
+                if (dx < 0) return { ...prev, index: (prev.index + 1) % n };
+                return { ...prev, index: (prev.index - 1 + n) % n };
+              });
+            }}
+          >
+            {/* 정사각형 고정 프레임 — object-contain 여백은 반투명 배경으로 채움(투명 X) */}
+            <div className="relative flex aspect-square w-[min(92vmin,44rem)] max-w-full shrink-0 items-center justify-center rounded-lg bg-slate-900/55 sm:w-[min(92vmin,52rem)]">
+              <img
+                key={reviewPhotoLightbox.urls[reviewPhotoLightbox.index]}
+                src={reviewPhotoLightbox.urls[reviewPhotoLightbox.index]}
+                alt=""
+                className="max-h-full max-w-full object-contain"
+                draggable={false}
+              />
+              {reviewPhotoLightbox.urls.length > 1 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setReviewPhotoLightbox((prev) => {
+                        if (!prev) return prev;
+                        const n = prev.urls.length;
+                        return { ...prev, index: (prev.index - 1 + n) % n };
+                      })
+                    }
+                    className="absolute left-1 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-slate-800 shadow-md transition hover:bg-white md:left-0"
+                    aria-label="Предыдущее фото"
+                  >
+                    <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setReviewPhotoLightbox((prev) => {
+                        if (!prev) return prev;
+                        const n = prev.urls.length;
+                        return { ...prev, index: (prev.index + 1) % n };
+                      })
+                    }
+                    className="absolute right-1 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-slate-800 shadow-md transition hover:bg-white md:right-0"
+                    aria-label="Следующее фото"
+                  >
+                    <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                    </svg>
+                  </button>
+                </>
+              )}
+            </div>
+            <div className="relative z-[1] mt-3 flex items-center gap-4 text-sm text-white/95">
+              {reviewPhotoLightbox.urls.length > 1 && (
+                <span className="tabular-nums">
+                  {reviewPhotoLightbox.index + 1} / {reviewPhotoLightbox.urls.length}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => setReviewPhotoLightbox(null)}
+                className="rounded-full border border-white/40 bg-white/10 px-4 py-1.5 text-sm font-medium text-white backdrop-blur-sm hover:bg-white/20"
+              >
+                Закрыть
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 };

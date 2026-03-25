@@ -227,13 +227,20 @@ export const ProfilePoints: React.FC = () => {
         {mergedHistory.map((item) => (
           <li
             key={item.id}
-            className="flex items-center justify-between rounded-xl border border-slate-100 bg-white px-4 py-3"
+            className="flex items-center justify-between gap-2 rounded-xl border border-slate-100 bg-white px-4 py-3"
           >
-            <div>
-              <p className="font-medium text-slate-800">{item.label}</p>
-              <p className="text-xs text-slate-500">{item.date ? new Date(item.date).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) : '—'}</p>
+            {/* 모바일: 라벨·금액·날짜 각각 2pt 축소 + 긴 라벨은 한 줄(truncate) */}
+            <div className="min-w-0 flex-1">
+              <p className="font-medium text-slate-800 max-md:truncate max-md:whitespace-nowrap max-md:text-[length:calc(1rem-2pt)]">
+                {item.label}
+              </p>
+              <p className="text-xs text-slate-500 max-md:text-[length:calc(0.75rem-2pt)]">
+                {item.date ? new Date(item.date).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+              </p>
             </div>
-            <span className={item.amount >= 0 ? 'text-brand font-medium' : 'text-slate-500'}>
+            <span
+              className={`shrink-0 tabular-nums max-md:text-[length:calc(1rem-2pt)] ${item.amount >= 0 ? 'font-medium text-brand' : 'text-slate-500'}`}
+            >
               {item.amount >= 0 ? '+' : ''}
               {item.amount} ★
             </span>

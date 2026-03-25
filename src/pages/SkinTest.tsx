@@ -221,28 +221,24 @@ export const SkinTest: React.FC = () => {
         try {
           const { data: compRows } = await supabase
             .from('product_components')
-            .select('id, sort_order, name, image_url, image_urls, description')
+            .select('id, sort_order, name, image_url, image_urls, description, sku_items(display_name, description, image_url)')
             .eq('product_id', productId);
           if (Array.isArray(compRows)) {
-            composition = (
-              compRows as {
-                id: string;
-                sort_order?: number;
-                name: string | null;
-                image_url: string | null;
-                image_urls?: string[] | null;
-                description?: string | null;
-              }[]
-            )
+            composition = (compRows as any[])
               .slice()
-              .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-              .map((c) => ({
-                id: c.id,
-                name: c.name,
-                image_url: c.image_url,
-                image_urls: c.image_urls ?? null,
-                description: c.description ?? null,
-              }));
+              .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+              .map((c: any) => {
+                const sku = c.sku_items as { display_name?: string | null; description?: string | null; image_url?: string | null } | null;
+                // sku_id가 연결된 경우 SKU 데이터 우선 사용
+                const hasSkuImage = !!sku?.image_url;
+                return {
+                  id: c.id,
+                  name: (sku?.display_name) ? sku.display_name : c.name,
+                  image_url: hasSkuImage ? sku.image_url : c.image_url,
+                  image_urls: hasSkuImage ? [sku!.image_url!] : (c.image_urls ?? null),
+                  description: (sku?.description) ? sku.description : (c.description || null),
+                };
+              });
           }
         } catch {
           composition = [];
@@ -689,6 +685,7 @@ export const SkinTest: React.FC = () => {
               <ProductCompositionGrid
                 className="mt-5"
                 components={recommendedProductPreview.composition}
+                tighterMobileComposeTitle
               />
             )}
           </div>
@@ -722,10 +719,12 @@ export const SkinTest: React.FC = () => {
                 Сохраните результат в личном кабинете и пройдите тест ещё раз после регистрации.
               </p>
             )}
-            <div className="flex w-full max-w-md flex-row items-stretch justify-center gap-2 sm:max-w-none sm:flex-wrap sm:gap-3">
+            <div className="mx-auto flex w-full max-w-md flex-row items-stretch justify-center gap-2 sm:max-w-lg sm:gap-3">
               <Link
                 to={getRecommendationPath(result.type)}
-                className="inline-flex min-h-11 min-w-0 flex-1 items-center justify-center rounded-full border border-brand bg-white px-2 py-2.5 text-center text-xs font-semibold text-brand transition hover:bg-brand-soft/25 sm:max-w-[240px] sm:flex-none sm:px-4 sm:text-sm"
+                className={`inline-flex min-h-11 items-center justify-center rounded-full border border-brand bg-white px-3 py-2.5 text-center text-xs font-medium text-brand transition hover:bg-brand-soft/25 sm:px-4 sm:text-sm ${
+                  canAddRecommendedToCart ? 'min-w-0 flex-1 basis-0' : 'w-full max-w-[240px]'
+                }`}
               >
                 Смотреть товары
               </Link>
@@ -733,7 +732,7 @@ export const SkinTest: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleAddRecommendedToCart}
-                  className="inline-flex min-h-11 min-w-0 flex-1 items-center justify-center rounded-full border border-transparent bg-brand px-2 py-2.5 text-center text-xs font-semibold text-white transition hover:bg-brand/90 sm:max-w-[240px] sm:flex-none sm:px-4 sm:text-sm"
+                  className="inline-flex min-h-11 min-w-0 flex-1 basis-0 items-center justify-center rounded-full border border-transparent bg-brand px-3 py-2.5 text-center text-xs font-medium text-white transition hover:bg-brand/90 sm:px-4 sm:text-sm"
                 >
                   В корзину
                 </button>

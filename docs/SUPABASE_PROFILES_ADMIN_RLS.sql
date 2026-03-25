@@ -53,7 +53,7 @@ create policy "관리자는 전체 프로필 수정(권한부여)"
 -- ---------- 3) 개발자/운영 관리자 권한 부여 ----------
 update public.profiles
 set is_admin = true, is_manager = false, updated_at = now()
-where lower(trim(email)) in ('dvanovic91@gmail.com', 'dvavnovic91@gmail.com');
+where lower(trim(email)) = 'dvanovic91@gmail.com';
 
 update public.profiles
 set is_admin = true, is_manager = false, updated_at = now()

@@ -3,7 +3,6 @@ import { Link, Navigate, useParams } from 'react-router-dom';
 import { BackArrow } from '../../components/BackArrow';
 import { AuthInitializingScreen, SemoPageSpinner, SEMO_SECTION_LOADING_CLASS } from '../../components/SemoPageSpinner';
 import { useAuth } from '../../context/AuthContext';
-import { SKIN_INFO } from '../../data/skinTestData';
 import { supabase } from '../../lib/supabase';
 
 type TestResultRow = {
@@ -12,7 +11,7 @@ type TestResultRow = {
   completed_at: string;
 };
 
-/** 테스트 결과 한 건 상세 — 결과지 형태로 표시. 본인 결과만 조회(.eq('user_id', userId))로 권한 보장 */
+/** 예전 URL(/profile/test-results/:id) 진입 시 — 본인 결과 로드 후 제품 매칭 화면(/skin-test)으로만 이동 */
 export const ProfileTestResultDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const { isLoggedIn, initialized, userId } = useAuth();
@@ -52,19 +51,13 @@ export const ProfileTestResultDetail: React.FC = () => {
   if (!initialized) return <AuthInitializingScreen />;
   if (!isLoggedIn) return <Navigate to="/login" replace />;
 
-  const formatDate = (iso: string) => {
-    try {
-      return new Date(iso).toLocaleDateString('ru-RU', { year: 'numeric', month: 'long', day: 'numeric' });
-    } catch {
-      return iso.slice(0, 10);
-    }
-  };
-
   if (loading) {
     return (
       <main className="mx-auto max-w-xl px-4 py-6 sm:px-6 sm:py-10">
         <p className="mb-6">
-          <Link to="/profile/test-results" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> Результаты тестов</Link>
+          <Link to="/profile/test-results" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90">
+            <BackArrow /> Результаты тестов
+          </Link>
         </p>
         <div className={SEMO_SECTION_LOADING_CLASS}>
           <SemoPageSpinner />
@@ -77,63 +70,16 @@ export const ProfileTestResultDetail: React.FC = () => {
     return (
       <main className="mx-auto max-w-xl px-4 py-6 sm:px-6 sm:py-10">
         <p className="mb-6">
-          <Link to="/profile/test-results" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> Результаты тестов</Link>
+          <Link to="/profile/test-results" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90">
+            <BackArrow /> Результаты тестов
+          </Link>
         </p>
         <p className="rounded-xl border border-slate-100 bg-slate-50/50 px-4 py-8 text-center text-slate-500">Результат не найден.</p>
       </main>
     );
   }
 
-  const type = result.skin_type ?? '—';
-  const info = type !== '—' ? SKIN_INFO[type] : null;
-
-  return (
-    <main className="mx-auto max-w-2xl px-4 py-6 sm:px-6 sm:py-10 md:py-14">
-      <p className="mb-6">
-        <Link to="/profile/test-results" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> Результаты тестов</Link>
-      </p>
-      <header className="mb-8">
-        <p className="text-sm text-slate-500">{formatDate(result.completed_at)}</p>
-        <h1 className="mt-2 text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
-          Результат теста: {type}
-        </h1>
-        {info && <p className="mt-1 text-sm text-slate-600">{info.name}</p>}
-      </header>
-      {info ? (
-        <div className="space-y-6">
-          <div className="rounded-xl border border-slate-100 bg-slate-50/30 p-4">
-            <p className="text-base leading-relaxed text-slate-700">{info.desc}</p>
-          </div>
-          <div>
-            <p className="text-sm font-medium text-slate-600">Фокус ухода</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {info.concerns.map((c) => (
-                <span
-                  key={c}
-                  className="rounded-full border border-brand/30 bg-brand-soft/30 px-3 py-1 text-sm text-slate-800"
-                >
-                  {c}
-                </span>
-              ))}
-            </div>
-          </div>
-          {info.avoid && (
-            <p className="text-sm text-slate-600">
-              <span className="font-medium">Ограничения:</span> {info.avoid}
-            </p>
-          )}
-          <div className="mt-8">
-            <Link
-              to={`/skin-test?type=${encodeURIComponent(type.trim().toUpperCase())}`}
-              className="inline-block rounded-full bg-brand px-6 py-3 text-center text-sm font-semibold text-white transition hover:bg-brand/90"
-            >
-              Посмотреть результат теста
-            </Link>
-          </div>
-        </div>
-      ) : (
-        <p className="rounded-xl border border-slate-100 bg-slate-50/50 px-4 py-6 text-slate-600">Тип кожи: {type}</p>
-      )}
-    </main>
-  );
+  const t = result.skin_type?.trim();
+  const to = t ? `/skin-test?type=${encodeURIComponent(t.toUpperCase())}` : '/skin-test';
+  return <Navigate to={to} replace />;
 };

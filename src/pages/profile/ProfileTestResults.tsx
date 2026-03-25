@@ -68,24 +68,26 @@ export const ProfileTestResults: React.FC = () => {
         </p>
       ) : (
         <ul className="space-y-3">
-          {list.map((r) => (
-            <li key={r.id} className="flex items-center justify-between rounded-xl border border-slate-100 bg-white px-4 py-4">
-              <Link to={`/profile/test-results/${r.id}`} className="min-w-0 flex-1">
-                <p className="font-medium text-slate-800">{r.skin_type ?? '—'}</p>
-                <p className="text-xs text-slate-500">{formatDate(r.completed_at)}</p>
-              </Link>
-              <Link
-                to={
-                  r.skin_type
-                    ? `/skin-test?type=${encodeURIComponent(r.skin_type.trim().toUpperCase())}`
-                    : '/skin-test'
-                }
-                className="ml-3 shrink-0 text-xs font-medium text-brand hover:underline"
-              >
-                Посмотреть результат теста
-              </Link>
-            </li>
-          ))}
+          {list.map((r) => {
+            const resultHref =
+              r.skin_type && r.skin_type.trim()
+                ? `/skin-test?type=${encodeURIComponent(r.skin_type.trim().toUpperCase())}`
+                : '/skin-test';
+            return (
+              <li key={r.id}>
+                <Link
+                  to={resultHref}
+                  className="flex items-center justify-between rounded-xl border border-slate-100 bg-white px-4 py-4 transition hover:border-brand/30 hover:bg-brand-soft/10"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-slate-800">{r.skin_type ?? '—'}</p>
+                    <p className="text-xs text-slate-500">{formatDate(r.completed_at)}</p>
+                  </div>
+                  <span className="ml-3 shrink-0 text-xs font-medium text-brand">Посмотреть результат теста</span>
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       )}
     </main>

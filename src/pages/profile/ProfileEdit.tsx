@@ -45,7 +45,7 @@ import {
  * 새로고침 시 auth 초기화를 기다린 뒤 렌더링하며, 로딩/데이터 보호/세션 재검사/에러 방어 적용.
  */
 /** Имя / пароль — mb-1 라벨 (delivery fieldLabelClass와 구분) */
-const labelClass = 'mb-1 block text-sm font-medium text-slate-700';
+const labelClass = 'mb-1 block text-[length:calc(0.875rem-1pt)] font-medium text-slate-700';
 
 function formatPhone(value: string): string {
   let digits = (value ?? '').replace(/\D/g, '').slice(0, 11);
@@ -85,14 +85,14 @@ function ErrorFallback({ onRetry }: { onRetry?: () => void }) {
           <button
             type="button"
             onClick={onRetry}
-            className="text-sm text-brand hover:underline"
+            className="text-[length:calc(0.875rem-1pt)] text-brand hover:underline"
           >
             Обновить страницу
           </button>
         </p>
       )}
       <p className="mt-6 text-center">
-        <Link to="/profile" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> Profile</Link>
+        <Link to="/profile" className="inline-flex items-center gap-1.5 text-[length:calc(0.875rem-1pt)] font-medium text-brand hover:opacity-90"><BackArrow /> Profile</Link>
       </p>
     </main>
   );
@@ -537,12 +537,12 @@ export const ProfileEdit: React.FC = () => {
     <ProfileEditErrorBoundary>
       <main className="mx-auto min-w-0 max-w-xl px-3 py-5 sm:px-6 sm:py-10 md:py-14">
         <p className="mb-6">
-          <Link to="/profile" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> Profile</Link>
+          <Link to="/profile" className="inline-flex items-center gap-1.5 text-[length:calc(0.875rem-1pt)] font-medium text-brand hover:opacity-90"><BackArrow /> Profile</Link>
         </p>
 
         {syncNotice && (
           <div className="mb-8">
-            <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" role="status">
+            <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[length:calc(0.75rem-1pt)] text-amber-900" role="status">
               {syncNotice}
             </p>
           </div>
@@ -550,7 +550,7 @@ export const ProfileEdit: React.FC = () => {
 
         <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
           <section>
-            <h2 className="mb-4 text-lg font-semibold text-slate-900">Основные данные</h2>
+            <h2 className="mb-4 text-[length:calc(1.125rem-1pt)] font-semibold text-slate-900">Основные данные</h2>
             <div className="space-y-4">
               <div>
                 <label htmlFor="pe-name" className={labelClass}>Имя</label>
@@ -580,7 +580,7 @@ export const ProfileEdit: React.FC = () => {
                             <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
                           </svg>
                         </span>
-                        <p className="text-sm font-semibold tracking-tight text-slate-900">Telegram</p>
+                        <p className="text-[length:calc(0.875rem-1pt)] font-semibold tracking-tight text-slate-900">Telegram</p>
                       </div>
                       {/* Только статус привязки — действия (кнопки) в блоке «Доставка» */}
                       <div className="mt-2.5">
@@ -605,7 +605,7 @@ export const ProfileEdit: React.FC = () => {
                             <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
                           </svg>
                         </span>
-                        <p className="text-sm font-semibold tracking-tight text-slate-900">E-mail</p>
+                        <p className="text-[length:calc(0.875rem-1pt)] font-semibold tracking-tight text-slate-900">E-mail</p>
                       </div>
                       <div className="mt-2.5">
                         {!initialized ? (
@@ -626,12 +626,12 @@ export const ProfileEdit: React.FC = () => {
               )}
 
               <div className="mt-6 border-t border-slate-100 pt-4">
-                <h3 className="mb-3 text-sm font-semibold text-slate-900">Сменить пароль</h3>
+                <h3 className="mb-3 text-[length:calc(0.875rem-1pt)] font-semibold text-slate-900">Сменить пароль</h3>
                 {!passwordSection ? (
                   <button
                     type="button"
                     onClick={() => setPasswordSection(true)}
-                    className="rounded-full border border-slate-200 py-2.5 px-4 text-sm font-medium text-slate-700 hover:border-brand hover:text-brand"
+                    className="rounded-full border border-slate-200 py-2.5 px-4 text-[length:calc(0.875rem-1pt)] font-medium text-slate-700 hover:border-brand hover:text-brand"
                   >
                     Изменить пароль
                   </button>
@@ -649,8 +649,8 @@ export const ProfileEdit: React.FC = () => {
                       <label htmlFor="pw-confirm" className={labelClass}>Повторите новый пароль</label>
                       <input id="pw-confirm" type="password" className={inputClass} placeholder="••••••••" value={pwConfirm} onChange={(e) => { setPwConfirm(e.target.value); setPwError(''); }} />
                     </div>
-                    {pwError && <p className="text-sm text-red-600">{pwError}</p>}
-                    {pwSuccess && <p className="text-sm text-green-600">Пароль успешно изменён.</p>}
+                    {pwError && <p className="text-[length:calc(0.875rem-1pt)] text-red-600">{pwError}</p>}
+                    {pwSuccess && <p className="text-[length:calc(0.875rem-1pt)] text-green-600">Пароль успешно изменён.</p>}
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
@@ -670,11 +670,11 @@ export const ProfileEdit: React.FC = () => {
                           setPwNew('');
                           setPwConfirm('');
                         }}
-                        className="rounded-full bg-brand px-4 py-2.5 text-sm font-medium text-white hover:bg-brand/90"
+                        className="rounded-full bg-brand px-4 py-2.5 text-[length:calc(0.875rem-1pt)] font-medium text-white hover:bg-brand/90"
                       >
                         Сменить пароль
                       </button>
-                      <button type="button" onClick={() => { setPasswordSection(false); setPwCurrent(''); setPwNew(''); setPwConfirm(''); setPwError(''); setPwSuccess(false); }} className="text-sm text-slate-500 hover:text-slate-700">Отмена</button>
+                      <button type="button" onClick={() => { setPasswordSection(false); setPwCurrent(''); setPwNew(''); setPwConfirm(''); setPwError(''); setPwSuccess(false); }} className="text-[length:calc(0.875rem-1pt)] text-slate-500 hover:text-slate-700">Отмена</button>
                     </div>
                   </div>
                 )}
@@ -682,11 +682,11 @@ export const ProfileEdit: React.FC = () => {
 
               {userId && userId !== ADMIN_DUMMY_USER_ID && (
                 <div className="prose-ru mt-6 min-w-0 max-w-full border-t border-slate-100 pt-4">
-                  <p className="text-sm font-semibold leading-snug text-slate-900">Уведомления в Telegram</p>
-                  <p className="mt-1.5 text-xs leading-snug text-slate-500">
+                  <p className="text-[length:calc(0.875rem-1pt)] font-semibold leading-snug text-slate-900">Уведомления в Telegram</p>
+                  <p className="mt-1.5 text-[length:calc(0.75rem-1pt)] leading-snug text-slate-500">
                     Привязка Telegram — в разделе «Доставка» ниже. Уведомления о заказах и акциях.
                   </p>
-                  <label className="mt-3 flex min-w-0 cursor-pointer items-start gap-2.5 text-sm leading-snug text-slate-700">
+                  <label className="mt-3 flex min-w-0 cursor-pointer items-start gap-2.5 text-[length:calc(0.875rem-1pt)] leading-snug text-slate-700">
                     <input
                       type="checkbox"
                       className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-brand focus:ring-brand"
@@ -699,7 +699,7 @@ export const ProfileEdit: React.FC = () => {
                     />
                     <span className="min-w-0 flex-1">Заказы и доставка (статус, трекинг)</span>
                   </label>
-                  <label className="mt-2.5 flex min-w-0 cursor-pointer items-start gap-2.5 text-sm leading-snug text-slate-700">
+                  <label className="mt-2.5 flex min-w-0 cursor-pointer items-start gap-2.5 text-[length:calc(0.875rem-1pt)] leading-snug text-slate-700">
                     <input
                       type="checkbox"
                       className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-brand focus:ring-brand"
@@ -718,7 +718,7 @@ export const ProfileEdit: React.FC = () => {
           </section>
 
           <section className="min-w-0">
-            <h2 className="mb-4 text-lg font-semibold text-slate-900">
+            <h2 className="mb-4 text-[length:calc(1.125rem-1pt)] font-semibold text-slate-900">
               Доставка <span className={hintClass}>(при заказе — обязательно)</span>
             </h2>
             <div className={deliveryFormSectionStackClass}>
@@ -829,12 +829,12 @@ export const ProfileEdit: React.FC = () => {
                     </div>
                   )}
                   {verifyEmailError && (
-                    <p className="mt-2 text-xs text-red-600" role="alert">
+                    <p className="mt-2 text-[length:calc(0.75rem-1pt)] text-red-600" role="alert">
                       {verifyEmailError}
                     </p>
                   )}
                   {verifyEmailMessage && (
-                    <p className="mt-2 text-xs text-slate-600" role="status">
+                    <p className="mt-2 text-[length:calc(0.75rem-1pt)] text-slate-600" role="status">
                       {verifyEmailMessage}
                     </p>
                   )}
@@ -884,7 +884,7 @@ export const ProfileEdit: React.FC = () => {
                       <button
                         type="button"
                         onClick={handleUnlinkToChangePhone}
-                        className="w-full rounded-xl border border-slate-200 bg-white py-2.5 text-center text-xs font-semibold text-brand shadow-sm transition hover:border-brand/40 hover:bg-brand-soft/20"
+                        className="w-full rounded-xl border border-slate-200 bg-white py-2.5 text-center text-[length:calc(0.75rem-1pt)] font-semibold text-brand shadow-sm transition hover:border-brand/40 hover:bg-brand-soft/20"
                       >
                         Изменить номер
                       </button>
@@ -898,7 +898,7 @@ export const ProfileEdit: React.FC = () => {
                           setPhoneUnlinkRequested(false);
                           void loadProfileFromDb();
                         }}
-                        className="text-xs font-medium text-slate-600 underline hover:text-slate-800"
+                        className="text-[length:calc(0.75rem-1pt)] font-medium text-slate-600 underline hover:text-slate-800"
                       >
                         Отмена
                       </button>
@@ -909,7 +909,7 @@ export const ProfileEdit: React.FC = () => {
                       Нажмите «Сохранить», чтобы записать номер и снять привязку Telegram. «Отмена» — без изменений в аккаунте.
                     </p>
                   )}
-                  {phoneError && <p className="mt-1 text-xs text-red-500">{phoneError}</p>}
+                  {phoneError && <p className="mt-1 text-[length:calc(0.75rem-1pt)] text-red-500">{phoneError}</p>}
                 </div>
 
                 <AddressSuggest
@@ -920,7 +920,7 @@ export const ProfileEdit: React.FC = () => {
                         <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 text-xs font-medium transition hover:border-brand hover:text-brand">
                           ?
                         </span>
-                        <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 inline-block w-max -translate-x-1/2 whitespace-nowrap rounded border border-slate-100 bg-white px-2.5 py-1.5 text-left text-xs font-medium leading-none text-brand shadow-md opacity-0 transition group-hover:opacity-100">
+                        <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 inline-block w-max -translate-x-1/2 whitespace-nowrap rounded border border-slate-100 bg-white px-2.5 py-1.5 text-left text-[length:calc(0.75rem-1pt)] font-medium leading-none text-brand shadow-md opacity-0 transition group-hover:opacity-100">
                           При вводе адреса нижние поля заполнятся автоматически.
                         </span>
                       </span>
@@ -1032,7 +1032,7 @@ export const ProfileEdit: React.FC = () => {
                 setEditing(true);
                 setEditStartedFromFooter(true);
               }}
-              className="w-full rounded-full border border-slate-200 py-3.5 text-base font-medium text-slate-700 transition hover:border-brand hover:bg-brand-soft/10"
+              className="w-full rounded-full border border-slate-200 py-3.5 text-[length:calc(1rem-1pt)] font-medium text-slate-700 transition hover:border-brand hover:bg-brand-soft/10"
             >
               Редактировать
             </button>
@@ -1040,7 +1040,7 @@ export const ProfileEdit: React.FC = () => {
             isDirty && (
               <div className="space-y-3">
                 {saveError && (
-                  <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800" role="alert">
+                  <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-[length:calc(0.875rem-1pt)] text-red-800" role="alert">
                     {saveError}
                   </p>
                 )}
@@ -1048,7 +1048,7 @@ export const ProfileEdit: React.FC = () => {
                   type="button"
                   onClick={() => void handleSave()}
                   disabled={saveLoading}
-                  className="w-full rounded-full bg-brand py-3.5 text-base font-semibold text-white transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-70"
+                  className="w-full rounded-full bg-brand py-3.5 text-[length:calc(1rem-1pt)] font-semibold text-white transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-70"
                 >
                   {saveLoading ? 'Сохранение…' : 'Сохранить'}
                 </button>
@@ -1058,14 +1058,14 @@ export const ProfileEdit: React.FC = () => {
         </form>
 
         {telegramLinkedToast && (
-          <div className="fixed bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-brand px-5 py-2.5 text-sm font-medium text-white shadow-lg md:bottom-8" role="status" aria-live="polite">
+          <div className="fixed bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-brand px-5 py-2.5 text-[length:calc(0.875rem-1pt)] font-medium text-white shadow-lg md:bottom-8" role="status" aria-live="polite">
             Telegram привязан. Аккаунт успешно связан.
           </div>
         )}
         {saveSuccessToast && (
           <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center px-4">
             <div
-              className="max-w-[min(100vw-2rem,24rem)] rounded-2xl bg-[#1a2f4a] px-5 py-3 text-center text-sm font-medium text-white shadow-lg"
+              className="max-w-[min(100vw-2rem,24rem)] rounded-2xl bg-[#1a2f4a] px-5 py-3 text-center text-[length:calc(0.875rem-1pt)] font-medium text-white shadow-lg"
               role="status"
               aria-live="polite"
             >

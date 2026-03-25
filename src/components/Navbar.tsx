@@ -46,13 +46,41 @@ function formatNotificationDate(iso: string): string {
   }
 }
 
-/** 모바일 고정 서브바 라벨 우측 이동 — Skin test·Beauty box 추가 +1vw */
+/** 모바일 서브바 라벨 미세 위치 조정(vw) */
 function mobileSemoSubnavLabelShift(to: string): string {
-  if (to === '/inner-beauty') return 'translate-x-[4vw]';
-  if (to === '/shop') return 'translate-x-[3vw]';
-  if (to === '/hair-beauty') return 'translate-x-[2vw]';
-  if (to === '/skin-test') return 'translate-x-[1vw]';
+  if (to === '/skin-test' || to === '/promo') return 'translate-x-[3vw]';
+  if (to === '/shop') return 'translate-x-[1vw]';
+  if (to === '/inner-beauty') return 'translate-x-[-1vw]';
   return '';
+}
+
+/**
+ * 모바일 서브바 5열 — flex 가중치로 «Beauty box» 칸 확보, 필요한 항목만 translate-x.
+ */
+function mobileSemoSubnavCellFlex(to: string): string {
+  switch (to) {
+    case '/shop':
+      return 'min-w-0 flex-[1.6] basis-0';
+    case '/skin-test':
+      return 'min-w-0 flex-[1.15] basis-0';
+    case '/inner-beauty':
+    case '/hair-beauty':
+      return 'min-w-0 flex-[1] basis-0';
+    case '/promo':
+      return 'min-w-0 flex-[0.75] basis-0';
+    default:
+      return 'min-w-0 flex-1 basis-0';
+  }
+}
+
+/** /product?id... 에 붙는 catalog 값을 SEMO 서브메뉴 경로로 매핑 */
+function productCatalogToSubmenuPath(catalog: string | null): string | null {
+  if (!catalog) return null;
+  const c = catalog.trim().toLowerCase();
+  if (c === 'beauty') return '/shop';
+  if (c === 'inner_beauty' || c === 'inner-beauty') return '/inner-beauty';
+  if (c === 'hair_beauty' || c === 'hair-beauty') return '/hair-beauty';
+  return null;
 }
 
 export const Navbar: React.FC = () => {
@@ -168,6 +196,12 @@ export const Navbar: React.FC = () => {
   /** 모바일 하단바: 현재 화면에 따른 아이콘 활성화 (강조용) */
   const path = location.pathname;
   const isSemoBoxActive = isSemoBoxSubmenuPath(path);
+  /** 모바일 SEMO Box 하위 전체 + /product — 최상단 로고 줄 대신 서브메뉴 한 줄 */
+  const pathNorm = (path.split('?')[0] ?? path).replace(/\/$/, '') || '/';
+  const isProductDetailPath = pathNorm.startsWith('/product/');
+  const productCatalogSubmenuPath = productCatalogToSubmenuPath(new URLSearchParams(location.search).get('catalog'));
+  const isMobileSemoSubnavMerged =
+    isSemoBoxActive || isProductDetailPath;
   const isHomeActive = path === '/';
   /** 모바일 하단: 뷰티박스(/shop) 탭 활성 — /shop·/shop/box-history 등 */
   const isShopTabActive = path === '/shop' || path.startsWith('/shop/');
@@ -373,6 +407,43 @@ export const Navbar: React.FC = () => {
     </>
   );
 
+  /**
+   * 모바일 고정 서브바 한 줄 — flex 가중치 + 일부 항목 translate-x.
+   * 글자: clamp 전 구간 +1pt (min / vw중간 / max).
+   */
+  const mobileSemoSubmenuRowEl = (
+    <div className="flex w-full min-w-0 items-stretch gap-x-0 px-0">
+      {SEMO_BOX_SUBMENU.map((sub) => {
+        const line = sub.shortLabel ?? sub.label;
+        const ariaWhenShort = sub.shortLabel != null && sub.shortLabel !== sub.label ? sub.label : undefined;
+        return (
+          <NavLink
+            key={sub.to}
+            to={sub.to}
+            replace
+            aria-label={ariaWhenShort}
+            className={({ isActive }) =>
+              // /product 에서는 현재 상품이 속한 catalog 탭을 active로 유지
+              ((isActive || (isProductDetailPath && productCatalogSubmenuPath === sub.to))
+                ? `flex ${mobileSemoSubnavCellFlex(sub.to)} items-center justify-center self-stretch overflow-visible px-0 py-1 text-center font-semibold leading-tight tracking-normal transition-colors ` +
+                  `text-[length:clamp(calc(12px+1pt),calc(2vw+3pt),calc(15px+1pt))] text-brand`
+                : `flex ${mobileSemoSubnavCellFlex(sub.to)} items-center justify-center self-stretch overflow-visible px-0 py-1 text-center font-semibold leading-tight tracking-normal transition-colors ` +
+                  `text-[length:clamp(calc(12px+1pt),calc(2vw+3pt),calc(15px+1pt))] text-slate-600 active:bg-slate-100`) +
+              ` ${mobileSemoSubnavLabelShift(sub.to)}`
+            }
+          >
+            <span className="block min-w-0 max-w-full truncate text-center">{line}</span>
+          </NavLink>
+        );
+      })}
+    </div>
+  );
+
+  /** 모바일 팝오버(장바구니·알림) 시작 세로 위치 — /shop·/product 상단 서브 병합 시 바 높이에 맞춤 */
+  const mobilePopoverTopClass = isMobileSemoSubnavMerged
+    ? 'top-[calc(max(0.2rem,env(safe-area-inset-top,0px))+var(--semo-mobile-box-subnav-h))]'
+    : 'top-[var(--semo-mobile-header-h)]';
+
   return (
     <>
       {/* 웹: 로고(좌) · 가운데 텍스트 메뉴 · 우측 아이콘(장바구니·알림·Telegram·프로필). 모바일: 로고만 가운데 */}
@@ -381,11 +452,21 @@ export const Navbar: React.FC = () => {
         className={`fixed left-0 right-0 top-0 z-40 w-full border-b ${
           productDesktopNav?.compact
             ? 'border-slate-200/90 bg-white shadow-[0_4px_14px_-4px_rgba(0,0,0,0.1),0_2px_6px_-2px_rgba(0,0,0,0.06)]'
-            : 'border-slate-100 bg-white/80 backdrop-blur-md'
+            : isMobileSemoSubnavMerged
+              ? // 모바일 /shop·/product: 서브바와 동일 투명도·블러 · md+는 기존 헤더 톤
+                'border-slate-200/60 bg-white/90 backdrop-blur-md md:border-slate-100 md:bg-white/80 md:backdrop-blur-md'
+              : // 모바일+SEMO Box 구간: 상단은 불투명 흰색 · 데스크톱은 기존 반투명+블러
+                `border-slate-100 bg-white/80 backdrop-blur-md ${
+                  isSemoBoxActive ? 'max-md:bg-white max-md:backdrop-blur-none' : ''
+                }`
         } ${productStickyReplacesNav ? 'max-md:hidden' : ''} md:fixed md:z-40`}
       >
         <div
-          className="relative mx-auto flex h-11 w-full min-w-0 max-w-7xl items-center px-4 sm:h-[3.2rem]"
+          className={`relative mx-auto flex w-full min-w-0 max-w-7xl px-4 ${
+            isMobileSemoSubnavMerged
+              ? 'min-h-[var(--semo-mobile-box-subnav-h)] items-stretch md:h-[3.2rem] md:min-h-0 md:items-center'
+              : 'h-11 items-center sm:h-[3.2rem]'
+          }`}
           style={{ paddingTop: 'max(0.2rem, env(safe-area-inset-top))' }}
         >
           {/* md+ 컴팩트: 상세 본문과 동일 — 뷰포트 가운데 max-w-3xl 열 안에 가격(중앙) + В корзину(열 오른쪽) */}
@@ -424,13 +505,22 @@ export const Navbar: React.FC = () => {
             </div>
           )}
 
-          {/* 모바일: 로고만 가운데 */}
-          <div className="flex w-full flex-1 items-center justify-center md:hidden">
-            <Link to="/" className="flex shrink-0 items-center" aria-label="SEMO box">
-              <span className="font-semibold tracking-[0.2em] text-brand">SEMO </span>
-              <span className="font-semibold tracking-[0.2em] text-slate-700">box</span>
-            </Link>
-          </div>
+          {/* 모바일: /shop·/shop/*·/product/* 는 로고 대신 서브메뉴 한 줄(고정 서브바와 동일 마크업) · 그 외는 SEMO box 로고 */}
+          {isMobileSemoSubnavMerged ? (
+            <div
+              className="relative flex w-full min-h-[var(--semo-mobile-box-subnav-h)] items-stretch -mx-4 px-0 md:hidden"
+              aria-label="SEMO Box"
+            >
+              {mobileSemoSubmenuRowEl}
+            </div>
+          ) : (
+            <div className="flex w-full flex-1 items-center justify-center md:hidden">
+              <Link to="/" className="flex shrink-0 items-center" aria-label="SEMO box">
+                <span className="font-semibold tracking-[0.2em] text-brand">SEMO </span>
+                <span className="font-semibold tracking-[0.2em] text-slate-700">box</span>
+              </Link>
+            </div>
+          )}
 
           {/* md+: 로고 | 가운데(텍스트 메뉴 또는 상품 가격+В корзину) | 아이콘 */}
           <div className="hidden min-w-0 flex-1 items-center gap-3 md:flex">
@@ -533,7 +623,9 @@ export const Navbar: React.FC = () => {
                 )}
               </button>
               {cartPopoverOpen && (
-                <div className="fixed left-1/2 top-[var(--semo-mobile-header-h)] z-50 flex min-h-[13rem] max-h-[min(72vh,calc(100vh-5rem))] w-[min(26rem,calc(100vw-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl md:left-auto md:right-4 md:top-[var(--semo-desktop-header-h)] md:translate-x-0">
+                <div
+                  className={`fixed left-1/2 z-50 flex min-h-[13rem] max-h-[min(72vh,calc(100vh-5rem))] w-[min(26rem,calc(100vw-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl md:left-auto md:right-4 md:top-[var(--semo-desktop-header-h)] md:translate-x-0 ${mobilePopoverTopClass}`}
+                >
                   {cartPanelInner}
                 </div>
               )}
@@ -570,7 +662,9 @@ export const Navbar: React.FC = () => {
                 )}
               </button>
               {notificationOpen && (
-                <div className="fixed left-1/2 top-[var(--semo-mobile-header-h)] z-50 flex max-h-[min(72vh,calc(100vh-5rem))] w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl md:left-auto md:right-4 md:top-[var(--semo-desktop-header-h)] md:translate-x-0">
+                <div
+                  className={`fixed left-1/2 z-50 flex max-h-[min(72vh,calc(100vh-5rem))] w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl md:left-auto md:right-4 md:top-[var(--semo-desktop-header-h)] md:translate-x-0 ${mobilePopoverTopClass}`}
+                >
                   <div className="relative shrink-0 border-b border-slate-100 px-4 py-3 pr-12">
                     <p className="text-sm font-semibold text-slate-800">Уведомления</p>
                     {isLoggedIn && unreadCount > 0 && (
@@ -692,34 +786,14 @@ export const Navbar: React.FC = () => {
         </div>
       </header>
 
-      {/* 모바일: SEMO Box 하위 화면 — 메인 헤더 바로 아래 고정, 한 줄(짧은 라벨 + clamp 글자) */}
-      {isSemoBoxActive && !productStickyReplacesNav && (
+      {/* 모바일: SEMO Box 하위 — 헤더 아래 고정 서브바(/shop·/product 는 위에서 병합되어 여기 생략) */}
+      {isSemoBoxActive && !productStickyReplacesNav && !isMobileSemoSubnavMerged && (
         <nav
-          className="fixed left-0 right-0 z-[38] -mt-px flex min-h-[var(--semo-mobile-box-subnav-h)] items-stretch border-b border-slate-200/80 bg-white/95 backdrop-blur-md md:hidden"
+          className="fixed left-0 right-0 z-[38] -mt-px flex min-h-[var(--semo-mobile-box-subnav-h)] items-stretch border-b border-slate-200/60 bg-white/90 backdrop-blur-md md:hidden"
           style={{ top: 'var(--semo-mobile-header-h)' }}
           aria-label="SEMO Box"
         >
-          {/* flex-1 basis-0: 칸 너비 동일, 세로 구분선 없음 */}
-          <div className="flex w-full min-w-0 items-stretch px-0 sm:px-0.5">
-            {SEMO_BOX_SUBMENU.map((sub) => (
-              <NavLink
-                key={sub.to}
-                to={sub.to}
-                replace
-                className={({ isActive }) =>
-                  `flex min-w-0 flex-1 basis-0 items-center justify-center self-stretch px-0.5 py-1 text-center font-semibold leading-tight tracking-normal transition-colors ` +
-                  `text-[length:clamp(13px,calc(2.2vw+2pt),16px)] ` +
-                  `${isActive ? 'text-brand' : 'text-slate-600 active:bg-slate-100'}`
-                }
-              >
-                <span
-                  className={`block min-w-0 max-w-full truncate text-center ${mobileSemoSubnavLabelShift(sub.to)}`}
-                >
-                  {sub.shortLabel ?? sub.label}
-                </span>
-              </NavLink>
-            ))}
-          </div>
+          {mobileSemoSubmenuRowEl}
         </nav>
       )}
 
@@ -728,12 +802,12 @@ export const Navbar: React.FC = () => {
         <div
           id="semo-box-subnav"
           ref={semoBoxSubbarRef}
-          className="fixed left-0 right-0 z-[39] hidden -mt-px border-b border-slate-200/60 bg-white/95 backdrop-blur-md md:block"
+          className="fixed left-0 right-0 z-[39] hidden -mt-px border-b border-slate-200/60 bg-white/75 backdrop-blur-md md:block"
           style={{ top: 'var(--semo-desktop-header-h, 3.2rem)' }}
           onMouseEnter={semoBoxEnter}
           onMouseLeave={semoBoxLeave}
         >
-          <nav className="mx-auto flex max-w-7xl items-center justify-center gap-x-8 px-4 py-1.5 lg:gap-x-12">
+          <nav className="mx-auto flex max-w-7xl items-center justify-center gap-x-8 px-4 py-[calc(0.5rem+0.5vw)] lg:gap-x-12">
             {SEMO_BOX_SUBMENU.map((sub) => (
               <NavLink
                 key={sub.to}
@@ -744,7 +818,7 @@ export const Navbar: React.FC = () => {
                   setSemoBoxPinned(false);
                 }}
                 className={({ isActive }) =>
-                  `whitespace-nowrap text-[length:calc(0.875rem+1pt)] transition-colors ${
+                  `whitespace-nowrap text-sm transition-colors ${
                     isActive
                       ? 'font-semibold text-brand'
                       : 'text-slate-600 hover:text-brand'
@@ -899,10 +973,23 @@ export const Navbar: React.FC = () => {
         <Link
           to="/"
           aria-label="Главная"
-          onClick={() => {
+          onClick={(e) => {
             setMobileMenuOpen(false);
             setNotificationOpen(false);
             setCartPopoverOpen(false);
+            if (e.metaKey || e.ctrlKey || e.button === 1) return;
+            if (location.pathname === '/') {
+              e.preventDefault();
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+              return;
+            }
+            e.preventDefault();
+            void navigate('/');
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              });
+            });
           }}
           className={`flex h-9 min-w-0 flex-1 items-center justify-center rounded-full px-1 transition sm:px-2 ${
             isHomeActive ? 'text-brand' : 'text-slate-600 hover:text-brand'

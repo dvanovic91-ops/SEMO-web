@@ -11,6 +11,9 @@ import {
 } from '../lib/accountLinkUi';
 import { AuthInitializingScreen } from '../components/SemoPageSpinner';
 
+/** 관리자 2계정은 등급 라벨을 VIP로 고정 표시 */
+const VIP_ADMIN_EMAILS = ['dvanovic91@gmail.com', 'admin@semo-box.ru'];
+
 /** 세션 내 텔레그램 연동 여부 캐시 — 프로필 API 응답 전에도 버튼 깜빡임 완화 */
 const TG_CACHE_PREFIX = 'semo_profile_tg_';
 function readTelegramCache(userId: string): boolean | null {
@@ -315,9 +318,28 @@ export const Profile: React.FC = () => {
     return 'loading';
   }, [userId, dbProfile]);
 
-  const tierTriangleGradientId = membershipTier === 'family' ? 'tier-gold-metal' : membershipTier === 'premium' ? 'tier-silver-metal' : 'tier-bronze-metal';
-  const tierTooltipText = membershipTier === 'family' ? 'Gold уровень' : membershipTier === 'premium' ? 'Silver уровень' : 'Bronze уровень';
-  const tierLabelShort = membershipTier === 'family' ? 'Gold' : membershipTier === 'premium' ? 'Silver' : 'Bronze';
+  const isVipAdminAccount = !!userEmail && VIP_ADMIN_EMAILS.includes(userEmail.trim().toLowerCase());
+  const tierTriangleGradientId = isVipAdminAccount
+    ? 'tier-gold-metal'
+    : membershipTier === 'family'
+      ? 'tier-gold-metal'
+      : membershipTier === 'premium'
+        ? 'tier-silver-metal'
+        : 'tier-bronze-metal';
+  const tierTooltipText = isVipAdminAccount
+    ? 'VIP уровень'
+    : membershipTier === 'family'
+      ? 'Gold уровень'
+      : membershipTier === 'premium'
+        ? 'Silver уровень'
+        : 'Bronze уровень';
+  const tierLabelShort = isVipAdminAccount
+    ? 'VIP'
+    : membershipTier === 'family'
+      ? 'Gold'
+      : membershipTier === 'premium'
+        ? 'Silver'
+        : 'Bronze';
 
   if (!initialized) return <AuthInitializingScreen />;
   if (!isLoggedIn || !userEmail) return <Navigate to="/login" replace />;
@@ -404,26 +426,32 @@ export const Profile: React.FC = () => {
               title={tierTooltipText}
             >
               <div className="flex h-[18px] w-full shrink-0 items-center justify-center">
-                <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" aria-hidden>
-                  <defs>
-                    <linearGradient id="tier-bronze-metal" x1="2" y1="3" x2="22" y2="20" gradientUnits="userSpaceOnUse">
-                      <stop offset="0" stopColor="#F2C189" />
-                      <stop offset="0.45" stopColor="#C07A3A" />
-                      <stop offset="1" stopColor="#7A3E10" />
-                    </linearGradient>
-                    <linearGradient id="tier-silver-metal" x1="2" y1="3" x2="22" y2="20" gradientUnits="userSpaceOnUse">
-                      <stop offset="0" stopColor="#F1F5F9" />
-                      <stop offset="0.45" stopColor="#A8B4C3" />
-                      <stop offset="1" stopColor="#667487" />
-                    </linearGradient>
-                    <linearGradient id="tier-gold-metal" x1="2" y1="3" x2="22" y2="20" gradientUnits="userSpaceOnUse">
-                      <stop offset="0" stopColor="#FFF4BF" />
-                      <stop offset="0.45" stopColor="#F1C94B" />
-                      <stop offset="1" stopColor="#B88509" />
-                    </linearGradient>
-                  </defs>
-                  <path d="M12 3L22 20H2L12 3Z" fill={`url(#${tierTriangleGradientId})`} />
-                </svg>
+                {isVipAdminAccount ? (
+                  <span className="bg-gradient-to-r from-amber-300 via-yellow-500 to-amber-700 bg-clip-text text-[11px] font-bold leading-none text-transparent">
+                    VIP
+                  </span>
+                ) : (
+                  <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <defs>
+                      <linearGradient id="tier-bronze-metal" x1="2" y1="3" x2="22" y2="20" gradientUnits="userSpaceOnUse">
+                        <stop offset="0" stopColor="#F2C189" />
+                        <stop offset="0.45" stopColor="#C07A3A" />
+                        <stop offset="1" stopColor="#7A3E10" />
+                      </linearGradient>
+                      <linearGradient id="tier-silver-metal" x1="2" y1="3" x2="22" y2="20" gradientUnits="userSpaceOnUse">
+                        <stop offset="0" stopColor="#F1F5F9" />
+                        <stop offset="0.45" stopColor="#A8B4C3" />
+                        <stop offset="1" stopColor="#667487" />
+                      </linearGradient>
+                      <linearGradient id="tier-gold-metal" x1="2" y1="3" x2="22" y2="20" gradientUnits="userSpaceOnUse">
+                        <stop offset="0" stopColor="#FFF4BF" />
+                        <stop offset="0.45" stopColor="#F1C94B" />
+                        <stop offset="1" stopColor="#B88509" />
+                      </linearGradient>
+                    </defs>
+                    <path d="M12 3L22 20H2L12 3Z" fill={`url(#${tierTriangleGradientId})`} />
+                  </svg>
+                )}
               </div>
               <div className="mt-1 flex h-[14px] w-full items-end justify-center">
                 <span className="text-center text-[10px] font-semibold leading-none text-slate-600">{tierLabelShort}</span>
@@ -508,35 +536,41 @@ export const Profile: React.FC = () => {
               title={tierTooltipText}
             >
               <div className="flex h-[18px] w-full shrink-0 items-center justify-center">
-                <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" aria-hidden>
-                  <defs>
-                    <linearGradient id="tier-bronze-metal-mobile" x1="2" y1="3" x2="22" y2="20" gradientUnits="userSpaceOnUse">
-                      <stop offset="0" stopColor="#F2C189" />
-                      <stop offset="0.45" stopColor="#C07A3A" />
-                      <stop offset="1" stopColor="#7A3E10" />
-                    </linearGradient>
-                    <linearGradient id="tier-silver-metal-mobile" x1="2" y1="3" x2="22" y2="20" gradientUnits="userSpaceOnUse">
-                      <stop offset="0" stopColor="#F1F5F9" />
-                      <stop offset="0.45" stopColor="#A8B4C3" />
-                      <stop offset="1" stopColor="#667487" />
-                    </linearGradient>
-                    <linearGradient id="tier-gold-metal-mobile" x1="2" y1="3" x2="22" y2="20" gradientUnits="userSpaceOnUse">
-                      <stop offset="0" stopColor="#FFF4BF" />
-                      <stop offset="0.45" stopColor="#F1C94B" />
-                      <stop offset="1" stopColor="#B88509" />
-                    </linearGradient>
-                  </defs>
-                  <path
-                    d="M12 3L22 20H2L12 3Z"
-                    fill={
-                      membershipTier === 'family'
-                        ? 'url(#tier-gold-metal-mobile)'
-                        : membershipTier === 'premium'
-                        ? 'url(#tier-silver-metal-mobile)'
-                        : 'url(#tier-bronze-metal-mobile)'
-                    }
-                  />
-                </svg>
+                {isVipAdminAccount ? (
+                  <span className="bg-gradient-to-r from-amber-300 via-yellow-500 to-amber-700 bg-clip-text text-[11px] font-bold leading-none text-transparent">
+                    VIP
+                  </span>
+                ) : (
+                  <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <defs>
+                      <linearGradient id="tier-bronze-metal-mobile" x1="2" y1="3" x2="22" y2="20" gradientUnits="userSpaceOnUse">
+                        <stop offset="0" stopColor="#F2C189" />
+                        <stop offset="0.45" stopColor="#C07A3A" />
+                        <stop offset="1" stopColor="#7A3E10" />
+                      </linearGradient>
+                      <linearGradient id="tier-silver-metal-mobile" x1="2" y1="3" x2="22" y2="20" gradientUnits="userSpaceOnUse">
+                        <stop offset="0" stopColor="#F1F5F9" />
+                        <stop offset="0.45" stopColor="#A8B4C3" />
+                        <stop offset="1" stopColor="#667487" />
+                      </linearGradient>
+                      <linearGradient id="tier-gold-metal-mobile" x1="2" y1="3" x2="22" y2="20" gradientUnits="userSpaceOnUse">
+                        <stop offset="0" stopColor="#FFF4BF" />
+                        <stop offset="0.45" stopColor="#F1C94B" />
+                        <stop offset="1" stopColor="#B88509" />
+                      </linearGradient>
+                    </defs>
+                    <path
+                      d="M12 3L22 20H2L12 3Z"
+                      fill={
+                        membershipTier === 'family'
+                          ? 'url(#tier-gold-metal-mobile)'
+                          : membershipTier === 'premium'
+                          ? 'url(#tier-silver-metal-mobile)'
+                          : 'url(#tier-bronze-metal-mobile)'
+                      }
+                    />
+                  </svg>
+                )}
               </div>
               <div className="mt-1 flex h-[14px] w-full items-end justify-center">
                 <span className="text-center text-[10px] font-semibold leading-none text-slate-600">{tierLabelShort}</span>

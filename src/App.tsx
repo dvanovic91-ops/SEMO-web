@@ -92,11 +92,17 @@ function AppLayout() {
   const { productDesktopNav } = useProductNavReplacement();
   const { pathname } = useLocation();
   const semoMobileSubnav = isSemoBoxSubmenuPath(pathname);
+  /** 모바일 SEMO Box 하위 전체 + /product — 상단 로고+하단 서브바 한 줄 병합 */
+  const pathNorm = (pathname.split('?')[0] ?? pathname).replace(/\/$/, '') || '/';
+  const isProductDetailPath = pathNorm.startsWith('/product/');
+  const isMobileSemoSubnavMerged = semoMobileSubnav || isProductDetailPath;
   // 네비게이션이 항상 fixed이므로 항상 상단 패딩 필요. 모바일 SEMO Box 구간에는 고정 서브바 높이 추가.
   const mdProductPad = 'md:pt-[var(--semo-desktop-header-h)]';
-  const mobileTopPad = semoMobileSubnav
-    ? 'max-md:pt-[calc(var(--semo-mobile-header-h)+var(--semo-mobile-box-subnav-h))]'
-    : '';
+  const mobileTopPad = isMobileSemoSubnavMerged
+    ? 'max-md:pt-[calc(max(0.2rem,env(safe-area-inset-top,0px))+var(--semo-mobile-box-subnav-h))]'
+    : semoMobileSubnav
+      ? 'max-md:pt-[calc(var(--semo-mobile-header-h)+var(--semo-mobile-box-subnav-h))]'
+      : '';
   return (
     <>
       <AddItemFromQuery />

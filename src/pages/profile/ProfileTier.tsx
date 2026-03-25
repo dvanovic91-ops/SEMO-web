@@ -6,11 +6,13 @@ import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+/** 관리자 2계정은 등급을 VIP로 고정 표시 */
+const VIP_ADMIN_EMAILS = ['dvanovic91@gmail.com', 'admin@semo-box.ru'];
 
 /** 회원 등급 안내 + 확정 주문 누계 금액(배송완료/구매확정, 테스트 주문 제외) */
 export const ProfileTier: React.FC = () => {
   const [searchParams] = useSearchParams();
-  const { userId, isLoggedIn, initialized, isAdmin } = useAuth();
+  const { userId, userEmail, isLoggedIn, initialized, isAdmin } = useAuth();
   const targetUserId = useMemo(() => {
     const p = searchParams.get('userId');
     if (isAdmin && p && UUID_RE.test(p)) return p;
@@ -71,8 +73,11 @@ export const ProfileTier: React.FC = () => {
   if (!isLoggedIn) return <Navigate to="/login" replace />;
 
   const viewingOtherUser = isAdmin && targetUserId && userId && targetUserId !== userId;
+  const isVipAdminAccount =
+    !viewingOtherUser && !!userEmail && VIP_ADMIN_EMAILS.includes(userEmail.trim().toLowerCase());
   const tier: 'bronze' | 'silver' | 'gold' = sumRub >= 100_000 ? 'gold' : sumRub >= 35_000 ? 'silver' : 'bronze';
-  const nextTarget = tier === 'bronze' ? 35_000 : tier === 'silver' ? 100_000 : null;
+  const nextTarget = isVipAdminAccount ? null : tier === 'bronze' ? 35_000 : tier === 'silver' ? 100_000 : null;
+  const tierLabel = isVipAdminAccount ? 'VIP' : tier === 'gold' ? 'Gold' : tier === 'silver' ? 'Silver' : 'Bronze';
 
   return (
     <main className="mx-auto max-w-xl px-4 py-6 sm:px-6 sm:py-10 md:py-14">
@@ -101,7 +106,7 @@ export const ProfileTier: React.FC = () => {
           <>
             <p className="text-sm text-slate-600">Текущий уровень</p>
             <p className="mt-1 text-lg font-semibold text-slate-900">
-              {tier === 'gold' ? 'Gold' : tier === 'silver' ? 'Silver' : 'Bronze'}
+              {tierLabel}
             </p>
             <p className="mt-3 text-sm text-slate-600">Сумма подтверждённых покупок</p>
             <p className="mt-1 text-2xl font-semibold tabular-nums text-slate-900">
@@ -117,6 +122,7 @@ export const ProfileTier: React.FC = () => {
         )}
       </section>
 
+      {!isVipAdminAccount && (
       <section className="mt-6 rounded-xl border border-slate-200 bg-white p-4">
         <h2 className="text-sm font-semibold text-slate-900">Пороговые суммы</h2>
         <ul className="mt-3 space-y-3 text-sm text-slate-700">
@@ -185,6 +191,7 @@ export const ProfileTier: React.FC = () => {
           </li>
         </ul>
       </section>
+      )}
     </main>
   );
 };

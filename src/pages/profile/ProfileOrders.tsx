@@ -172,13 +172,13 @@ export const ProfileOrders: React.FC = () => {
   return (
     <main className="mx-auto max-w-2xl px-4 py-6 sm:px-6 sm:py-10 md:py-14">
       <p className="mb-6">
-        <Link to="/profile" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> Profile</Link>
+        <Link to="/profile" className="inline-flex items-center gap-1.5 text-[length:calc(0.875rem-1pt)] font-medium text-brand hover:opacity-90"><BackArrow /> Profile</Link>
       </p>
       <header className="mb-8">
-        <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
+        <h1 className="text-[length:calc(1.25rem-1pt)] font-semibold tracking-tight text-slate-900 sm:text-[length:calc(1.5rem-1pt)]">
           История заказов
         </h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="mt-1 text-[length:calc(0.875rem-1pt)] text-slate-500">
           Заказы и отслеживание доставки
         </p>
       </header>
@@ -202,14 +202,14 @@ export const ProfileOrders: React.FC = () => {
             {/* 상단: 주문번호 + 날짜 + 테스트 뱃지 */}
             <div className="border-b border-slate-100 bg-slate-50/60 px-5 py-3 sm:px-6">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-base font-semibold tracking-tight text-slate-900">
+                <p className="text-[length:calc(1rem-1pt)] font-semibold tracking-tight text-slate-900">
                   Заказ № {order.order_number ?? order.id.slice(0, 8)}
                 </p>
                 <div className="flex items-center gap-2">
                   {order.is_test && (
                     <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-medium text-amber-900">Тест</span>
                   )}
-                  <span className="text-sm text-slate-500">{order.date}</span>
+                  <span className="text-[length:calc(0.875rem-1pt)] text-slate-500">{order.date}</span>
                 </div>
               </div>
             </div>
@@ -219,7 +219,7 @@ export const ProfileOrders: React.FC = () => {
               <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass[order.status]}`}>
                 {ORDER_STATUS_LABEL_RU[order.status]}
               </span>
-              <span className="text-sm font-semibold text-slate-900 tabular-nums">
+              <span className="text-[length:calc(0.875rem-1pt)] font-semibold text-slate-900 tabular-nums">
                 {order.total.toLocaleString('ru-RU')} ₽
               </span>
             </div>
@@ -228,7 +228,7 @@ export const ProfileOrders: React.FC = () => {
             {(order.receiver_name || order.receiver_phone || order.shipping_address) && (
               <div className="px-5 py-3 sm:px-6 bg-slate-50/40">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-2">Получатель</p>
-                <dl className="space-y-1 text-sm text-slate-700">
+                <dl className="space-y-1 text-[length:calc(0.875rem-1pt)] text-slate-700">
                   {order.receiver_name && (
                     <div><dt className="sr-only">ФИО</dt><dd>{order.receiver_name}</dd></div>
                   )}
@@ -252,17 +252,17 @@ export const ProfileOrders: React.FC = () => {
                 <div className="border-b border-slate-100 px-5 py-3 sm:px-6">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Доставка</p>
                   {carrierRu && (
-                    <p className="mt-1 text-sm text-slate-700">
+                    <p className="mt-1 text-[length:calc(0.875rem-1pt)] text-slate-700">
                       Перевозчик: <span className="font-medium">{carrierRu}</span>
                     </p>
                   )}
                   {ft?.tracking_number?.trim() && (
-                    <p className="mt-1 text-sm text-slate-700 tabular-nums">
+                    <p className="mt-1 text-[length:calc(0.875rem-1pt)] text-slate-700 tabular-nums">
                       Трек-номер: {ft.tracking_number.trim()}
                     </p>
                   )}
                   {evs.length > 0 && (
-                    <ul className="mt-2 space-y-1.5 text-sm text-slate-600">
+                    <ul className="mt-2 space-y-1.5 text-[length:calc(0.875rem-1pt)] text-slate-600">
                       {evs.map((ev, idx) => (
                         <li key={`${ev.at}-${idx}`}>
                           {ev.at ? new Date(ev.at).toLocaleString('ru-RU') : ''} — {ev.label_ru}
@@ -283,7 +283,7 @@ export const ProfileOrders: React.FC = () => {
                     href={resolveTrackingUrl(order.fulfillmentTracking ?? null, order.tracking_url)!}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 text-sm font-medium text-brand hover:underline"
+                    className="inline-flex items-center gap-2 text-[length:calc(0.875rem-1pt)] font-medium text-brand hover:underline"
                   >
                     <svg className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
@@ -308,7 +308,7 @@ export const ProfileOrders: React.FC = () => {
                       shipping_address: order.shipping_address ?? '',
                     });
                   }}
-                  className="text-sm font-medium text-brand hover:underline"
+                  className="text-[length:calc(0.875rem-1pt)] font-medium text-brand hover:underline"
                 >
                   Изменить данные доставки
                 </button>
@@ -318,7 +318,7 @@ export const ProfileOrders: React.FC = () => {
                 href={`${TELEGRAM_BOT_URL}?start=order_${encodeURIComponent(order.order_number ?? order.id.slice(0, 8))}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-lg border border-brand/30 bg-brand-soft/40 px-4 py-2.5 text-sm font-medium text-brand transition hover:bg-brand-soft/60"
+                className="inline-flex items-center gap-2 rounded-lg border border-brand/30 bg-brand-soft/40 px-4 py-2.5 text-[length:calc(0.875rem-1pt)] font-medium text-brand transition hover:bg-brand-soft/60"
               >
                 <svg className="h-5 w-5 shrink-0 text-[#26A5E4]" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
                   <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
@@ -329,28 +329,28 @@ export const ProfileOrders: React.FC = () => {
             {editingOrderId === order.id && (
               <div className="px-5 py-3 sm:px-6">
               <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3">
-                <p className="mb-2 text-xs font-medium text-slate-600">ФИО, телефон, адрес</p>
+                <p className="mb-2 text-[length:calc(0.75rem-1pt)] font-medium text-slate-600">ФИО, телефон, адрес</p>
                 <div className="space-y-2">
                   <input
                     type="text"
                     placeholder="ФИО получателя"
                     value={editForm.receiver_name}
                     onChange={(e) => setEditForm((f) => ({ ...f, receiver_name: e.target.value }))}
-                    className="w-full rounded border border-slate-200 px-3 py-2 text-sm"
+                    className="w-full rounded border border-slate-200 px-3 py-2 text-[length:calc(0.875rem-1pt)]"
                   />
                   <input
                     type="text"
                     placeholder="Телефон"
                     value={editForm.receiver_phone}
                     onChange={(e) => setEditForm((f) => ({ ...f, receiver_phone: e.target.value }))}
-                    className="w-full rounded border border-slate-200 px-3 py-2 text-sm"
+                    className="w-full rounded border border-slate-200 px-3 py-2 text-[length:calc(0.875rem-1pt)]"
                   />
                   <textarea
                     rows={2}
                     placeholder="Адрес доставки"
                     value={editForm.shipping_address}
                     onChange={(e) => setEditForm((f) => ({ ...f, shipping_address: e.target.value }))}
-                    className="w-full rounded border border-slate-200 px-3 py-2 text-sm"
+                    className="w-full rounded border border-slate-200 px-3 py-2 text-[length:calc(0.875rem-1pt)]"
                   />
                 </div>
                 <div className="mt-2 flex gap-2">
@@ -390,14 +390,14 @@ export const ProfileOrders: React.FC = () => {
                         setSaving(false);
                       }
                     }}
-                    className="rounded-full bg-brand px-4 py-1.5 text-sm font-medium text-white hover:bg-brand/90 disabled:opacity-50"
+                    className="rounded-full bg-brand px-4 py-1.5 text-[length:calc(0.875rem-1pt)] font-medium text-white hover:bg-brand/90 disabled:opacity-50"
                   >
                     {saving ? 'Сохранение…' : 'Сохранить'}
                   </button>
                   <button
                     type="button"
                     onClick={() => setEditingOrderId(null)}
-                    className="rounded-full border border-slate-200 px-4 py-1.5 text-sm text-slate-600 hover:bg-slate-100"
+                    className="rounded-full border border-slate-200 px-4 py-1.5 text-[length:calc(0.875rem-1pt)] text-slate-600 hover:bg-slate-100"
                   >
                     Отмена
                   </button>

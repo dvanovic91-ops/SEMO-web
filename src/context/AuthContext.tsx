@@ -9,7 +9,7 @@ export const TEST_ADMIN_EMAIL = 'admin@semo-box.ru';
 export const ADMIN_DUMMY_USER_ID = '00000000-0000-0000-0000-000000000001';
 
 /** 개발자 계정 — 항상 최상위 권한(관리자모드 전체). DB/RLS와 무관하게 프론트에서 항상 관리자로 인식 */
-const DEVELOPER_EMAILS = ['dvanovic91@gmail.com', 'dvavnovic91@gmail.com'];
+const DEVELOPER_EMAILS = ['dvanovic91@gmail.com'];
 /** 관리자 모드 접근 허용 이메일 — DB is_admin 없어도 이 목록에 있으면 관리자(권한부여 가능)로 인식 */
 const ADMIN_EMAIL_ALLOWLIST = ['admin@semo-box.ru', ...DEVELOPER_EMAILS];
 /** 매니저(보기 전용) 허용 이메일 */

@@ -95,7 +95,7 @@ export const ProfileReviews: React.FC = () => {
           Пока нет отзывов. Оформите заказ и оставьте отзыв — вам начислят баллы.
         </p>
       ) : (
-        <ul className="space-y-4">
+        <ul className="space-y-2">
           {list.map((r) => (
             <li key={r.id} className="rounded-xl border border-slate-100 bg-white p-4 transition hover:border-slate-200">
               <div className="flex items-start justify-between gap-3">
@@ -103,32 +103,51 @@ export const ProfileReviews: React.FC = () => {
                   to={r.product_id ? `/product/${r.product_id}#product-reviews` : '/profile/reviews'}
                   className="min-w-0 flex-1"
                 >
-                  <p className="text-sm font-medium text-slate-800">{r.product}</p>
-                  <p className="mt-1 text-sm text-slate-600">{r.text}</p>
-                  <p className="mt-2 flex items-center gap-2 text-xs text-slate-500">
+                  <p className="text-[length:calc(0.875rem-1pt)] font-medium text-slate-800">{r.product}</p>
+                  <p className="mt-1 text-[length:calc(0.875rem-1pt)] text-slate-600">{r.text}</p>
+                  <p className="mt-2 flex items-center gap-2 text-[length:calc(0.75rem-1pt)] text-slate-500">
                     <span>{r.date}</span>
                     <span className="text-amber-500">{'★'.repeat(r.rating)}</span>
                   </p>
                 </Link>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    handleDelete(r.id);
-                  }}
-                  disabled={deletingId === r.id}
-                  className="shrink-0 rounded border border-slate-200 p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
-                  title="Удалить"
-                  aria-label="Удалить"
-                >
-                  {deletingId === r.id ? (
-                    <span className="text-xs">…</span>
-                  ) : (
-                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                  )}
-                </button>
+                <div className="flex shrink-0 flex-col gap-1.5 sm:flex-row sm:items-start">
+                  {r.product_id ? (
+                    <Link
+                      to={`/product/${r.product_id}?editReview=${encodeURIComponent(r.id)}#product-reviews`}
+                      className="rounded border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                      title="Изменить отзыв"
+                      aria-label="Изменить отзыв"
+                    >
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+                        />
+                      </svg>
+                    </Link>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleDelete(r.id);
+                    }}
+                    disabled={deletingId === r.id}
+                    className="rounded border border-slate-200 p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                    title="Удалить"
+                    aria-label="Удалить"
+                  >
+                    {deletingId === r.id ? (
+                      <span className="text-xs">…</span>
+                    ) : (
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
               </div>
             </li>
           ))}

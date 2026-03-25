@@ -550,6 +550,8 @@ type HomeReviewItem = {
   product_id: string | null;
   product_name?: string;
   author_name?: string;
+  /** 리뷰 첨부 사진 (랜딩 카드 썸네일) */
+  review_photos?: { image_url: string }[];
 };
 
 const SHOWCASE_TABS = [
@@ -599,7 +601,7 @@ function ShowcaseImageWithIndicator({
 
   return (
     <div
-      className="relative mb-4 flex h-40 w-full items-center justify-center overflow-hidden rounded-2xl bg-slate-50/80 sm:h-52"
+      className="relative mb-4 flex h-40 w-full items-center justify-center overflow-hidden rounded-2xl bg-transparent sm:h-52"
       onMouseEnter={() => {
         if (canSlide) setActiveIndex(1);
       }}
@@ -800,14 +802,18 @@ function ProductShowcase() {
         ) : currentItems.length === 0 ? (
           <p className="py-16 text-center text-sm text-slate-400">Скоро здесь появятся товары!</p>
         ) : (
-          <div className="grid grid-cols-2 gap-5 sm:grid-cols-5 sm:gap-6">
+          /* w-full로 2열 유지 → sm+는 w-fit+고정 카드 너비로 한 줄 그룹을 mx-auto로 확실히 중앙 정렬 */
+          <div className="flex w-full justify-center">
+            <div className="flex w-full max-w-full flex-wrap justify-center gap-5 sm:w-auto sm:gap-6">
             {currentItems.slice(0, 5).map((item, idx) => (
-              <ShowcaseItemReveal key={`${activeTab}-${item.id}`} staggerIndex={idx}>
+              <div
+                key={`${activeTab}-${item.id}`}
+                className={`min-w-0 w-[calc((100%-1.25rem)/2)] sm:w-[12.75rem] sm:max-w-[12.75rem] sm:flex-shrink-0 ${idx >= 4 ? 'hidden sm:block' : ''}`}
+              >
+              <ShowcaseItemReveal staggerIndex={idx}>
                 <Link
                   to={`/product/${item.id}`}
-                  className={`group flex flex-col items-center rounded-3xl border border-slate-100/80 bg-white p-5 shadow-[0_2px_20px_-4px_rgba(0,0,0,0.05)] transition-shadow duration-500 hover:shadow-[0_8px_30px_-6px_rgba(0,0,0,0.1)] sm:p-6 ${
-                    idx >= 4 ? 'hidden sm:flex' : ''
-                  }`}
+                  className="group flex flex-col items-center rounded-3xl border border-slate-100/80 bg-white p-5 shadow-[0_2px_20px_-4px_rgba(0,0,0,0.05)] transition-shadow duration-500 hover:shadow-[0_8px_30px_-6px_rgba(0,0,0,0.1)] sm:p-6"
                 >
                   <ShowcaseImageWithIndicator
                     imageUrl={item.imageUrl}
@@ -825,7 +831,9 @@ function ProductShowcase() {
                   </div>
                 </Link>
               </ShowcaseItemReveal>
+              </div>
             ))}
+            </div>
           </div>
         )}
 
@@ -900,11 +908,34 @@ function HomeReviews() {
           });
         }
 
+        const reviewIds = rows.map((r) => r.id);
+        const photosMap: Record<string, { image_url: string }[]> = {};
+        if (reviewIds.length > 0) {
+          const { data: photoRows } = await supabase
+            .from('review_photos')
+            .select('review_id, image_url, sort_order')
+            .in('review_id', reviewIds);
+          const grouped: Record<string, { image_url: string; sort_order: number }[]> = {};
+          (photoRows ?? []).forEach((ph: { review_id: string; image_url: string; sort_order?: number | null }) => {
+            if (!ph.review_id || !ph.image_url?.trim()) return;
+            if (!grouped[ph.review_id]) grouped[ph.review_id] = [];
+            grouped[ph.review_id].push({
+              image_url: ph.image_url.trim(),
+              sort_order: Number(ph.sort_order) || 0,
+            });
+          });
+          Object.keys(grouped).forEach((rid) => {
+            grouped[rid].sort((a, b) => a.sort_order - b.sort_order);
+            photosMap[rid] = grouped[rid].map((x) => ({ image_url: x.image_url }));
+          });
+        }
+
         setReviews(
           rows.map((r) => ({
             ...r,
             author_name: profileMap[r.user_id] ?? 'Покупатель SEMO',
             product_name: r.product_id ? productMap[r.product_id] ?? 'SEMO Box' : 'SEMO Box',
+            review_photos: photosMap[r.id] ?? [],
           })),
         );
       } catch {
@@ -953,6 +984,21 @@ function HomeReviews() {
                 </div>
                 <p className="mb-2 line-clamp-1 text-xs font-medium text-brand">{r.product_name ?? 'SEMO Box'}</p>
                 <p className="mb-3 text-sm text-amber-500">{'★'.repeat(Math.max(1, Math.min(5, Math.round(r.rating || 0))))}</p>
+                {r.review_photos && r.review_photos.length > 0 ? (
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    {r.review_photos.slice(0, 6).map((ph, i) => (
+                      <a
+                        key={`${r.id}-ph-${i}`}
+                        href={ph.image_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-slate-100 bg-slate-50/80 transition hover:opacity-95"
+                      >
+                        <img src={ph.image_url} alt="" className="h-full w-full object-cover" loading="lazy" />
+                      </a>
+                    ))}
+                  </div>
+                ) : null}
                 <p className="line-clamp-4 text-sm leading-relaxed text-slate-600">
                   {r.body?.trim() || 'Отличный набор, буду заказывать еще!'}
                 </p>

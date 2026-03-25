@@ -306,7 +306,7 @@ type ProductComponent = {
   sku_id?: string | null;
 };
 
-type SkuItemSimple = { id: string; name: string; image_url: string | null; current_stock: number; unit: string };
+type SkuItemSimple = { id: string; name: string; display_name: string | null; description: string | null; image_url: string | null; current_stock: number; unit: string; category: string };
 
 type DashboardKpi = {
   totalRevenueCents: number;
@@ -339,7 +339,21 @@ type ProductStats = {
   reviewCount: number;
   avgRating: number | null;
   latestReviewAt: string | null;
+  /** 실제 주문만: 품목에 이 상품 id가 포함된 주문 건수(주문당 1회) */
+  orderCountAllTime: number;
+  /** 최근 7일 이내 생성된 주문 중 위와 동일 조건 */
+  orderCountLast7Days: number;
 };
+
+/** 주문 품목(JSON)에 상품 id 포함 여부 — items 우선, 없으면 snapshot_items */
+function orderLineItemsContainProductId(
+  ord: { items?: unknown; snapshot_items?: unknown },
+  productId: string,
+): boolean {
+  const raw = ord.items ?? ord.snapshot_items;
+  if (!raw || !Array.isArray(raw)) return false;
+  return (raw as { id?: string }[]).some((it) => it && String(it.id) === String(productId));
+}
 
 /** 상품 카테고리 문자열 정규화 — 공백/대소문자/유사 표기를 안전하게 통일 */
 function normalizeProductCategory(raw: unknown): 'beauty' | 'inner_beauty' | 'hair_beauty' {
@@ -415,7 +429,7 @@ const emptySlot = (index: number): Slot => ({
 });
 
 /** 개발자 계정 이메일 — RLS 안내 문구에 사용 */
-const DEVELOPER_EMAILS = ['dvanovic91@gmail.com', 'dvavnovic91@gmail.com'];
+const DEVELOPER_EMAILS = ['dvanovic91@gmail.com'];
 
 const ADMIN_TABS: { key: 'dashboard' | 'products' | 'skinMatch' | 'promo' | 'promoCodes' | 'broadcast' | 'orders' | 'activityLogs' | 'cartAbandonment' | 'reviewManagement' | 'members' | 'heroImage' | 'inventory'; label: string }[] = [
   { key: 'dashboard', label: '대시보드' },
@@ -523,6 +537,8 @@ export const Admin: React.FC = () => {
   const [ingredientBriefsMap, setIngredientBriefsMap] = useState<ProductIngredientBriefMap>({});
   const [ingredientInfographicUrl, setIngredientInfographicUrl] = useState('');
   const [productStats, setProductStats] = useState<ProductStats | null>(null);
+  /** ATP (Available To Promise) — BOM 기반 제작 가능 수량 (균등 배분) */
+  const [productAtp, setProductAtp] = useState<{ qty: number; bottleneck: string } | null>(null);
   const [productReviews, setProductReviews] = useState<ProductReviewSummary[]>([]);
   const [showProductReviews, setShowProductReviews] = useState(false);
   /** 리뷰 상세 목록 페이지 (한 화면 10개) */
@@ -1948,12 +1964,63 @@ export const Admin: React.FC = () => {
     if (!supabase || tab !== 'products') return;
     supabase
       .from('sku_items')
-      .select('id, name, image_url, current_stock, unit')
+      .select('id, name, display_name, description, image_url, current_stock, unit, category')
       .eq('is_active', true)
       .order('name')
       .then(({ data }) => setSkuList((data as SkuItemSimple[]) ?? []))
       .catch(() => setSkuList([]));
   }, [tab]);
+
+  // ATP 계산: 선택된 상품의 BOM 기반 제작 가능 수량 (공유 SKU 균등 배분)
+  useEffect(() => {
+    if (!supabase || tab !== 'products' || !selectedProduct?.id || components.length === 0) {
+      setProductAtp(null);
+      return;
+    }
+    const prodCat = normalizeProductCategory(selectedProduct.category);
+    const skuCatMap: Record<string, string> = { beauty: 'beauty', inner_beauty: 'fit', hair_beauty: 'hair' };
+    const skuCat = skuCatMap[prodCat] ?? 'beauty';
+    // 현재 상품 구성품의 SKU ID 목록
+    const mySkuIds = components.map((c) => c.sku_id).filter(Boolean) as string[];
+    if (mySkuIds.length === 0) { setProductAtp(null); return; }
+    // 같은 카테고리 모든 상품의 구성품을 불러와서 SKU 공유 관계 파악
+    const catProductIds = products
+      .filter((p) => normalizeProductCategory(p.category) === prodCat && !p.box_history)
+      .map((p) => p.id);
+    (async () => {
+      try {
+        const { data: allComps } = await supabase
+          .from('product_components')
+          .select('product_id, sku_id')
+          .in('product_id', catProductIds)
+          .not('sku_id', 'is', null);
+        if (!allComps) { setProductAtp(null); return; }
+        // SKU별 공유 상품 수 (중복 제거: 같은 상품에서 같은 SKU 2번 쓰면 1회로)
+        const skuProductCount = new Map<string, Set<string>>();
+        for (const row of allComps as { product_id: string; sku_id: string }[]) {
+          if (!skuProductCount.has(row.sku_id)) skuProductCount.set(row.sku_id, new Set());
+          skuProductCount.get(row.sku_id)!.add(row.product_id);
+        }
+        // SKU 재고 정보
+        const skuMap = new Map(skuList.map((s) => [s.id, s]));
+        let minQty = Infinity;
+        let bottleneckName = '';
+        for (const skuId of mySkuIds) {
+          const sku = skuMap.get(skuId);
+          if (!sku) continue;
+          const shareCount = skuProductCount.get(skuId)?.size ?? 1;
+          const allocated = Math.floor(sku.current_stock / shareCount);
+          if (allocated < minQty) {
+            minQty = allocated;
+            bottleneckName = sku.name;
+          }
+        }
+        setProductAtp(minQty === Infinity ? null : { qty: minQty, bottleneck: bottleneckName });
+      } catch {
+        setProductAtp(null);
+      }
+    })();
+  }, [selectedProduct?.id, components, skuList, products, tab]);
 
   // 선택된 상품의 조회수·리뷰 통계 (상품 탭에서만 로드)
   useEffect(() => {
@@ -1966,10 +2033,24 @@ export const Admin: React.FC = () => {
     const productId = selectedProduct.id;
     const loadStats = async () => {
       try {
-        const [{ data: viewData }, { data: reviewData }] = await Promise.all([
+        const [{ data: viewData }, { data: reviewData }, { data: orderRows, error: orderFetchErr }] = await Promise.all([
           supabase.from('product_views').select('id').eq('product_id', productId),
           supabase.from('product_reviews').select('id, user_id, rating, body, created_at').eq('product_id', productId),
+          supabase.from('orders').select('id, created_at, items, snapshot_items, is_test'),
         ]);
+        let orderCountAllTime = 0;
+        let orderCountLast7Days = 0;
+        if (!orderFetchErr && orderRows?.length) {
+          const sevenDaysAgo = new Date();
+          sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+          const sevenIso = sevenDaysAgo.toISOString();
+          for (const o of orderRows as { created_at: string; is_test?: boolean | null; items?: unknown; snapshot_items?: unknown }[]) {
+            if (o.is_test === true) continue;
+            if (!orderLineItemsContainProductId(o, productId)) continue;
+            orderCountAllTime += 1;
+            if (o.created_at >= sevenIso) orderCountLast7Days += 1;
+          }
+        }
         const rawReviews = (reviewData ?? []) as { id: string; user_id: string | null; rating: number; body: string | null; created_at: string }[];
         const reviewsSorted = rawReviews.slice().sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
         const viewCount = viewData?.length ?? 0;
@@ -2017,6 +2098,8 @@ export const Admin: React.FC = () => {
           reviewCount,
           avgRating,
           latestReviewAt,
+          orderCountAllTime,
+          orderCountLast7Days,
         });
         setProductReviews(reviewRows);
         setProductReviewPage(1);
@@ -2244,14 +2327,16 @@ export const Admin: React.FC = () => {
       if (slotRmErr) console.warn('[Admin] 상품 category 와 맞지 않는 슬롯 룸 정리 실패:', slotRmErr.message);
       // 구성품 저장: 기존 삭제 후 일괄 삽입 (layout 있으면 저장 — Supabase product_components에 layout 컬럼 추가 필요)
       const compPayload = components.map((c, i) => {
-        const urls = c.image_urls?.length ? c.image_urls : c.image_url ? [c.image_url] : [];
+        // SKU가 연결된 경우 컴포넌트 자체 이미지/이름/설명은 비워둠 → 카탈로그에서 SKU 데이터 우선 사용
+        const hasSku = !!c.sku_id;
+        const urls = hasSku ? [] : (c.image_urls?.length ? c.image_urls : c.image_url ? [c.image_url] : []);
         return {
           product_id: productId,
           sort_order: i,
-          name: c.name || null,
-          image_url: urls[0] || null,
+          name: hasSku ? null : (c.name || null),
+          image_url: hasSku ? null : (urls[0] || null),
           image_urls: urls,
-          description: c.description || null,
+          description: hasSku ? null : (c.description || null),
           layout: c.layout ?? 'image_left',
           sku_id: c.sku_id || null,
         };
@@ -3564,16 +3649,16 @@ export const Admin: React.FC = () => {
       {tab === 'products' && (
         <section className="mt-4 space-y-4">
           {/* 카테고리 선택 */}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1 rounded-xl bg-slate-100 p-1">
             {PRODUCT_CATEGORIES.map((cat) => (
               <button
                 key={cat.key}
                 type="button"
                 onClick={() => setProductCategory(cat.key)}
-                className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition ${
                   productCategory === cat.key
-                    ? 'bg-brand text-white shadow-sm'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
                 }`}
               >
                 {cat.label}
@@ -3685,7 +3770,7 @@ export const Admin: React.FC = () => {
               상단 탭마다 슬롯·순서가 DB에서 분리되어 저장됩니다. 「슬롯 순서 저장」 시{' '}
               <strong>슬롯 0~6번(최대 7칸) 데이터는 DB에 유지</strong>되고, 아래 «슬롯 개수»는{' '}
               <strong>쇼핑몰·메인에 보이는 칸 수만</strong> 조절합니다. 뷰티박스는 <strong>메인 목록 7칸까지</strong>가
-              현재 카탈로그 슬롯이며, «В истории боксов» 체크한 상품은 아래 <strong>과거 박스</strong> 섹션으로만 옵니다.
+              현재 카탈로그 슬롯이며, «박스 히스토리»에 체크한 상품은 아래 <strong>과거 박스</strong> 섹션으로만 옵니다.
               피부 테스트 매칭은 <strong>뷰티박스</strong>·«테스트 매칭»만 사용합니다.
             </p>
             <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -3896,7 +3981,7 @@ export const Admin: React.FC = () => {
                     </button>
                   </div>
                   <p className="mb-3 text-xs text-slate-600">
-                    «В истории боксов»에 표시되는 시즌 제목입니다. 시즌당 박스는 최대 {HISTORY_SEASON_MAX_PRODUCTS}개까지입니다 (N-1이 최근, N-3이 가장 과거).
+                    «박스 히스토리»에 표시되는 시즌 제목입니다. 시즌당 박스는 최대 {HISTORY_SEASON_MAX_PRODUCTS}개까지입니다 (N-1이 최근, N-3이 가장 과거).
                   </p>
                   {([1, 2, 3] as const).map((season) => (
                     <div key={season} className="mb-3 rounded-lg border border-slate-200 bg-white p-3 last:mb-0">
@@ -3916,7 +4001,7 @@ export const Admin: React.FC = () => {
                         </span>
                       </div>
                       {historyProductsBySeason[season].length === 0 ? (
-                        <p className="py-2 text-xs text-slate-400">상품 없음 — 오른쪽에서 «В истории боксов» 체크 후 저장</p>
+                        <p className="py-2 text-xs text-slate-400">상품 없음 — 오른쪽에서 «박스 히스토리»에 체크 후 저장</p>
                       ) : (
                         <ul className="divide-y divide-slate-100 text-sm">
                           {historyProductsBySeason[season].map((p) => (
@@ -4084,31 +4169,51 @@ export const Admin: React.FC = () => {
             </div>
             {selectedProduct && (
               <div className="space-y-4 text-sm">
-                {/* 선택된 상품 한눈에 보기: 조회수·주문·재고·리뷰 — 4열 동일 높이로 맞춤 */}
-                <div className="grid grid-cols-2 gap-3 rounded-lg border border-slate-100 bg-slate-50/60 p-3 lg:grid-cols-4">
-                  <div className="flex min-h-[4rem] flex-col">
+                {/* 선택된 상품 한눈에 보기: 조회수·누계 주문·최근 7일 주문·리뷰 */}
+                <div className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg border border-slate-100 bg-slate-50/60 p-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.25fr)_minmax(0,0.85fr)] lg:gap-x-5 lg:gap-y-3">
+                  <div className="flex min-h-[4rem] min-w-0 flex-col">
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">조회수</p>
                     <p className="mt-1 text-xl font-semibold text-slate-900">
                       {productStats ? formatNumber(productStats.viewCount) : '—'}
                     </p>
-                    <p className="mt-0.5 text-[11px] text-slate-500">상품 상세 페이지 진입 횟수</p>
+                    <p className="mt-0.5 text-[10px] leading-tight text-slate-500 lg:whitespace-nowrap">상품 상세 페이지 진입 횟수</p>
                   </div>
-                  <div className="flex min-h-[4rem] flex-col">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">주문 수</p>
-                    <p className="mt-1 text-xl font-semibold text-slate-900">—</p>
-                    <p className="mt-0.5 text-[11px] text-slate-500">주문 연동은 추후 확장 예정</p>
-                  </div>
-                  <div className="flex min-h-[4rem] flex-col">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">최근 주문</p>
-                    <p className="mt-1 text-xl font-semibold text-slate-900">—</p>
-                    <p className="mt-0.5 text-[11px] text-slate-500">주문 데이터 연동 후 표시</p>
-                  </div>
-                  <div className="flex min-h-[4rem] flex-col">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">재고 · 리뷰</p>
+                  <div className="flex min-h-[4rem] min-w-0 flex-col">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">주문 수 (누계)</p>
                     <p className="mt-1 text-xl font-semibold text-slate-900">
-                      재고 {formatNumber(Number(selectedProduct.stock ?? 0))}개
+                      {productStats ? formatNumber(productStats.orderCountAllTime) : '—'}
                     </p>
-                    <p className="mt-0.5 text-[11px] text-slate-500">
+                    <p className="mt-0.5 text-[10px] leading-tight text-slate-500 lg:whitespace-nowrap">실제 주문·해당 상품 포함 건수</p>
+                  </div>
+                  <div className="flex min-h-[4rem] min-w-0 flex-col">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">최근 7일 주문</p>
+                    <p className="mt-1 text-xl font-semibold text-slate-900">
+                      {productStats ? formatNumber(productStats.orderCountLast7Days) : '—'}
+                    </p>
+                    <p className="mt-0.5 text-[10px] leading-tight text-slate-500 lg:whitespace-nowrap">최근 7일 주문에 포함된 건수</p>
+                  </div>
+                  <div className="flex min-h-[4rem] min-w-0 flex-col">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">판매 가능 재고</p>
+                    <p className={`mt-1 text-xl font-bold ${productAtp && productAtp.qty > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                      {productAtp ? `${productAtp.qty}개` : '—'}
+                    </p>
+                    <p className="mt-0.5 text-[10px] leading-snug text-slate-500">
+                      {productAtp ? (
+                        <>병목: {productAtp.bottleneck} (공유 SKU 균등 배분)</>
+                      ) : (
+                        'SKU 연결 필요'
+                      )}
+                    </p>
+                  </div>
+                  <div className="flex min-h-[4rem] min-w-0 flex-col">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">리뷰</p>
+                    <p className="mt-1 text-xl font-semibold text-slate-900">
+                      {productStats ? formatNumber(productStats.reviewCount) : '—'}
+                      {productStats?.avgRating != null && (
+                        <span className="ml-1 text-lg text-amber-500">★ {productStats.avgRating.toFixed(1)}</span>
+                      )}
+                    </p>
+                    <p className="mt-0.5 text-[10px] leading-tight text-slate-500 lg:whitespace-nowrap">
                       <button
                         type="button"
                         className="text-left underline-offset-2 hover:underline"
@@ -4118,10 +4223,7 @@ export const Admin: React.FC = () => {
                           setShowProductReviews(true);
                         }}
                       >
-                        리뷰 {productStats ? productStats.reviewCount : 0}개
-                        {productStats?.avgRating != null && (
-                          <span className="ml-1 text-amber-500">· ★ {productStats.avgRating.toFixed(1)}</span>
-                        )}
+                        리뷰 목록 펼치기
                       </button>
                     </p>
                   </div>
@@ -4216,7 +4318,7 @@ export const Admin: React.FC = () => {
                     placeholder="상품명"
                   />
                 </div>
-                <div className="grid gap-3 sm:grid-cols-3">
+                <div className="grid gap-3 sm:grid-cols-2">
                   <div>
                     <label className={labelClass}>정가 (RRP), ₽</label>
                     <input
@@ -4235,16 +4337,6 @@ export const Admin: React.FC = () => {
                       onChange={(e) => handleProductField('prp_price', e.target.value)}
                     />
                   </div>
-                  <div>
-                    <label className={labelClass}>재고</label>
-                    <input
-                      type="number"
-                      min={0}
-                      className={inputClass}
-                      value={selectedProduct.stock ?? ''}
-                      onChange={(e) => handleProductField('stock', e.target.value === '' ? null : e.target.value)}
-                    />
-                  </div>
                 </div>
 
                 {normalizeProductCategory(selectedProduct.category ?? 'beauty') === 'beauty' && (
@@ -4257,9 +4349,9 @@ export const Admin: React.FC = () => {
                         onChange={(e) => handleProductField('box_history', e.target.checked)}
                       />
                       <span>
-                        <span className="font-medium text-slate-900">В истории боксов</span>
+                        <span className="font-medium text-slate-900">박스 히스토리에 표시</span>
                         <span className="mt-0.5 block text-xs text-slate-500">
-                          Прошлый сезон — скрыто на главной витрине Beauty box; ниже «과거 박스»에서 시즌(N-1~N-3)을 고릅니다.
+                          이전 시즌 상품입니다. 메인 Beauty box 진열에서는 숨기고, 아래 «과거 박스»에서 시즌(N-1~N-3)을 선택합니다.
                         </span>
                       </span>
                     </label>
@@ -4425,146 +4517,110 @@ export const Admin: React.FC = () => {
                   </div>
                 </div>
 
-                {/* ② 구성품 이미지 및 내용 (최대 8장) */}
+                {/* ② 구성품 SKU 연결 (최대 8개) */}
                 <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3">
                   <div className="mb-2 flex items-center justify-between">
                     <label className={`${labelClass} font-semibold text-slate-800`}>
-                      ② 구성품 이미지 및 내용 (최대 8장)
+                      ② 구성품 SKU 연결 (최대 8개)
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        componentUploadIndexRef.current = -1;
-                        componentImageInputRef.current?.click();
-                      }}
-                      className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 hover:border-brand hover:text-brand"
-                    >
-                      + 사진 추가
-                    </button>
+                    {components.length < 8 && (
+                      <button
+                        type="button"
+                        onClick={handleComponentAdd}
+                        className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 hover:border-brand hover:text-brand"
+                      >
+                        + SKU 추가
+                      </button>
+                    )}
                   </div>
                   <p className="mb-3 text-xs text-slate-500">
-                    구성품 영역에 사진 + 텍스트로 연동됩니다. 항목당 사진 여러 장을 넣을 수 있습니다.
+                    구성품에 SKU를 연결하면 주문 시 재고가 자동 차감됩니다. 순서는 ↑↓ 버튼으로 변경할 수 있습니다.
                   </p>
-                  <p className="mb-3 text-xs leading-relaxed text-slate-600">{IMG_GUIDE_PRODUCT_COMPONENT_RU}</p>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    ref={componentImageInputRef}
-                    className="hidden"
-                    onChange={onComponentImageFileChange}
-                  />
                   <div className="mt-2">
                     {components.length === 0 && (
                       <p className="py-2 text-center text-xs text-slate-400">구성품을 추가하세요.</p>
                     )}
                     {components.length > 0 && (
-                      <div className="flex flex-col gap-3">
-                        {components.map((comp, idx, arr) => {
-                          const url =
-                            (comp.image_urls && comp.image_urls.length
-                              ? comp.image_urls[0]
-                              : comp.image_url) ?? '';
-                          return (
-                            <div key={comp.id} className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-3 sm:flex-row sm:items-start sm:gap-4">
-                              <div className="flex shrink-0 items-center gap-2">
-                                <div className="relative h-16 w-16 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
-                                  {url && (
-                                    <img
-                                      src={url}
-                                      alt={`구성품 ${idx + 1}`}
-                                      className="h-full w-full object-cover"
-                                      onError={(e) => {
-                                        (e.target as HTMLImageElement).style.display = 'none';
-                                      }}
-                                    />
-                                  )}
-                                  <span className="absolute left-1 top-1 rounded-full bg-slate-900/70 px-1.5 text-[10px] font-semibold text-white">
-                                    {idx + 1}
-                                  </span>
-                                </div>
-                                <div className="flex flex-col gap-1">
-                                  <div className="flex gap-1">
-                                    <button
-                                      type="button"
-                                      disabled={idx === 0}
-                                      onClick={() =>
-                                        setComponents((prev) => {
-                                          const list = [...prev];
-                                          if (idx === 0) return prev;
-                                          const tmp = list[idx - 1];
-                                          list[idx - 1] = list[idx];
-                                          list[idx] = tmp;
-                                          return list;
-                                        })
-                                      }
-                                      className="rounded-full border border-slate-200 px-1.5 py-0.5 text-[10px] text-slate-600 disabled:opacity-40"
-                                    >
-                                      ↑
-                                    </button>
-                                    <button
-                                      type="button"
-                                      disabled={idx === arr.length - 1}
-                                      onClick={() =>
-                                        setComponents((prev) => {
-                                          const list = [...prev];
-                                          if (idx === list.length - 1) return prev;
-                                          const tmp = list[idx + 1];
-                                          list[idx + 1] = list[idx];
-                                          list[idx] = tmp;
-                                          return list;
-                                        })
-                                      }
-                                      className="rounded-full border border-slate-200 px-1.5 py-0.5 text-[10px] text-slate-600 disabled:opacity-40"
-                                    >
-                                      ↓
-                                    </button>
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleComponentRemove(idx)}
-                                    className="text-left text-[10px] text-red-600 hover:underline"
-                                  >
-                                    삭제
-                                  </button>
-                                </div>
-                              </div>
-                              <div className="min-w-0 flex-1 space-y-1">
-                                <input
-                                  type="text"
-                                  placeholder="이름 (상세 블록 제목)"
-                                  className="w-full rounded border border-slate-200 px-2 py-1.5 text-xs text-slate-800"
-                                  value={comp.name ?? ''}
-                                  onChange={(e) => handleComponentChange(idx, { name: e.target.value || null })}
-                                />
-                                <textarea
-                                  placeholder="상세블록 내용 텍스트 (구성품 영역 연동)"
-                                  className="min-h-[60px] w-full rounded border border-slate-200 px-2 py-1.5 text-xs text-slate-700"
-                                  value={comp.description ?? ''}
-                                  onChange={(e) => handleComponentChange(idx, { description: e.target.value || null })}
-                                />
-                                {/* SKU 연결 드롭다운 */}
-                                <div className="flex items-center gap-2">
-                                  <select
-                                    className="w-full rounded border border-slate-200 px-2 py-1.5 text-xs text-slate-700"
-                                    value={comp.sku_id ?? ''}
-                                    onChange={(e) => handleComponentChange(idx, { sku_id: e.target.value || null })}
-                                  >
-                                    <option value="">SKU 연결 (선택)</option>
-                                    {skuList.map((s) => (
-                                      <option key={s.id} value={s.id}>
-                                        {s.name} — 재고: {s.current_stock}{s.unit}
-                                      </option>
-                                    ))}
-                                  </select>
-                                  {comp.sku_id && (
-                                    <span className="shrink-0 text-[10px] text-emerald-600">✓ 연결됨</span>
-                                  )}
-                                </div>
-                              </div>
+                      <div className="flex flex-col gap-2">
+                        {components.map((comp, idx, arr) => (
+                          <div key={comp.id} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                            <span className="shrink-0 rounded-full bg-slate-900/70 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                              {idx + 1}
+                            </span>
+                            {(() => {
+                              const linked = comp.sku_id ? skuList.find((s) => s.id === comp.sku_id) : null;
+                              return linked?.image_url ? (
+                                <img src={linked.image_url} alt="" className="h-9 w-9 shrink-0 rounded-lg border border-slate-200 object-cover" />
+                              ) : (
+                                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-[10px] text-slate-300">—</div>
+                              );
+                            })()}
+                            <select
+                              className="min-w-0 flex-1 rounded border border-slate-200 px-2 py-1.5 text-xs text-slate-700"
+                              value={comp.sku_id ?? ''}
+                              onChange={(e) => handleComponentChange(idx, { sku_id: e.target.value || null })}
+                            >
+                              <option value="">SKU 선택</option>
+                              {skuList
+                                .filter((s) => {
+                                  const prodCat = normalizeProductCategory(selectedProduct?.category);
+                                  const skuCatMap: Record<string, string> = { beauty: 'beauty', inner_beauty: 'fit', hair_beauty: 'hair' };
+                                  return s.category === (skuCatMap[prodCat] ?? 'beauty');
+                                })
+                                .map((s) => (
+                                <option key={s.id} value={s.id}>
+                                  {s.name} — 재고: {s.current_stock}{s.unit}
+                                </option>
+                              ))}
+                            </select>
+                            {comp.sku_id && (
+                              <span className="shrink-0 text-[10px] text-emerald-600">✓</span>
+                            )}
+                            <div className="flex shrink-0 gap-1">
+                              <button
+                                type="button"
+                                disabled={idx === 0}
+                                onClick={() =>
+                                  setComponents((prev) => {
+                                    const list = [...prev];
+                                    if (idx === 0) return prev;
+                                    const tmp = list[idx - 1];
+                                    list[idx - 1] = list[idx];
+                                    list[idx] = tmp;
+                                    return list;
+                                  })
+                                }
+                                className="rounded-full border border-slate-200 px-1.5 py-0.5 text-[10px] text-slate-600 disabled:opacity-40"
+                              >
+                                ↑
+                              </button>
+                              <button
+                                type="button"
+                                disabled={idx === arr.length - 1}
+                                onClick={() =>
+                                  setComponents((prev) => {
+                                    const list = [...prev];
+                                    if (idx === list.length - 1) return prev;
+                                    const tmp = list[idx + 1];
+                                    list[idx + 1] = list[idx];
+                                    list[idx] = tmp;
+                                    return list;
+                                  })
+                                }
+                                className="rounded-full border border-slate-200 px-1.5 py-0.5 text-[10px] text-slate-600 disabled:opacity-40"
+                              >
+                                ↓
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleComponentRemove(idx)}
+                                className="rounded-full border border-red-200 px-1.5 py-0.5 text-[10px] text-red-500 hover:bg-red-50"
+                              >
+                                ✕
+                              </button>
                             </div>
-                          );
-                        })}
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
