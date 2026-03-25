@@ -11,6 +11,7 @@ import {
   YAxis,
 } from 'recharts';
 import { useAuth } from '../../context/AuthContext';
+import { InventoryTab } from './InventoryTab';
 /** 대시보드 매출 기간: 일/주/월/기간 */
 type DashboardPeriodType = 'day' | 'week' | 'month' | 'range';
 import { deleteMappingForTypes, fetchMapping, saveMapping } from '../../lib/skinTypeSlotMapping';
@@ -301,7 +302,11 @@ type ProductComponent = {
   description: string | null;
   /** 상세페이지 구성 블록 배치: 왼쪽 사진/오른쪽 텍스트 또는 그 반대 */
   layout?: 'image_left' | 'image_right';
+  /** 연결된 SKU ID (재고 관리용) */
+  sku_id?: string | null;
 };
+
+type SkuItemSimple = { id: string; name: string; image_url: string | null; current_stock: number; unit: string };
 
 type DashboardKpi = {
   totalRevenueCents: number;
@@ -412,10 +417,11 @@ const emptySlot = (index: number): Slot => ({
 /** 개발자 계정 이메일 — RLS 안내 문구에 사용 */
 const DEVELOPER_EMAILS = ['dvanovic91@gmail.com', 'dvavnovic91@gmail.com'];
 
-const ADMIN_TABS: { key: 'dashboard' | 'products' | 'skinMatch' | 'promo' | 'promoCodes' | 'broadcast' | 'orders' | 'activityLogs' | 'cartAbandonment' | 'reviewManagement' | 'members' | 'heroImage'; label: string }[] = [
+const ADMIN_TABS: { key: 'dashboard' | 'products' | 'skinMatch' | 'promo' | 'promoCodes' | 'broadcast' | 'orders' | 'activityLogs' | 'cartAbandonment' | 'reviewManagement' | 'members' | 'heroImage' | 'inventory'; label: string }[] = [
   { key: 'dashboard', label: '대시보드' },
   { key: 'heroImage', label: '히어로 이미지' },
   { key: 'products', label: '상품관리' },
+  { key: 'inventory', label: '재고 관리' },
   { key: 'skinMatch', label: '테스트 매칭' },
   { key: 'promo', label: '프로모' },
   { key: 'promoCodes', label: '프로모코드' },
@@ -431,6 +437,7 @@ const ADMIN_TABS: { key: 'dashboard' | 'products' | 'skinMatch' | 'promo' | 'pro
 const ADMIN_TAB_ICON: Record<(typeof ADMIN_TABS)[number]['key'], string> = {
   dashboard: '📊',
   products: '📦',
+  inventory: '📋',
   skinMatch: '🧪',
   promo: '🎁',
   promoCodes: '🎟️',
@@ -447,7 +454,7 @@ export const Admin: React.FC = () => {
   const { isLoggedIn, initialized, isAdmin, canGrantPermission, canGrantAdminRole, userEmail } = useAuth();
   const canBroadcast = isAdmin;
   const [tab, setTab] = useState<
-    'dashboard' | 'products' | 'skinMatch' | 'promo' | 'promoCodes' | 'broadcast' | 'orders' | 'activityLogs' | 'cartAbandonment' | 'reviewManagement' | 'members' | 'heroImage'
+    'dashboard' | 'products' | 'skinMatch' | 'promo' | 'promoCodes' | 'broadcast' | 'orders' | 'activityLogs' | 'cartAbandonment' | 'reviewManagement' | 'members' | 'heroImage' | 'inventory'
   >('dashboard');
   /** 모바일: 햄버거로 열리는 탭 메뉴 */
   const [adminMobileMenuOpen, setAdminMobileMenuOpen] = useState(false);
@@ -512,6 +519,7 @@ export const Admin: React.FC = () => {
   const [trafficByWeek, setTrafficByWeek] = useState<TrafficPoint[]>([]);
   const [trafficByMonth, setTrafficByMonth] = useState<TrafficPoint[]>([]);
   const [components, setComponents] = useState<ProductComponent[]>([]);
+  const [skuList, setSkuList] = useState<SkuItemSimple[]>([]);
   const [ingredientBriefsMap, setIngredientBriefsMap] = useState<ProductIngredientBriefMap>({});
   const [ingredientInfographicUrl, setIngredientInfographicUrl] = useState('');
   const [productStats, setProductStats] = useState<ProductStats | null>(null);
@@ -1915,7 +1923,7 @@ export const Admin: React.FC = () => {
     }
     supabase
       .from('product_components')
-      .select('id, product_id, sort_order, name, image_url, image_urls, description, layout')
+      .select('id, product_id, sort_order, name, image_url, image_urls, description, layout, sku_id')
       .eq('product_id', selectedProduct.id)
       .then(
         ({ data }) => {
@@ -1934,6 +1942,18 @@ export const Admin: React.FC = () => {
         () => setComponents([])
       );
   }, [selectedProduct?.id]);
+
+  // SKU 목록 로드 (상품 탭에서 구성품 SKU 드롭다운에 사용)
+  useEffect(() => {
+    if (!supabase || tab !== 'products') return;
+    supabase
+      .from('sku_items')
+      .select('id, name, image_url, current_stock, unit')
+      .eq('is_active', true)
+      .order('name')
+      .then(({ data }) => setSkuList((data as SkuItemSimple[]) ?? []))
+      .catch(() => setSkuList([]));
+  }, [tab]);
 
   // 선택된 상품의 조회수·리뷰 통계 (상품 탭에서만 로드)
   useEffect(() => {
@@ -2233,6 +2253,7 @@ export const Admin: React.FC = () => {
           image_urls: urls,
           description: c.description || null,
           layout: c.layout ?? 'image_left',
+          sku_id: c.sku_id || null,
         };
       });
       await supabase.from('product_components').delete().eq('product_id', productId);
@@ -3537,6 +3558,9 @@ export const Admin: React.FC = () => {
         </section>
       )}
 
+      {/* ── 재고 관리 탭 ── */}
+      {tab === 'inventory' && <InventoryTab />}
+
       {tab === 'products' && (
         <section className="mt-4 space-y-4">
           {/* 카테고리 선택 */}
@@ -4519,6 +4543,24 @@ export const Admin: React.FC = () => {
                                   value={comp.description ?? ''}
                                   onChange={(e) => handleComponentChange(idx, { description: e.target.value || null })}
                                 />
+                                {/* SKU 연결 드롭다운 */}
+                                <div className="flex items-center gap-2">
+                                  <select
+                                    className="w-full rounded border border-slate-200 px-2 py-1.5 text-xs text-slate-700"
+                                    value={comp.sku_id ?? ''}
+                                    onChange={(e) => handleComponentChange(idx, { sku_id: e.target.value || null })}
+                                  >
+                                    <option value="">SKU 연결 (선택)</option>
+                                    {skuList.map((s) => (
+                                      <option key={s.id} value={s.id}>
+                                        {s.name} — 재고: {s.current_stock}{s.unit}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  {comp.sku_id && (
+                                    <span className="shrink-0 text-[10px] text-emerald-600">✓ 연결됨</span>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           );

@@ -856,6 +856,30 @@ export const Checkout: React.FC = () => {
         }
       }
 
+      // 4) SKU 재고 자동 차감 — 주문에 포함된 제품의 구성품 중 sku_id가 연결된 것만 차감
+      try {
+        const productIds = items.map((i) => i.id);
+        const { data: linkedComps } = await supabase
+          .from('product_components')
+          .select('sku_id, product_id')
+          .in('product_id', productIds)
+          .not('sku_id', 'is', null);
+        if (linkedComps && linkedComps.length > 0) {
+          // 제품별 주문 수량 매핑
+          const qtyMap = new Map(items.map((i) => [i.id, i.quantity ?? 1]));
+          const txRows = linkedComps.map((c) => ({
+            sku_id: c.sku_id!,
+            type: 'outbound' as const,
+            qty: -(qtyMap.get(c.product_id) ?? 1),
+            memo: `주문 ${orderNumberForDisplay}`,
+            order_id: orderId,
+          }));
+          await supabase.from('stock_transactions').insert(txRows);
+        }
+      } catch (stockErr) {
+        console.warn('[Checkout] SKU 재고 차감 실패 (주문은 정상 완료)', stockErr);
+      }
+
       await new Promise((r) => setTimeout(r, 800));
       // 장바구니 이탈 명단에서 제거 (주문 완료했으므로)
       await supabase.from('cart_snapshots').delete().eq('user_id', userId);
