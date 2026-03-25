@@ -1085,7 +1085,7 @@ export const ProductDetail: React.FC = () => {
         )}
 
         <section id="product-reviews">
-          <h2 className="mb-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500 md:text-lg md:font-semibold md:normal-case md:tracking-tight md:text-slate-900">
+          <h2 className="mb-3 text-left text-xs font-bold uppercase tracking-wider text-slate-700 md:text-lg md:font-semibold md:normal-case md:tracking-tight md:text-slate-900" style={{ paddingLeft: '2vw' }}>
             Отзывы
           </h2>
 
@@ -1138,7 +1138,7 @@ export const ProductDetail: React.FC = () => {
               </li>
             ))}
           </ul>
-          {reviews.length === 0 && <p className="text-sm text-slate-500">Пока нет отзывов.</p>}
+          {reviews.length === 0 && <p className="text-xs text-slate-500 sm:text-sm" style={{ paddingLeft: '2vw' }}>Пока нет отзывов.</p>}
 
           {isLoggedIn && id && isUuid(id) ? (
             reviewOrderId ? (
