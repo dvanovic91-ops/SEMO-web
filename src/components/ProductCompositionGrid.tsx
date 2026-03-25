@@ -43,15 +43,35 @@ export function ProductCompositionGrid({ components, className }: Props) {
     <div
       className={`${outer} overflow-hidden rounded-2xl bg-white shadow-[0_1px_10px_-6px_rgba(15,23,42,0.2)] ring-1 ring-slate-200/70`}
     >
-      <div className="border-t border-slate-100 bg-white px-4 py-4 sm:px-6 sm:py-5">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Состав набора</p>
+      <div className="border-t border-slate-100 bg-white px-2.5 py-3 sm:px-6 sm:py-5">
+        {/* 섹션 제목·토글: 가운데 정렬(모바일 세로 / sm+ 한 줄) */}
+        <div className="mb-3 flex flex-col items-center gap-2.5 sm:flex-row sm:flex-wrap sm:justify-center sm:gap-x-4 sm:gap-y-2">
+          <p className="text-center text-xs font-medium uppercase tracking-wider text-slate-500">
+            Состав набора
+          </p>
           <button
             type="button"
             onClick={() => setIngredientPanelOpen((v) => !v)}
-            className="w-[11.4rem] shrink-0 rounded-full border border-slate-300 bg-white px-2 py-1.75 text-[13px] font-medium leading-snug text-slate-500 transition hover:border-slate-400 hover:text-slate-600 sm:w-auto sm:px-3 sm:py-1.5 sm:text-xs"
+            className="shrink-0 rounded-full border border-slate-300 bg-white px-2.5 py-1.5 text-center text-[11px] font-medium leading-tight text-slate-500 transition hover:border-slate-400 hover:text-slate-600 sm:w-auto sm:px-3 sm:text-xs sm:leading-snug"
           >
-            {ingredientPanelOpen ? 'Скрыть ключевые ингредиенты' : 'Смотреть ключевые ингредиенты'}
+            <span className="block sm:hidden">
+              {ingredientPanelOpen ? (
+                <>
+                  Скрыть ключевые
+                  <br />
+                  ингредиенты
+                </>
+              ) : (
+                <>
+                  Смотреть ключевые
+                  <br />
+                  ингредиенты
+                </>
+              )}
+            </span>
+            <span className="hidden sm:inline">
+              {ingredientPanelOpen ? 'Скрыть ключевые ингредиенты' : 'Смотреть ключевые ингредиенты'}
+            </span>
           </button>
         </div>
 
@@ -92,7 +112,7 @@ export function ProductCompositionGrid({ components, className }: Props) {
                 return (
                   <div
                     key={`row-${comp.id}`}
-                    className="grid grid-cols-[102px_1fr] items-start gap-3 sm:grid-cols-[128px_1fr] md:grid-cols-[176px_1fr]"
+                    className="grid grid-cols-[minmax(4.5rem,5.25rem)_1fr] items-start gap-2 sm:grid-cols-[128px_1fr] sm:gap-3 md:grid-cols-[176px_1fr]"
                   >
                     <div className="aspect-square overflow-hidden rounded-xl bg-slate-50">
                       {firstImg ? (

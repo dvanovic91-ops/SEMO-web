@@ -6,10 +6,29 @@ type PromoItem = {
   id: string;
   title: string;
   image_url: string | null;
+  start_at: string | null;
   end_at: string | null;
   sort_order: number;
   is_archived?: boolean | null;
 };
+
+/** ru-RU: день/месяц/год (цифры) */
+function formatPromoDateRu(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'numeric', year: 'numeric' });
+}
+
+/** Период: начало — конец (если одна дата — многоточие с той стороны) */
+function formatPromoPeriodRu(startAt: string | null | undefined, endAt: string | null | undefined): string {
+  const s = formatPromoDateRu(startAt ?? null);
+  const e = formatPromoDateRu(endAt ?? null);
+  if (s && e) return `${s} — ${e}`;
+  if (s && !e) return `${s} — …`;
+  if (!s && e) return `… — ${e}`;
+  return 'Без срока';
+}
 
 function PromoCard({
   p,
@@ -21,6 +40,7 @@ function PromoCard({
   /** 아카이브 탭: 살짝 톤 다운 */
   archiveTab?: boolean;
 }) {
+  const periodLine = formatPromoPeriodRu(p.start_at, p.end_at);
   return (
     <article className={`flex flex-col ${archiveTab ? 'opacity-90' : ''} ${className}`}>
       <h2 className="mb-1 px-1 pt-1 text-center text-sm font-semibold text-slate-900 sm:text-base">{p.title}</h2>
@@ -32,13 +52,7 @@ function PromoCard({
         )}
       </div>
       <p className="px-1 pb-1 text-center text-xs text-slate-500">
-        {archiveTab
-          ? p.end_at
-            ? `Завершена: ${new Date(p.end_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}`
-            : 'Архив'
-          : p.end_at
-            ? `До ${new Date(p.end_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}`
-            : 'Без срока'}
+        {archiveTab ? (periodLine === 'Без срока' ? 'Архив' : periodLine) : periodLine}
       </p>
     </article>
   );
@@ -63,11 +77,17 @@ export const Promo: React.FC = () => {
       setLoading(true);
       const full = await supabase
         .from('promos')
-        .select('id, title, image_url, end_at, sort_order, is_archived')
+        .select('id, title, image_url, start_at, end_at, sort_order, is_archived')
         .order('sort_order', { ascending: true });
       if (cancelled) return;
       if (!full.error && full.data) {
-        setPromos(full.data as PromoItem[]);
+        setPromos(
+          (full.data as PromoItem[]).map((row) => ({
+            ...row,
+            start_at: row.start_at ?? null,
+            is_archived: row.is_archived ?? false,
+          })),
+        );
         setLoading(false);
         return;
       }
@@ -78,7 +98,9 @@ export const Promo: React.FC = () => {
         .order('sort_order', { ascending: true });
       if (cancelled) return;
       setPromos(
-        ((min.data as Omit<PromoItem, 'is_archived'>[]) ?? []).map((r) => ({ ...r, is_archived: false })),
+        ((min.data as (Omit<PromoItem, 'is_archived' | 'start_at'> & { start_at?: string | null })[]) ?? []).map(
+          (r) => ({ ...r, start_at: r.start_at ?? null, is_archived: false }),
+        ),
       );
       setLoading(false);
     })().catch(() => {

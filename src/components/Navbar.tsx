@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase';
 import { useCart } from '../context/CartContext';
 import { useNotifications, type NotificationRow } from '../hooks/useNotifications';
 import { notificationKindBadgeRu, resolveNotificationHref } from '../lib/notificationNavigation';
+import { SEMO_BOX_SUBMENU, isSemoBoxSubmenuPath } from '../lib/semoBoxSubmenu';
 const navLinkBase =
   'text-sm tracking-wide transition-colors border-b-2 border-transparent pb-1';
 
@@ -15,19 +16,17 @@ const inactiveClass = 'text-slate-900 hover:text-brand';
 /** 텔레그램 봇 — 지원/поддержка 링크 */
 const TELEGRAM_BOT_URL = 'https://t.me/My_SEMO_Beautybot';
 
+/** 모바일 하단 고정 탭: 기본 h-5(1.25rem) 대비 +1pt · 선 굵기 통일(장바구니만 시각적으로 커 보여 약간 축소) */
+const MOBILE_TAB_ICON = 'h-[calc(1.25rem+1pt)] w-[calc(1.25rem+1pt)]';
+const MOBILE_TAB_STROKE = { on: 2 as const, off: 1.75 as const };
+const MOBILE_TAB_ICON_WRAP = `relative inline-flex ${MOBILE_TAB_ICON} shrink-0`;
+const MOBILE_TAB_PROFILE_RING = 'h-[calc(1.75rem+1pt)] w-[calc(1.75rem+1pt)]';
+const MOBILE_TAB_PROFILE_SVG = 'h-[calc(1rem+1pt)] w-[calc(1rem+1pt)]';
+
 const NAV_LINKS: { to: string; label: string }[] = [
   { to: '/about', label: 'About SEMO' },
   { to: '/journey', label: 'Journey to SEMO' },
   { to: '/support', label: 'FAQ' },
-];
-
-/** SEMO Box 하위 메뉴 (드롭다운) */
-const SEMO_BOX_SUBMENU: { to: string; label: string }[] = [
-  { to: '/skin-test', label: 'Find my Beauty box' },
-  { to: '/shop', label: 'Beauty box' },
-  { to: '/inner-beauty', label: 'Fit box' },
-  { to: '/hair-beauty', label: 'Hair box' },
-  { to: '/promo', label: 'Promo' },
 ];
 
 function formatPrice(price: number): string {
@@ -45,6 +44,15 @@ function formatNotificationDate(iso: string): string {
   } catch {
     return '';
   }
+}
+
+/** 모바일 고정 서브바 라벨 우측 이동 — Skin test·Beauty box 추가 +1vw */
+function mobileSemoSubnavLabelShift(to: string): string {
+  if (to === '/inner-beauty') return 'translate-x-[4vw]';
+  if (to === '/shop') return 'translate-x-[3vw]';
+  if (to === '/hair-beauty') return 'translate-x-[2vw]';
+  if (to === '/skin-test') return 'translate-x-[1vw]';
+  return '';
 }
 
 export const Navbar: React.FC = () => {
@@ -159,7 +167,10 @@ export const Navbar: React.FC = () => {
 
   /** 모바일 하단바: 현재 화면에 따른 아이콘 활성화 (강조용) */
   const path = location.pathname;
-  const isSemoBoxActive = SEMO_BOX_SUBMENU.some((l) => path === l.to || path.startsWith(l.to + '/'));
+  const isSemoBoxActive = isSemoBoxSubmenuPath(path);
+  const isHomeActive = path === '/';
+  /** 모바일 하단: 뷰티박스(/shop) 탭 활성 — /shop·/shop/box-history 등 */
+  const isShopTabActive = path === '/shop' || path.startsWith('/shop/');
   const isCartActive = path === '/cart' || cartPopoverOpen;
   const isNotificationActive = notificationOpen;
   const isProfileActive = path.startsWith('/profile') || path === '/login';
@@ -170,7 +181,8 @@ export const Navbar: React.FC = () => {
   useEffect(() => {
     const current = location.pathname + location.search;
     const prev = prevPathRef.current;
-    const isSemoPath = (v: string) => SEMO_BOX_SUBMENU.some((l) => v === l.to || v.startsWith(`${l.to}/`) || v.startsWith(`${l.to}?`));
+    const pathOnly = (full: string) => (full.split('?')[0] ?? '').replace(/\/$/, '') || '/';
+    const isSemoPath = (v: string) => isSemoBoxSubmenuPath(pathOnly(v));
 
     if (!semoSiblingPopGuardRef.current && navigationType === 'POP' && isSemoPath(prev) && isSemoPath(current) && prev !== current) {
       semoSiblingPopGuardRef.current = true;
@@ -340,18 +352,18 @@ export const Navbar: React.FC = () => {
       {items.length > 0 && (
         <div className="shrink-0 border-t border-slate-100 px-4 py-3">
           <p className="mb-3 text-right text-base font-semibold text-slate-900">Итого: {formatPrice(total)}</p>
-          <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="flex flex-row gap-2">
             <Link
               to="/cart"
               onClick={() => setCartPopoverOpen(false)}
-              className="flex-1 rounded-full border border-slate-200 bg-white py-2.5 text-center text-sm font-medium text-slate-700 transition-colors hover:border-brand hover:text-brand hover:bg-brand-soft/20"
+              className="min-w-0 flex-1 rounded-full border border-slate-200 bg-white py-2.5 text-center text-xs font-medium text-slate-700 transition-colors hover:border-brand hover:text-brand hover:bg-brand-soft/20 sm:text-sm"
             >
               В корзину
             </Link>
             <Link
               to="/checkout"
               onClick={() => setCartPopoverOpen(false)}
-              className="flex-1 rounded-full bg-brand py-2.5 text-center text-sm font-medium text-white hover:bg-brand/90"
+              className="min-w-0 flex-1 rounded-full bg-brand py-2.5 text-center text-xs font-medium text-white hover:bg-brand/90 sm:text-sm"
             >
               Оформить заказ
             </Link>
@@ -680,13 +692,44 @@ export const Navbar: React.FC = () => {
         </div>
       </header>
 
+      {/* 모바일: SEMO Box 하위 화면 — 메인 헤더 바로 아래 고정, 한 줄(짧은 라벨 + clamp 글자) */}
+      {isSemoBoxActive && !productStickyReplacesNav && (
+        <nav
+          className="fixed left-0 right-0 z-[38] -mt-px flex min-h-[var(--semo-mobile-box-subnav-h)] items-stretch border-b border-slate-200/80 bg-white/95 backdrop-blur-md md:hidden"
+          style={{ top: 'var(--semo-mobile-header-h)' }}
+          aria-label="SEMO Box"
+        >
+          {/* flex-1 basis-0: 칸 너비 동일, 세로 구분선 없음 */}
+          <div className="flex w-full min-w-0 items-stretch px-0 sm:px-0.5">
+            {SEMO_BOX_SUBMENU.map((sub) => (
+              <NavLink
+                key={sub.to}
+                to={sub.to}
+                replace
+                className={({ isActive }) =>
+                  `flex min-w-0 flex-1 basis-0 items-center justify-center self-stretch px-0.5 py-1 text-center font-semibold leading-tight tracking-normal transition-colors ` +
+                  `text-[length:clamp(13px,calc(2.2vw+2pt),16px)] ` +
+                  `${isActive ? 'text-brand' : 'text-slate-600 active:bg-slate-100'}`
+                }
+              >
+                <span
+                  className={`block min-w-0 max-w-full truncate text-center ${mobileSemoSubnavLabelShift(sub.to)}`}
+                >
+                  {sub.shortLabel ?? sub.label}
+                </span>
+              </NavLink>
+            ))}
+          </div>
+        </nav>
+      )}
+
       {/* SEMO Box 서브 네비게이션 바 — 데스크톱: 호버 시 표시, 상단바 바로 아래 횡 메뉴 (틈 없이 경계선만) */}
       {semoBoxOpen && !productDesktopNav?.compact && (
         <div
           id="semo-box-subnav"
           ref={semoBoxSubbarRef}
-          className="fixed left-0 right-0 z-[39] hidden border-b border-slate-200/60 bg-white/95 backdrop-blur-md md:block"
-          style={{ top: 'calc(var(--semo-desktop-header-h, 3.2rem) - 1px)' }}
+          className="fixed left-0 right-0 z-[39] hidden -mt-px border-b border-slate-200/60 bg-white/95 backdrop-blur-md md:block"
+          style={{ top: 'var(--semo-desktop-header-h, 3.2rem)' }}
           onMouseEnter={semoBoxEnter}
           onMouseLeave={semoBoxLeave}
         >
@@ -701,7 +744,7 @@ export const Navbar: React.FC = () => {
                   setSemoBoxPinned(false);
                 }}
                 className={({ isActive }) =>
-                  `whitespace-nowrap text-sm transition-colors ${
+                  `whitespace-nowrap text-[length:calc(0.875rem+1pt)] transition-colors ${
                     isActive
                       ? 'font-semibold text-brand'
                       : 'text-slate-600 hover:text-brand'
@@ -834,9 +877,9 @@ export const Navbar: React.FC = () => {
         </>
       )}
 
-      {/* 모바일 전용: 하단 고정 바 — SEMO Box(샵) 단추 없음, 메뉴 드로어에서 하위 링크 이용 */}
+      {/* 모바일 전용: 하단 고정 바 — 메뉴 | 홈 | 뷰티박스 | 알림 | … */}
       <nav
-        className="fixed bottom-0 left-0 right-0 z-30 flex items-center justify-around border-t border-slate-200 bg-white/95 backdrop-blur-md md:hidden"
+        className="fixed bottom-0 left-0 right-0 z-30 flex items-center justify-evenly border-t border-slate-200 bg-white/95 backdrop-blur-md md:hidden"
         style={{ paddingTop: '0.125rem', paddingBottom: 'max(0.2rem, env(safe-area-inset-bottom))' }}
       >
         <button
@@ -845,14 +888,58 @@ export const Navbar: React.FC = () => {
             setMobileMenuOpen(true);
           }}
           aria-label="Open menu"
-          className={`flex h-9 items-center justify-center rounded-full px-2.5 transition ${
-            isMenuActive ? 'bg-brand-soft/50 text-brand' : 'text-slate-600'
+          className={`flex h-9 min-w-0 flex-1 items-center justify-center rounded-full px-1 transition sm:px-2 ${
+            isMenuActive ? 'text-brand' : 'text-slate-600'
           }`}
         >
-          <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={isMenuActive ? 2.2 : 2} viewBox="0 0 24 24">
+          <svg className={MOBILE_TAB_ICON} fill="none" stroke="currentColor" strokeWidth={isMenuActive ? MOBILE_TAB_STROKE.on : MOBILE_TAB_STROKE.off} viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
+        <Link
+          to="/"
+          aria-label="Главная"
+          onClick={() => {
+            setMobileMenuOpen(false);
+            setNotificationOpen(false);
+            setCartPopoverOpen(false);
+          }}
+          className={`flex h-9 min-w-0 flex-1 items-center justify-center rounded-full px-1 transition sm:px-2 ${
+            isHomeActive ? 'text-brand' : 'text-slate-600 hover:text-brand'
+          }`}
+        >
+          <svg className={MOBILE_TAB_ICON} fill="none" stroke="currentColor" strokeWidth={isHomeActive ? MOBILE_TAB_STROKE.on : MOBILE_TAB_STROKE.off} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-9.5z" />
+          </svg>
+        </Link>
+        <Link
+          to="/shop"
+          aria-label="Каталог Beauty box"
+          onClick={() => {
+            setMobileMenuOpen(false);
+            setNotificationOpen(false);
+            setCartPopoverOpen(false);
+          }}
+          className={`flex h-9 min-w-0 flex-1 items-center justify-center rounded-full px-1 transition sm:px-2 ${
+            isShopTabActive ? 'text-brand' : 'text-slate-600 hover:text-brand'
+          }`}
+        >
+          {/* 패키지/박스 아이콘 — 뷰티박스 카탈로그 진입 */}
+          <svg
+            className={`${MOBILE_TAB_ICON} origin-center scale-[1.04]`}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={isShopTabActive ? MOBILE_TAB_STROKE.on : MOBILE_TAB_STROKE.off}
+            viewBox="0 0 24 24"
+            aria-hidden
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
+            />
+          </svg>
+        </Link>
         <button
           type="button"
           onClick={() => {
@@ -865,22 +952,24 @@ export const Navbar: React.FC = () => {
               ? `Уведомления, непрочитано: ${unreadCount}`
               : 'Уведомления'
           }
-          className={`relative flex h-9 items-center justify-center rounded-full px-2.5 transition ${
-            isNotificationActive ? 'bg-brand-soft/50 text-brand' : 'text-slate-600 hover:text-brand'
+          className={`flex h-9 min-w-0 flex-1 items-center justify-center rounded-full px-1 transition sm:px-2 ${
+            isNotificationActive ? 'text-brand' : 'text-slate-600 hover:text-brand'
           }`}
         >
-          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={isNotificationActive ? 2.2 : 1.8}>
-            <path d="M12 3a4 4 0 0 0-4 4v2.09c0 .46-.16.91-.46 1.26L6.3 12.76A2 2 0 0 0 6 14v1h12v-1a2 2 0 0 0-.3-1.24l-1.24-1.41A2 2 0 0 1 16 9.09V7a4 4 0 0 0-4-4z" />
-            <path d="M10 18a2 2 0 0 0 4 0" />
-          </svg>
-          {isLoggedIn && unreadCount > 0 && (
-            <span
-              className="absolute right-0 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-0.5 text-[10px] font-semibold leading-none text-white"
-              aria-hidden
-            >
-              {unreadCount > 99 ? '99+' : unreadCount}
-            </span>
-          )}
+          <span className={MOBILE_TAB_ICON_WRAP}>
+            <svg viewBox="0 0 24 24" className={`${MOBILE_TAB_ICON} origin-center scale-[1.04]`} fill="none" stroke="currentColor" strokeWidth={isNotificationActive ? MOBILE_TAB_STROKE.on : MOBILE_TAB_STROKE.off}>
+              <path d="M12 3a4 4 0 0 0-4 4v2.09c0 .46-.16.91-.46 1.26L6.3 12.76A2 2 0 0 0 6 14v1h12v-1a2 2 0 0 0-.3-1.24l-1.24-1.41A2 2 0 0 1 16 9.09V7a4 4 0 0 0-4-4z" />
+              <path d="M10 18a2 2 0 0 0 4 0" />
+            </svg>
+            {isLoggedIn && unreadCount > 0 && (
+              <span
+                className="absolute -right-1.5 -top-0.5 flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-red-500 px-0.5 text-[9px] font-semibold leading-none text-white ring-1 ring-white"
+                aria-hidden
+              >
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            )}
+          </span>
         </button>
         <button
           type="button"
@@ -889,57 +978,52 @@ export const Navbar: React.FC = () => {
             setNotificationOpen(false);
             setCartPopoverOpen((v) => !v);
           }}
-          className={`relative flex h-9 items-center justify-center rounded-full px-2.5 transition ${
-            isCartActive ? 'bg-brand-soft/50 text-brand' : 'text-slate-600'
+          className={`flex h-9 min-w-0 flex-1 items-center justify-center rounded-full px-1 transition sm:px-2 ${
+            isCartActive ? 'text-brand' : 'text-slate-600'
           }`}
         >
-          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={isCartActive ? 2.2 : 1.8}>
-            <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
-            <line x1="3" y1="6" x2="21" y2="6" />
-            <path d="M16 10a4 4 0 0 1-8 0" />
-          </svg>
-          {totalCount > 0 && (
-            <span className="absolute right-0 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand text-[10px] font-semibold text-white">
-              {totalCount > 99 ? '99+' : totalCount}
-            </span>
-          )}
+          <span className={MOBILE_TAB_ICON_WRAP}>
+            <svg viewBox="0 0 24 24" className={`${MOBILE_TAB_ICON} origin-center scale-[0.92]`} fill="none" stroke="currentColor" strokeWidth={isCartActive ? MOBILE_TAB_STROKE.on : MOBILE_TAB_STROKE.off}>
+              <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
+              <line x1="3" y1="6" x2="21" y2="6" />
+              <path d="M16 10a4 4 0 0 1-8 0" />
+            </svg>
+            {totalCount > 0 && (
+              <span className="absolute -right-1.5 -top-0.5 flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-brand px-0.5 text-[9px] font-semibold leading-none text-white ring-1 ring-white">
+                {totalCount > 99 ? '99+' : totalCount}
+              </span>
+            )}
+          </span>
         </button>
-        <a
-          href={telegramLinkedNav === true ? TELEGRAM_BOT_URL : undefined}
-          target={telegramLinkedNav === true ? '_blank' : undefined}
-          rel={telegramLinkedNav === true ? 'noopener noreferrer' : undefined}
-          aria-label="Telegram"
-          aria-disabled={telegramLinkedNav !== true}
-          onClick={(e) => {
-            if (telegramLinkedNav !== true) e.preventDefault();
-          }}
-          className={`flex h-9 items-center justify-center rounded-full px-2.5 transition ${
-            telegramLinkedNav === true
-              ? 'bg-[#26A5E4]/15 text-[#26A5E4]'
-              : 'cursor-not-allowed text-slate-300'
-          }`}
-        >
-          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden>
-            <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
-          </svg>
-        </a>
         <Link
           to={isLoggedIn ? '/profile' : '/login'}
           aria-label={isLoggedIn ? 'Profile' : 'Личный кабинет'}
-          className={`flex h-9 items-center justify-center rounded-full px-2.5 transition ${
-            isProfileActive
-              ? isLoggedIn
-                ? 'border-2 border-[#0088cc] bg-[#0088cc]/10 text-[#0088cc]'
-                : 'bg-brand-soft/50 text-brand'
-              : isLoggedIn
-                ? 'border-2 border-[#0088cc] text-[#0088cc]'
-                : 'text-slate-600'
-          }`}
+          className="flex h-9 min-w-0 flex-1 items-center justify-center px-1 transition sm:px-2"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.6">
-            <circle cx="12" cy="9" r="3.5" />
-            <path d="M6 19.5c1.4-2.3 3.3-3.5 6-3.5s4.6 1.2 6 3.5" />
-          </svg>
+          {/* 사람 아이콘에 맞춘 작은 원 — border-2·큰 박스 대신 얇은 링 + 타이트한 크기 */}
+          <span
+            className={`inline-flex ${MOBILE_TAB_PROFILE_RING} shrink-0 items-center justify-center rounded-full ${
+              isLoggedIn
+                ? isProfileActive
+                  ? 'border border-[#0088cc] bg-[#0088cc]/10 text-[#0088cc]'
+                  : 'border border-[#0088cc]/80 text-[#0088cc]'
+                : isProfileActive
+                  ? 'text-brand'
+                  : 'text-slate-600'
+            }`}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              className={MOBILE_TAB_PROFILE_SVG}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={isProfileActive ? MOBILE_TAB_STROKE.on : MOBILE_TAB_STROKE.off}
+            >
+              <circle cx="12" cy="9" r="3.5" />
+              <path d="M6 19.5c1.4-2.3 3.3-3.5 6-3.5s4.6 1.2 6 3.5" />
+            </svg>
+          </span>
         </Link>
       </nav>
 
@@ -1024,6 +1108,26 @@ export const Navbar: React.FC = () => {
               >
                 FAQ
               </NavLink>
+              <a
+                href={telegramLinkedNav === true ? TELEGRAM_BOT_URL : undefined}
+                target={telegramLinkedNav === true ? '_blank' : undefined}
+                rel={telegramLinkedNav === true ? 'noopener noreferrer' : undefined}
+                aria-disabled={telegramLinkedNav !== true}
+                onClick={(e) => {
+                  if (telegramLinkedNav !== true) e.preventDefault();
+                  else setMobileMenuOpen(false);
+                }}
+                className={`flex items-center gap-2 rounded-xl px-4 py-3.5 text-base font-medium ${
+                  telegramLinkedNav === true
+                    ? 'text-[#26A5E4] hover:bg-slate-50'
+                    : 'cursor-not-allowed text-slate-400'
+                }`}
+              >
+                <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0" fill="currentColor" aria-hidden>
+                  <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
+                </svg>
+                Telegram
+              </a>
             </nav>
           </aside>
         </>

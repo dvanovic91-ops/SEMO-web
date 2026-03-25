@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { Route, Routes, useLocation, useParams } from 'react-router-dom';
+import { isSemoBoxSubmenuPath } from './lib/semoBoxSubmenu';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
 import { ProductNavReplacementProvider, useProductNavReplacement } from './context/ProductNavReplacementContext';
@@ -89,8 +90,13 @@ function ProductDetailWithKey() {
 /** 상품 상세(md+)에서 Navbar 고정 시 본문이 헤더에 가리지 않도록 상단 패딩 */
 function AppLayout() {
   const { productDesktopNav } = useProductNavReplacement();
-  // 네비게이션이 항상 fixed이므로 항상 상단 패딩 필요
+  const { pathname } = useLocation();
+  const semoMobileSubnav = isSemoBoxSubmenuPath(pathname);
+  // 네비게이션이 항상 fixed이므로 항상 상단 패딩 필요. 모바일 SEMO Box 구간에는 고정 서브바 높이 추가.
   const mdProductPad = 'md:pt-[var(--semo-desktop-header-h)]';
+  const mobileTopPad = semoMobileSubnav
+    ? 'max-md:pt-[calc(var(--semo-mobile-header-h)+var(--semo-mobile-box-subnav-h))]'
+    : '';
   return (
     <>
       <AddItemFromQuery />
@@ -98,7 +104,7 @@ function AppLayout() {
       <TrackVisit />
       <ScrollToTop />
       <div
-        className={`min-w-0 flex-1 overflow-x-hidden pb-[var(--semo-mobile-tabbar-h)] pt-[var(--semo-mobile-header-h)] md:pb-0 ${mdProductPad}`}
+        className={`min-w-0 flex-1 overflow-x-hidden pb-[var(--semo-mobile-tabbar-h)] pt-[var(--semo-mobile-header-h)] md:pb-0 ${mdProductPad} ${mobileTopPad}`}
       >
         <Routes>
               <Route path="/" element={<Home />} />

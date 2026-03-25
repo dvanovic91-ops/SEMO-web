@@ -5,7 +5,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { SemoPageSpinner } from '../components/SemoPageSpinner';
+import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../components/SemoPageSpinner';
 
 const YANDEX_REDIRECT_URI = `${window.location.origin}/auth/yandex/callback`;
 
@@ -87,11 +87,11 @@ export const YandexCallback: React.FC = () => {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50">
-      <div className="text-center">
-        <SemoPageSpinner />
-        <p className="mt-4 text-sm text-slate-600">Вход через Яндекс…</p>
+    <main className={`${SEMO_FULL_PAGE_LOADING_MAIN_CLASS} bg-slate-50`}>
+      <div className="flex flex-col items-center gap-3 text-center">
+        <SemoPageSpinner showLabel={false} />
+        <p className="text-sm text-slate-600">Вход через Яндекс…</p>
       </div>
-    </div>
+    </main>
   );
 };

@@ -143,6 +143,8 @@ export const ProductDetail: React.FC = () => {
   const [reviewToast, setReviewToast] = useState<{ type: 'uploading' | 'success' | 'error'; message: string } | null>(null);
   /** 리뷰 섹션 인포 툴팁 토글 */
   const [reviewInfoOpen, setReviewInfoOpen] = useState(false);
+  /** Отзыв: по умолчанию свёрнуто — разворачивается по нажатию на заголовок */
+  const [reviewComposerOpen, setReviewComposerOpen] = useState(false);
   /** 장바구니 담기 성공 토스트 — useEffect보다 먼저 선언 (TDZ 오류·흰 화면 방지) */
   const [cartToast, setCartToast] = useState(false);
   /** 메인 상품 사진 여러 장 — 가로 스와이프 시 현재 슬라이드 */
@@ -150,6 +152,15 @@ export const ProductDetail: React.FC = () => {
   const galleryScrollRef = useRef<HTMLDivElement | null>(null);
 
   const reviewFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (reviewError) setReviewComposerOpen(true);
+  }, [reviewError]);
+
+  useEffect(() => {
+    setReviewComposerOpen(false);
+    setReviewInfoOpen(false);
+  }, [id]);
 
   const ingredientEntryMap = useMemo(() => {
     const map = new Map<string, { ingredient_name: string; role_ru: string; strength: number }[]>();
@@ -712,6 +723,7 @@ export const ProductDetail: React.FC = () => {
           review_photos: photosMap[r.id] ?? [],
         })),
       );
+      setReviewComposerOpen(false);
       setReviewToast({ type: 'success', message: 'Отзыв отправлен.' });
     } catch (err) {
       setReviewToast({ type: 'error', message: 'Ошибка. Не удалось отправить отзыв.' });
@@ -801,7 +813,7 @@ export const ProductDetail: React.FC = () => {
   const catalogParam = searchParams.get('catalog');
   const effectiveCatalog = (catalogParam || product?.category || 'beauty') as 'beauty' | 'inner_beauty' | 'hair_beauty';
   const backCatalogPath = effectiveCatalog === 'inner_beauty' ? '/inner-beauty' : effectiveCatalog === 'hair_beauty' ? '/hair-beauty' : '/shop';
-  const backCatalogLabel = effectiveCatalog === 'inner_beauty' ? 'В Fit box' : effectiveCatalog === 'hair_beauty' ? 'В Hair box' : 'В Beauty box';
+  const backCatalogLabel = effectiveCatalog === 'inner_beauty' ? 'Fit box' : effectiveCatalog === 'hair_beauty' ? 'Hair box' : 'Beauty box';
 
   const addToCartNavRef = useRef(handleAddToCart);
   addToCartNavRef.current = handleAddToCart;
@@ -904,7 +916,7 @@ export const ProductDetail: React.FC = () => {
 
       <article className="space-y-8">
         <header>
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
+          <h1 className="text-center text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
             {product?.name ?? '—'}
           </h1>
 
@@ -1059,7 +1071,7 @@ export const ProductDetail: React.FC = () => {
         {(ingredientBrief?.infographic_image_url || (product?.detail_description && /^https?:\/\//i.test(product.detail_description))) && (
           <section id="product-description" className="mt-6 overflow-hidden rounded-2xl bg-white shadow-[0_1px_10px_-6px_rgba(15,23,42,0.2)] ring-1 ring-slate-200/70">
             <div className="px-4 py-4 sm:px-6 sm:py-5">
-              <p className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">Подробнее о составе</p>
+              <p className="mb-3 text-center text-xs font-medium uppercase tracking-wider text-slate-500">Подробнее о составе</p>
               <div className="overflow-hidden rounded-xl border border-slate-200/70 bg-white">
                 <img
                   src={ingredientBrief?.infographic_image_url || product?.detail_description || ''}
@@ -1072,7 +1084,7 @@ export const ProductDetail: React.FC = () => {
         )}
 
         <section id="product-reviews">
-          <h2 className="mb-3 text-lg font-semibold text-slate-900">Отзывы</h2>
+          <h2 className="mb-3 text-center text-lg font-semibold text-slate-900">Отзывы</h2>
 
           <ul className="space-y-4">
             {reviews.map((r) => (
@@ -1129,10 +1141,39 @@ export const ProductDetail: React.FC = () => {
             reviewOrderId ? (
             <>
             <form onSubmit={handleSubmitReview} className="mt-6 rounded-xl border border-slate-200 bg-white p-4">
-              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <button
+                type="button"
+                onClick={() => setReviewComposerOpen((v) => !v)}
+                className="flex w-full items-center justify-between gap-2 rounded-lg py-1 text-left transition hover:bg-slate-50/80"
+                aria-expanded={reviewComposerOpen}
+                id="review-composer-toggle"
+              >
                 <h3 className="text-sm font-semibold text-slate-800">Оставить отзыв</h3>
-                <div className="flex items-center justify-start gap-2 text-xs sm:text-sm font-semibold text-slate-700 sm:justify-end">
-                  <span>Фотоотзыв и бонусные баллы 🎁</span>
+                <span className="shrink-0 text-slate-400" aria-hidden>
+                  {reviewComposerOpen ? (
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                    </svg>
+                  ) : (
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  )}
+                </span>
+              </button>
+              {!reviewComposerOpen ? (
+                <p className="mt-1 text-xs text-slate-500">Нажмите, чтобы написать отзыв и прикрепить фото.</p>
+              ) : null}
+
+              <div
+                className={reviewComposerOpen ? 'mt-3 border-t border-slate-100 pt-3' : 'hidden'}
+                id="review-composer-panel"
+                role="region"
+                aria-labelledby="review-composer-toggle"
+              >
+              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <span className="text-xs font-semibold text-slate-700 sm:text-sm">Фотоотзыв и бонусные баллы 🎁</span>
+                <div className="flex items-center justify-start gap-2 sm:justify-end">
                   <div
                     className="relative inline-flex items-center"
                     onMouseEnter={() => {
@@ -1151,7 +1192,8 @@ export const ProductDetail: React.FC = () => {
                       className="flex h-5 w-5 items-center justify-center rounded-full border border-amber-300 bg-amber-50 text-[11px] text-amber-700"
                       aria-label="Информация о бонусных баллах"
                       aria-expanded={reviewInfoOpen}
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
                         if (typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches) {
                           setReviewInfoOpen((v) => !v);
                         }
@@ -1255,7 +1297,8 @@ export const ProductDetail: React.FC = () => {
                   className="hidden"
                 />
               </div>
-              {reviewError && <p className="mb-2 text-sm text-red-600">{reviewError}</p>}
+              {reviewError ? <p className="mb-2 text-sm text-red-600">{reviewError}</p> : null}
+              </div>
             </form>
             {/* 리뷰/사진 업로드 토스트 */}
             {reviewToast && (

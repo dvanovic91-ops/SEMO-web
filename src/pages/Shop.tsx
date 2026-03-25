@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
 import { supabase } from '../lib/supabase';
 import { ShopCardImage } from './ShopCardImage';
-import { SemoPageSpinner } from '../components/SemoPageSpinner';
+import { SemoPageSpinner, SEMO_SECTION_LOADING_CLASS } from '../components/SemoPageSpinner';
 import {
   CATALOG_ROOM_SLOTS_TABLE,
   CATALOG_SLOT_VISIBLE_BY_ROOM_KEY,
@@ -82,13 +82,19 @@ function ShopProductCard({ product, onAddToCart, layoutCategory, layout, archive
     ? 'prose-ru text-center text-base font-medium leading-snug tracking-wide text-slate-500 md:text-sm'
     : 'prose-ru text-center text-base font-medium leading-snug tracking-wide text-slate-800 md:text-sm';
 
+  /** 모바일 1열: 장바구니 버튼 가로 절반·가운데 / 캐러셀·md+: 기존 */
+  const cartBtnWidth =
+    layout === 'mobile-stack'
+      ? 'w-1/2 min-w-[9.25rem] max-w-[11.25rem]'
+      : 'w-full sm:w-auto';
+
   const cartBtnClass = archive
-    ? 'inline-flex min-h-9 w-full cursor-not-allowed items-center justify-center rounded-full border border-slate-300 bg-slate-200 px-4 py-2 text-sm font-medium leading-tight text-slate-500 md:min-h-8 md:py-1.5'
-    : 'inline-flex min-h-9 w-full items-center justify-center rounded-full border border-brand/90 bg-brand px-4 py-2 text-sm font-medium leading-tight text-white transition hover:bg-brand/90 md:min-h-8 md:py-1.5';
+    ? `inline-flex min-h-9 ${cartBtnWidth} cursor-not-allowed items-center justify-center rounded-full border border-slate-300 bg-slate-200 px-4 py-2 text-sm font-medium leading-tight text-slate-500 md:min-h-8 md:py-1.5`
+    : `inline-flex min-h-9 ${cartBtnWidth} items-center justify-center rounded-full border border-brand/90 bg-brand px-4 py-2 text-sm font-medium leading-tight text-white transition hover:bg-brand/90 md:min-h-8 md:py-1.5`;
 
   const buttonWrap =
     layout === 'mobile-stack'
-      ? 'mt-5 flex w-full min-w-0 flex-col gap-3'
+      ? 'mt-5 flex w-full min-w-0 flex-col items-center gap-3'
       : 'mt-4 flex w-full min-w-0 flex-col items-center gap-2 sm:flex-row sm:justify-center';
 
   const cardTop = (
@@ -499,26 +505,23 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
 
   return (
     <main className="mx-auto min-w-0 w-full max-w-[96rem] px-3 py-5 sm:px-6 sm:py-10 md:px-8 md:py-14">
-      <header className="mb-12">
+      <header
+        className={layoutCategory === 'beauty' ? 'mb-6 md:mb-12' : 'mb-12'}
+      >
         <h1 className="text-center text-2xl font-semibold tracking-tight text-slate-900 whitespace-nowrap sm:text-3xl md:text-4xl">
           {pageTitle}
         </h1>
         {pageSubtitle && layoutCategory === 'beauty' ? (
-          /* 데스크톱 카탈로그 섹션과 동일 md/lg 패딩 → 우측 링크가 4번째 카드 열 끝과 시각적으로 맞도록 */
-          <div className="mt-8 flex w-full min-w-0 items-center gap-2 px-3 sm:gap-3 md:px-8 lg:px-10">
-            <div className="min-w-0 flex-1" aria-hidden />
-            <p className="prose-ru shrink-0 text-center text-base leading-relaxed text-brand sm:text-lg">
+          <>
+            {/* 모바일: 소제목만(히스토리 링크는 카드 목록 아래 우측) */}
+            <p className="prose-ru mx-auto mt-6 max-w-2xl px-3 text-center text-base font-bold italic leading-relaxed text-brand sm:text-lg md:hidden">
               {pageSubtitle}
             </p>
-            <div className="flex min-w-0 flex-1 justify-end">
-              <Link
-                to="/shop/box-history"
-                className="inline-block shrink-0 -translate-x-1/2 text-[calc(0.875rem-1pt)] font-medium text-slate-500 underline-offset-4 transition hover:text-slate-600 hover:underline sm:text-[calc(1rem-1pt)]"
-              >
-                История боксов →
-              </Link>
-            </div>
-          </div>
+            {/* md+: 부제만 가운데 — «История боксов»는 데스크톱 카탈로그(슬롯) 아래 우측 */}
+            <p className="prose-ru mx-auto mt-8 hidden max-w-2xl px-3 text-center text-base font-bold italic leading-relaxed text-brand sm:text-lg md:block md:px-8 lg:px-10">
+              {pageSubtitle}
+            </p>
+          </>
         ) : pageSubtitle ? (
           <p className="prose-ru mx-auto mt-4 max-w-2xl text-center text-sm leading-relaxed text-slate-600 sm:text-base">
             {pageSubtitle}
@@ -527,15 +530,27 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
       </header>
 
       {catalogLoading ? (
-        <div className="py-16">
+        <div className={SEMO_SECTION_LOADING_CLASS} aria-busy="true">
           <SemoPageSpinner />
         </div>
       ) : items.length === 0 ? (
-        <p className="py-16 text-center text-sm text-slate-500">
-          {layoutCategory === 'beauty'
-            ? 'Каталог временно недоступен.'
-            : 'Подборка скоро появится — следите за обновлениями.'}
-        </p>
+        <>
+          <p className="py-16 text-center text-sm text-slate-500">
+            {layoutCategory === 'beauty'
+              ? 'Каталог временно недоступен.'
+              : 'Подборка скоро появится — следите за обновлениями.'}
+          </p>
+          {layoutCategory === 'beauty' ? (
+            <div className="mb-10 hidden translate-x-[3vw] justify-start pl-2 sm:pl-3 md:flex md:px-8 lg:px-10">
+              <Link
+                to="/shop/box-history"
+                className="text-[calc(0.875rem-1pt)] font-medium text-slate-500 underline-offset-4 transition hover:text-slate-600 hover:underline sm:text-[calc(1rem-1pt)]"
+              >
+                ← История боксов
+              </Link>
+            </div>
+          ) : null}
+        </>
       ) : (
         <>
           {/* 모바일·태블릿(md 미만): 1열 풀폭 카드 — 가독성·터치 영역 */}
@@ -543,10 +558,25 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
             <div className="flex flex-col gap-6">
               {items.map((product) => (
                 <div key={product.id} className="w-full min-w-0">
-                  <ShopProductCard product={product} onAddToCart={handleAddToCart} layoutCategory={layoutCategory} layout="mobile-stack" />
+                  <ShopProductCard
+                    product={product}
+                    onAddToCart={handleAddToCart}
+                    layoutCategory={layoutCategory}
+                    layout="mobile-stack"
+                  />
                 </div>
               ))}
             </div>
+            {layoutCategory === 'beauty' ? (
+              <div className="mt-3 flex justify-start px-3">
+                <Link
+                  to="/shop/box-history"
+                  className="text-[calc(0.875rem-1pt)] font-medium text-slate-500 underline-offset-4 transition hover:text-slate-600 hover:underline"
+                >
+                  ← История боксов
+                </Link>
+              </div>
+            ) : null}
           </section>
 
           {/* md 이상: 상품 수에 따라 중앙 정렬 or 캐러셀 */}
@@ -613,6 +643,18 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
                 ))}
               </div>
             )}
+
+            {/* 데스크톱 뷰티박스: 히스토리 — 모바일과 동일 «←» 유니코드 */}
+            {layoutCategory === 'beauty' ? (
+              <div className="mt-8 hidden translate-x-[3vw] justify-start pl-2 sm:pl-3 md:flex">
+                <Link
+                  to="/shop/box-history"
+                  className="text-[calc(0.875rem-1pt)] font-medium text-slate-500 underline-offset-4 transition hover:text-slate-600 hover:underline sm:text-[calc(1rem-1pt)]"
+                >
+                  ← История боксов
+                </Link>
+              </div>
+            ) : null}
           </section>
         </>
       )}

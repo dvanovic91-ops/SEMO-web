@@ -3,11 +3,12 @@
 @tailwind utilities;
 
 /**
- * 모바일 고정 헤더(Navbar) 높이 — html overflow-x로 sticky가 깨져 fixed 사용 시 본문 pt·상품 미니바 top과 동일.
- * <640px: h-11 / 640–767px: sm:h-[3.2rem] / md+: 본문 패딩 없음(헤더 static)
+ * 모바일 고정 헤더(Navbar) 높이 — Navbar 내부 행과 동일해야 서브바·본문 pt가 어긋나지 않음.
+ * (paddingTop은 h-11 / sm:h-[3.2rem] border-box 안에 포함 — safe-area를 행 밖에 또 더하면 틈이 생김)
+ * <640px: h-11(2.75rem) / 640px+: sm:h-[3.2rem] / md+: 본문은 --semo-desktop-header-h
  */
 :root {
-  --semo-mobile-header-h: calc(max(0.2rem, env(safe-area-inset-top, 0px)) + 2.75rem);
+  --semo-mobile-header-h: 2.75rem;
   /* 100dvh 대신 100svh — 모바일 주소창 표시/숨김에 따른 히어로 높이·이미지 ‘줌’ 느낌 완화 */
   --semo-hero-h: calc(100svh - var(--semo-mobile-header-h));
   /**
@@ -17,16 +18,19 @@
   --semo-mobile-tabbar-h: calc(
     0.125rem + 2.25rem + max(0.2rem, env(safe-area-inset-bottom, 0px))
   );
+  /* 모바일 SEMO Box 상단 고정 서브바 높이 — App 본문 pt·서브바 min-h와 동기화 */
+  --semo-mobile-box-subnav-h: 3.15rem;
 }
-@media (min-width: 640px) and (max-width: 767px) {
+@media (min-width: 640px) {
   :root {
-    --semo-mobile-header-h: calc(max(0.2rem, env(safe-area-inset-top, 0px)) + 3.2rem);
+    --semo-mobile-header-h: 3.2rem;
     --semo-hero-h: calc(100svh - var(--semo-mobile-header-h));
   }
 }
 @media (min-width: 768px) {
   :root {
-    --semo-desktop-header-h: calc(max(0.2rem, env(safe-area-inset-top, 0px)) + 3.2rem);
+    /* Navbar 내부 행 sm:h-[3.2rem] + paddingTop은 행 높이 안 — 별도 safe-area 가산 없음 */
+    --semo-desktop-header-h: 3.2rem;
     --semo-hero-h: calc(100svh - var(--semo-desktop-header-h));
   }
 }

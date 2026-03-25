@@ -453,30 +453,19 @@ export const SkinTest: React.FC = () => {
       );
     }
     return (
-      <main className="mx-auto flex min-h-[100dvh] flex-col bg-white px-4 py-5 sm:min-h-screen sm:px-6 sm:py-10 md:py-14">
-        <div className="mx-auto w-full max-w-4xl">
-          <header className="mb-12 text-center">
-            <h1 className="text-center text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl md:text-4xl">
-              Тест типа кожи
-            </h1>
-            <p className="mt-4 text-lg text-slate-600">
-              Персональный план ухода — подберите средства под ваш тип кожи
-            </p>
-          </header>
-          <div className="px-1 text-center">
-          <p className="text-center text-sm italic leading-snug text-slate-600 break-words sm:text-base sm:leading-relaxed md:text-lg">
-            «Даже дорогой уход бесполезен, если он не подходит вашей коже.
+      <main className="mx-auto w-full bg-white px-4 py-5 sm:px-6 sm:py-10 md:py-14">
+        <div className="mx-auto flex w-full max-w-4xl flex-col items-center space-y-5 px-1 text-center sm:space-y-6 sm:px-2">
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl md:text-4xl">
+            Тест типа кожи
+          </h1>
+          <p className="text-sm italic leading-snug text-slate-600 break-words sm:text-base sm:leading-relaxed md:text-lg">
+            «Даже дорогой уход бесполезен, если он не подходит вашей коже. Пройдите тест, чтобы не тратить лишнего и получить экспертный план ухода!»
           </p>
-          <p className="mt-2 text-center text-sm italic leading-snug text-slate-600 break-words sm:mt-3 sm:text-base sm:leading-relaxed md:text-lg">
-            Пройдите тест, чтобы не тратить лишнего и получить экспертный план ухода!»
+          <p className="text-xs leading-snug text-slate-400 break-words sm:text-sm sm:leading-relaxed">
+            Это ваш экспертный гид для ежедневного ухода. Для диагностики специфических заболеваний рекомендуем
+            дополнить тест консультацией врача.
           </p>
-          <p className="mt-3 text-center text-xs text-slate-400 break-words sm:mt-6 sm:text-sm">
-            Это ваш экспертный гид для ежедневного ухода.
-          </p>
-          <p className="mt-1 text-center text-xs text-slate-400 break-words sm:mt-2 sm:text-sm">
-            Для диагностики специфических заболеваний рекомендуем дополнить тест консультацией врача.
-          </p>
-          <div className="mt-6 flex flex-col items-center gap-2 sm:mt-12 sm:gap-4">
+          <div className="flex w-full flex-col items-center">
             <button
               type="button"
               onClick={handleAgree}
@@ -484,7 +473,6 @@ export const SkinTest: React.FC = () => {
             >
               Согласен(а) и начать
             </button>
-          </div>
           </div>
         </div>
       </main>
@@ -644,7 +632,8 @@ export const SkinTest: React.FC = () => {
           </div>
 
           {/* Персональный выбор SEMO — 설명 직후, 설명과 간격 절반 수준(mt-4) */}
-          <div className="mt-4 rounded-xl border border-brand/20 bg-brand-soft/25 py-6 px-6">
+          {/* 모바일에서 구성 설명 폭 확보: 안쪽 여백 축소 */}
+          <div className="mt-4 rounded-xl border border-brand/20 bg-brand-soft/25 px-3 py-4 sm:px-5 sm:py-5 md:px-6 md:py-6">
             <p className="text-sm font-medium tracking-wide text-brand">
               {recommendedProductPreview?.status === 'ok' && recommendedProductPreview.name?.trim()
                 ? `Персональный выбор SEMO : ${recommendedProductPreview.name.trim()}`
@@ -726,17 +715,17 @@ export const SkinTest: React.FC = () => {
             </div>
           </div>
 
-          {/* CTA: Смотреть товары + В корзину — 한 줄(모바일은 세로) 가운데 정렬 */}
+          {/* CTA: 모바일·데스크톱 모두 가로 2칸(한 줄) */}
           <div className="mt-10 flex flex-col items-center gap-3">
             {!userId && (
               <p className="max-w-md text-center text-sm text-slate-600">
                 Сохраните результат в личном кабинете и пройдите тест ещё раз после регистрации.
               </p>
             )}
-            <div className="flex w-full flex-col items-center justify-center gap-3 sm:flex-row sm:flex-wrap">
+            <div className="flex w-full max-w-md flex-row items-stretch justify-center gap-2 sm:max-w-none sm:flex-wrap sm:gap-3">
               <Link
                 to={getRecommendationPath(result.type)}
-                className="inline-flex w-full max-w-[240px] justify-center rounded-full border-2 border-brand bg-white py-2.5 text-center text-sm font-semibold text-brand transition hover:bg-brand-soft/25"
+                className="inline-flex min-h-11 min-w-0 flex-1 items-center justify-center rounded-full border border-brand bg-white px-2 py-2.5 text-center text-xs font-semibold text-brand transition hover:bg-brand-soft/25 sm:max-w-[240px] sm:flex-none sm:px-4 sm:text-sm"
               >
                 Смотреть товары
               </Link>
@@ -744,7 +733,7 @@ export const SkinTest: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleAddRecommendedToCart}
-                  className="inline-flex w-full max-w-[240px] justify-center rounded-full bg-brand py-2.5 text-center text-sm font-semibold text-white transition hover:bg-brand/90"
+                  className="inline-flex min-h-11 min-w-0 flex-1 items-center justify-center rounded-full border border-transparent bg-brand px-2 py-2.5 text-center text-xs font-semibold text-white transition hover:bg-brand/90 sm:max-w-[240px] sm:flex-none sm:px-4 sm:text-sm"
                 >
                   В корзину
                 </button>

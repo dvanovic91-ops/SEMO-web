@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { BackArrow } from '../components/BackArrow';
 import { supabase } from '../lib/supabase';
-import { SemoPageSpinner } from '../components/SemoPageSpinner';
+import { SemoPageSpinner, SEMO_SECTION_LOADING_CLASS } from '../components/SemoPageSpinner';
 import { ShopProductCard, type ShopItem, type ShopLayoutCategory } from './Shop';
 import { BOX_HISTORY_SEASON_LABELS_KEY, HISTORY_SEASON_COUNT } from '../lib/catalogSlotRooms';
 
@@ -134,20 +135,25 @@ export const BoxHistory: React.FC = () => {
   const noopCart = () => {};
 
   return (
-    <main className="mx-auto min-w-0 w-full max-w-[96rem] px-3 py-5 sm:px-6 sm:py-10 md:px-8 md:py-14">
-      <header className="mb-10">
-        <nav className="mb-6 text-center text-sm text-slate-500">
-          <Link to="/shop" className="font-medium text-brand underline-offset-4 hover:underline">
-            ← Beauty box
+    <main className="mx-auto min-w-0 w-full max-w-[96rem]">
+      {/* 상단: ProductDetail과 동일 — max-w-3xl 열, px-4·pt-8 / sm:px-6·sm:pt-12, 뒤로가기 mb-6 후 제목 */}
+      <div className="mx-auto w-full max-w-3xl px-4 pt-8 sm:px-6 sm:pt-12">
+        <p className="mb-6">
+          <Link
+            to="/shop"
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"
+          >
+            <BackArrow /> Beauty box
           </Link>
-        </nav>
-        <h1 className="text-center text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl md:text-4xl">
+        </p>
+        <h1 className="mb-10 text-center text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl md:text-4xl">
           История боксов
         </h1>
-      </header>
+      </div>
 
+      <div className="px-4 pb-5 sm:px-6 sm:pb-10 md:pb-14">
       {loading ? (
-        <div className="py-16">
+        <div className={SEMO_SECTION_LOADING_CLASS} aria-busy="true">
           <SemoPageSpinner />
         </div>
       ) : groups.every((g) => g.items.length === 0) ? (
@@ -167,10 +173,13 @@ export const BoxHistory: React.FC = () => {
                 >
                   {g.label}
                 </h2>
-                {/* 데스크톱: 한 줄 4개 / 태블릿 2개 / 모바일 1개 — 카드 폭은 열에 맞춤 */}
-                <div className="mx-auto grid w-full max-w-[88rem] grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-4 lg:gap-5">
+                {/* flex-wrap + justify-center: 마지막 줄 카드 수가 적을 때도 가운데 묶음 정렬 */}
+                <div className="mx-auto flex w-full max-w-[88rem] flex-wrap justify-center gap-4 sm:gap-5">
                   {g.items.map((product) => (
-                    <div key={product.id} className="min-w-0">
+                    <div
+                      key={product.id}
+                      className="w-full min-w-0 sm:w-[calc(50%-0.625rem)] lg:w-[calc(25%-0.9375rem)]"
+                    >
                       <ShopProductCard
                         product={product}
                         onAddToCart={noopCart}
@@ -186,6 +195,7 @@ export const BoxHistory: React.FC = () => {
           )}
         </div>
       )}
+      </div>
     </main>
   );
 };

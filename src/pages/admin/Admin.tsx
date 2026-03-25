@@ -379,11 +379,25 @@ type Promo = {
   id: string;
   title: string;
   image_url: string | null;
+  start_at: string | null;
   end_at: string | null;
   sort_order: number;
   /** true: 사이트 «Архив» 탭·관리자 아카이브 목록 */
   is_archived?: boolean | null;
 };
+
+function adminPromoPeriodLine(p: { start_at?: string | null; end_at?: string | null }): string {
+  const fmt = (iso: string | null | undefined) =>
+    iso
+      ? new Date(iso).toLocaleDateString('ru-RU', { day: 'numeric', month: 'numeric', year: 'numeric' })
+      : null;
+  const s = fmt(p.start_at);
+  const e = fmt(p.end_at);
+  if (s && e) return `${s} — ${e}`;
+  if (s && !e) return `${s} — …`;
+  if (!s && e) return `… — ${e}`;
+  return '기간 미설정';
+}
 
 const emptySlot = (index: number): Slot => ({
   id: null,
@@ -569,7 +583,13 @@ export const Admin: React.FC = () => {
   const [promosLoading, setPromosLoading] = useState(false);
   const [promosSaving, setPromosSaving] = useState(false);
   const [selectedPromo, setSelectedPromo] = useState<Promo | null>(null);
-  const [promoForm, setPromoForm] = useState({ title: '', image_url: '', end_at: '', is_archived: false });
+  const [promoForm, setPromoForm] = useState({
+    title: '',
+    image_url: '',
+    start_at: '',
+    end_at: '',
+    is_archived: false,
+  });
   /** 프로모 관리: 진행 중 / 아카이브 목록·드래그 순서 분리 */
   const [promoAdminSubTab, setPromoAdminSubTab] = useState<'active' | 'archive'>('active');
   const [uploadingPromoImage, setUploadingPromoImage] = useState(false);
@@ -1615,12 +1635,13 @@ export const Admin: React.FC = () => {
     void (async () => {
       const full = await supabase
         .from('promos')
-        .select('id, title, image_url, end_at, sort_order, is_archived')
+        .select('id, title, image_url, start_at, end_at, sort_order, is_archived')
         .order('sort_order', { ascending: true });
       if (!full.error && full.data) {
         setPromos(
           (full.data as Promo[]).map((p) => ({
             ...p,
+            start_at: p.start_at ?? null,
             is_archived: p.is_archived ?? false,
           })),
         );
@@ -1633,7 +1654,11 @@ export const Admin: React.FC = () => {
         .select('id, title, image_url, end_at, sort_order')
         .order('sort_order', { ascending: true });
       setPromos(
-        ((min.data as Omit<Promo, 'is_archived'>[]) ?? []).map((p) => ({ ...p, is_archived: false })),
+        ((min.data as Omit<Promo, 'is_archived' | 'start_at'>[]) ?? []).map((p) => ({
+          ...p,
+          start_at: null,
+          is_archived: false,
+        })),
       );
       setPromosLoading(false);
     })();
@@ -4831,6 +4856,7 @@ export const Admin: React.FC = () => {
                             setPromoForm({
                               title: p.title,
                               image_url: p.image_url ?? '',
+                              start_at: p.start_at ? p.start_at.slice(0, 10) : '',
                               end_at: p.end_at ? p.end_at.slice(0, 10) : '',
                               is_archived: Boolean(p.is_archived),
                             });
@@ -4858,9 +4884,7 @@ export const Admin: React.FC = () => {
                         </button>
                       </div>
                       <p className="mt-2 truncate text-center text-sm font-medium text-slate-800">{p.title || '—'}</p>
-                      <p className="text-center text-xs text-slate-500">
-                        {p.end_at ? `~ ${new Date(p.end_at).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })}` : '종료일 미설정'}
-                      </p>
+                      <p className="text-center text-xs text-slate-500">{adminPromoPeriodLine(p)}</p>
                       {p.is_archived ? (
                         <p className="mt-1 text-center text-[10px] font-medium uppercase text-slate-400">아카이브</p>
                       ) : null}
@@ -4955,7 +4979,18 @@ export const Admin: React.FC = () => {
                     </div>
                     <div>
                       <label className="mb-1 block text-xs font-medium text-slate-600">
-                        종료일 (진행 중은 오늘 이후만; 아카이브는 과거 날짜 허용)
+                        시작일 (선택) — 사이트에 «дд.мм.гггг — …» 형태로 표시
+                      </label>
+                      <input
+                        type="date"
+                        className="w-full rounded border border-slate-200 px-3 py-2 text-sm"
+                        value={promoForm.start_at}
+                        onChange={(e) => setPromoForm((f) => ({ ...f, start_at: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-slate-600">
+                        종료일 (선택; 진행 중은 오늘 이후만; 아카이브는 과거 날짜 허용)
                       </label>
                       <input
                         type="date"
@@ -4977,6 +5012,10 @@ export const Admin: React.FC = () => {
                           const today = new Date().toISOString().slice(0, 10);
                           if (!promoForm.is_archived && promoForm.end_at && promoForm.end_at < today) {
                             window.alert('진행 중 프로모의 종료일은 오늘 이후만 입력할 수 있습니다.');
+                            return;
+                          }
+                          if (promoForm.start_at && promoForm.end_at && promoForm.start_at > promoForm.end_at) {
+                            window.alert('시작일은 종료일보다 늦을 수 없습니다.');
                             return;
                           }
                           setPromosSaving(true);
@@ -5004,6 +5043,7 @@ export const Admin: React.FC = () => {
                             const payload = {
                               title: promoForm.title.trim(),
                               image_url: promoForm.image_url.trim() || null,
+                              start_at: promoForm.start_at ? new Date(promoForm.start_at).toISOString() : null,
                               end_at: promoForm.end_at ? new Date(promoForm.end_at).toISOString() : null,
                               sort_order,
                               is_archived: nextArchived,
@@ -5020,7 +5060,7 @@ export const Admin: React.FC = () => {
                               if (err) throw err;
                               setPromos((prev) => [...prev, { ...payload, id: (data as { id: string }).id }]);
                             }
-                            setPromoForm({ title: '', image_url: '', end_at: '', is_archived: false });
+                            setPromoForm({ title: '', image_url: '', start_at: '', end_at: '', is_archived: false });
                             setSaveSuccessAt(Date.now());
                           } catch (e) {
                             setError(e instanceof Error ? e.message : '저장 실패');
@@ -5038,7 +5078,7 @@ export const Admin: React.FC = () => {
                           type="button"
                           onClick={() => {
                             setSelectedPromo(null);
-                            setPromoForm({ title: '', image_url: '', end_at: '', is_archived: false });
+                            setPromoForm({ title: '', image_url: '', start_at: '', end_at: '', is_archived: false });
                           }}
                           className="rounded-full border border-slate-200 px-4 py-1.5 text-xs text-slate-600"
                         >

@@ -1,18 +1,20 @@
 import React from 'react';
 
 /**
- * 전체 화면 로딩 — 뷰포트 정중앙(모바일/데스크톱 공통).
- * 레이아웃 flex 자식 + 헤더 pt 때문에 문서 흐름만 쓰면 스피너가 화면 중앙보다 아래로 보임 → fixed inset-0 로 보정.
- * z-[80]: Navbar(z-40) 위, 일반 모달(z-100) 아래.
+ * 앱 레이아웃 기준 «보이는 본문 슬롯» 정중앙 — 고정 Navbar·모바일 하단 탭바를 제외한 영역에 flex 중앙.
+ * (문서 흐름 + py만 쓰면 페이지마다 위·아래로 어긋남 → 항상 동일 fixed 박스)
+ * z-[80]: Navbar(z-40)보다 위(본문 위에 덮음), 일반 모달(z-100) 아래.
  */
-export const SEMO_FULL_PAGE_LOADING_MAIN_CLASS =
-  'fixed inset-0 z-[80] flex min-h-[100dvh] w-full flex-col items-center justify-center bg-white px-4 py-0 sm:px-6';
+export const SEMO_VIEWPORT_LOADING_OVERLAY_CLASS =
+  'fixed left-0 right-0 z-[80] flex w-full flex-col items-center justify-center bg-white px-4 sm:px-6 ' +
+  'top-[var(--semo-mobile-header-h)] bottom-[var(--semo-mobile-tabbar-h)] ' +
+  'md:bottom-0 md:top-[var(--semo-desktop-header-h)]';
 
-/**
- * 헤더·페이지 제목 아래 영역만 로딩 — 삼각형(h-12)·글자(text-sm)·gap-4는 동일, 세로만 확보
- */
-export const SEMO_SECTION_LOADING_CLASS =
-  'flex w-full flex-col items-center justify-center py-14 sm:py-16 min-h-[min(70vh,26rem)]';
+/** `<main>` 전체 로딩 — AuthInitializingScreen·Login·상세 등 */
+export const SEMO_FULL_PAGE_LOADING_MAIN_CLASS = SEMO_VIEWPORT_LOADING_OVERLAY_CLASS;
+
+/** 섹션/페이지 일부 로딩도 동일 오버레이로 위치 통일 (Promo·프로필 목록 등) */
+export const SEMO_SECTION_LOADING_CLASS = SEMO_VIEWPORT_LOADING_OVERLAY_CLASS;
 
 export type SemoPageSpinnerProps = {
   className?: string;
