@@ -13,6 +13,7 @@ import {
   type ProductIngredientBrief,
   type ProductIngredientBriefMap,
 } from '../lib/productIngredients';
+import { PRODUCT_DETAIL_WHITE_CARD_INNER } from '../lib/productDetailSectionClasses';
 
 type Product = {
   id: string;
@@ -1070,8 +1071,8 @@ export const ProductDetail: React.FC = () => {
 
         {(ingredientBrief?.infographic_image_url || (product?.detail_description && /^https?:\/\//i.test(product.detail_description))) && (
           <section id="product-description" className="mt-6 overflow-hidden rounded-2xl bg-white shadow-[0_1px_10px_-6px_rgba(15,23,42,0.2)] ring-1 ring-slate-200/70">
-            <div className="px-4 py-4 sm:px-6 sm:py-5">
-              <p className="mb-3 text-center text-xs font-medium uppercase tracking-wider text-slate-500">Подробнее о составе</p>
+            <div className={PRODUCT_DETAIL_WHITE_CARD_INNER}>
+              <p className="mb-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Подробнее о составе</p>
               <div className="overflow-hidden rounded-xl border border-slate-200/70 bg-white">
                 <img
                   src={ingredientBrief?.infographic_image_url || product?.detail_description || ''}
@@ -1084,7 +1085,9 @@ export const ProductDetail: React.FC = () => {
         )}
 
         <section id="product-reviews">
-          <h2 className="mb-3 text-center text-lg font-semibold text-slate-900">Отзывы</h2>
+          <h2 className="mb-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500 md:text-lg md:font-semibold md:normal-case md:tracking-tight md:text-slate-900">
+            Отзывы
+          </h2>
 
           <ul className="space-y-4">
             {reviews.map((r) => (
