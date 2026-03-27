@@ -1,6 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { useI18n } from '../context/I18nContext';
+import type { AppCurrency } from '../context/I18nContext';
+import { formatCurrencyAmount } from '../lib/market';
+import { loadProductMarketPrices } from '../lib/productMarketPrices';
 import {
   CATALOG_ROOM_SLOTS_TABLE,
   CATALOG_SLOT_VISIBLE_BY_ROOM_KEY,
@@ -282,7 +286,7 @@ const ORDER_STEPS = [
   {
     num: '03',
     title: 'Доставка',
-    desc: 'Из Кореи в Россию — таможня на нас',
+    desc: 'Из Кореи — таможня на нас',
     hoverDetail:
       'Сборка и отправка из Кореи, таможенное оформление и доставка до вашего адреса — мы сопровождаем процесс и держим вас в курсе.',
     icon: (
@@ -328,6 +332,7 @@ const STEP_GRADIENT_MOBILE =
   'linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(230, 84, 39, 0.2) 45%, rgba(230, 84, 39, 0.72) 78%, rgba(230, 84, 39, 0.96) 100%)';
 
 function OrderProcess() {
+  const { language } = useI18n();
   const { ref: titleDeskRef, visible: titleDeskVisible } = useScrollFadeIn(0.08);
   const { ref: titleMobRef, visible: titleMobVisible } = useScrollFadeIn(0.08);
 
@@ -344,7 +349,7 @@ function OrderProcess() {
               titleDeskVisible ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0'
             }`}
           >
-            Как заказть мой Beauty box
+            {language === 'en' ? 'How to order my Beauty box' : 'Как заказть мой Beauty box'}
           </h2>
           <div
             className={`mx-auto mt-4 h-px w-10 bg-gradient-to-r from-transparent via-brand/35 to-transparent transition-all duration-700 delay-200 ${
@@ -450,7 +455,7 @@ function OrderProcess() {
               titleMobVisible ? 'translate-y-0 opacity-100' : 'translate-y-6 opacity-0'
             }`}
           >
-            Как заказть мой Beauty box
+            {language === 'en' ? 'How to order my Beauty box' : 'Как заказть мой Beauty box'}
           </h2>
         </div>
         <div className="relative flex w-full flex-col gap-1 bg-white px-0">
@@ -541,6 +546,30 @@ type ShowcaseItem = {
   secondImageUrl: string | null;
 };
 
+type MarketPriceRow = {
+  product_id: string;
+  currency: AppCurrency;
+  rrp_price: number | null;
+  prp_price: number | null;
+};
+
+type MarketPriceMap = Record<string, Partial<Record<AppCurrency, { rrp_price: number | null; prp_price: number | null }>>>;
+
+function resolveDisplayPrices(
+  baseRrp: number | null,
+  basePrp: number | null,
+  marketPrice?: { rrp_price: number | null; prp_price: number | null },
+) {
+  const hasMarket = marketPrice != null &&
+    (marketPrice.rrp_price != null || marketPrice.prp_price != null);
+  const useRrp = hasMarket ? (marketPrice!.rrp_price ?? baseRrp) : baseRrp;
+  const usePrp = hasMarket ? (marketPrice!.prp_price ?? marketPrice!.rrp_price ?? basePrp) : basePrp;
+  return {
+    price: usePrp ?? useRrp ?? 0,
+    originalPrice: usePrp != null && useRrp != null && usePrp !== useRrp ? useRrp : null,
+  };
+}
+
 type HomeReviewItem = {
   id: string;
   body: string | null;
@@ -560,8 +589,8 @@ const SHOWCASE_TABS = [
   { key: 'hair', label: 'Hair box', category: 'hair_beauty' },
 ] as const;
 
-function formatPrice(price: number): string {
-  return `${price.toLocaleString('ru-RU')} руб.`;
+function formatPrice(price: number, currency: 'RUB' | 'USD' | 'KZT' | 'UZS'): string {
+  return formatCurrencyAmount(price, currency);
 }
 
 function ShowcaseImageWithIndicator({
@@ -643,6 +672,7 @@ function ShowcaseImageWithIndicator({
 }
 
 function ProductShowcase() {
+  const { language, currency } = useI18n();
   const { ref: sectionRef, visible } = useScrollFadeIn(0.1);
   const [activeTab, setActiveTab] = useState<string>('beauty');
   const [products, setProducts] = useState<Record<string, ShowcaseItem[]>>({});
@@ -704,6 +734,19 @@ function ProductShowcase() {
         }
 
         const productIds = [...new Set(slots.map((s) => s.product_id).filter(Boolean))] as string[];
+        const marketPriceMap: MarketPriceMap = {};
+        if (productIds.length > 0) {
+          const resultMap = await loadProductMarketPrices(supabase, productIds);
+          resultMap.forEach((rows, productId) => {
+            marketPriceMap[productId] = {};
+            rows.forEach((r) => {
+              marketPriceMap[productId][r.currency as AppCurrency] = {
+                rrp_price: r.rrp_price != null ? Number(r.rrp_price) : null,
+                prp_price: r.prp_price != null ? Number(r.prp_price) : null,
+              };
+            });
+          });
+        }
         let priceMap: Record<string, { rrp_price: number; prp_price: number | null; image_url: string | null; image_urls: string[] | null; category: string | null }> = {};
         if (productIds.length > 0) {
           const { data: prods } = await supabase
@@ -741,9 +784,17 @@ function ProductShowcase() {
           const secondImg = imgUrls.find((u) => u && u !== primaryImg) ?? (imgUrls.length > 1 ? imgUrls[1] : null);
           grouped[cat].push({
             id: slot.product_id ?? `slot-${slot.slot_index}`,
-            name: slot.title ?? `Слот ${slot.slot_index + 1}`,
-            price: prod?.prp_price ?? prod?.rrp_price ?? 0,
-            originalPrice: prod?.rrp_price && prod?.prp_price && prod.rrp_price !== prod.prp_price ? prod.rrp_price : null,
+            name: slot.title ?? (language === 'en' ? `Slot ${slot.slot_index + 1}` : `Слот ${slot.slot_index + 1}`),
+            price: resolveDisplayPrices(
+              prod?.rrp_price ?? null,
+              prod?.prp_price ?? null,
+              slot.product_id ? marketPriceMap[slot.product_id]?.[currency] : undefined,
+            ).price,
+            originalPrice: resolveDisplayPrices(
+              prod?.rrp_price ?? null,
+              prod?.prp_price ?? null,
+              slot.product_id ? marketPriceMap[slot.product_id]?.[currency] : undefined,
+            ).originalPrice,
             imageUrl: primaryImg,
             secondImageUrl: secondImg,
           });
@@ -756,7 +807,7 @@ function ProductShowcase() {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [currency, language]);
 
   const currentItems = products[activeTab] ?? [];
 
@@ -800,7 +851,7 @@ function ProductShowcase() {
             <span className="h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-brand" />
           </div>
         ) : currentItems.length === 0 ? (
-          <p className="py-16 text-center text-sm text-slate-400">Скоро здесь появятся товары!</p>
+          <p className="py-16 text-center text-sm text-slate-400">{language === 'en' ? 'Products will appear here soon!' : 'Скоро здесь появятся товары!'}</p>
         ) : (
           /* w-full로 2열 유지 → sm+는 w-fit+고정 카드 너비로 한 줄 그룹을 mx-auto로 확실히 중앙 정렬 */
           <div className="flex w-full justify-center">
@@ -825,9 +876,9 @@ function ProductShowcase() {
                   </p>
                   <div className="flex flex-col items-center gap-0.5">
                     {item.originalPrice != null && (
-                      <span className="text-xs text-slate-300 line-through">{formatPrice(item.originalPrice)}</span>
+                      <span className="text-xs text-slate-300 line-through">{formatPrice(item.originalPrice, currency)}</span>
                     )}
-                    <span className="text-sm font-semibold text-slate-800">{formatPrice(item.price)}</span>
+                    <span className="text-sm font-semibold text-slate-800">{formatPrice(item.price, currency)}</span>
                   </div>
                 </Link>
               </ShowcaseItemReveal>
@@ -847,7 +898,7 @@ function ProductShowcase() {
             to={activeTab === 'beauty' ? '/shop' : activeTab === 'inner_beauty' ? '/inner-beauty' : '/hair-beauty'}
             className="group inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-slate-200 px-6 py-2.5 text-sm font-medium tracking-normal text-slate-600 transition-all hover:border-brand hover:text-brand"
           >
-            Смотреть все
+            {language === 'en' ? 'View all' : 'Смотреть все'}
             <svg className="h-4 w-4 transition-transform group-hover:translate-x-0.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
             </svg>
@@ -860,6 +911,7 @@ function ProductShowcase() {
 }
 
 function HomeReviews() {
+  const { language } = useI18n();
   const { ref: sectionRef, visible } = useScrollFadeIn(0.1);
   const [reviews, setReviews] = useState<HomeReviewItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -894,7 +946,7 @@ function HomeReviews() {
             .select('id, name')
             .in('id', userIds);
           (profileData ?? []).forEach((p: { id: string; name: string | null }) => {
-            profileMap[p.id] = p.name?.trim() || 'Покупатель SEMO';
+            profileMap[p.id] = p.name?.trim() || (language === 'en' ? 'SEMO customer' : 'Покупатель SEMO');
           });
         }
 
@@ -933,7 +985,7 @@ function HomeReviews() {
         setReviews(
           rows.map((r) => ({
             ...r,
-            author_name: profileMap[r.user_id] ?? 'Покупатель SEMO',
+            author_name: profileMap[r.user_id] ?? (language === 'en' ? 'SEMO customer' : 'Покупатель SEMO'),
             product_name: r.product_id ? productMap[r.product_id] ?? 'SEMO Box' : 'SEMO Box',
             review_photos: photosMap[r.id] ?? [],
           })),
@@ -957,7 +1009,7 @@ function HomeReviews() {
             visible ? 'translate-y-0 opacity-100' : 'translate-y-6 opacity-0'
           }`}
         >
-          Отзывы клиентов
+          {language === 'en' ? 'Customer reviews' : 'Отзывы клиентов'}
         </h2>
 
         {loading ? (
@@ -965,7 +1017,7 @@ function HomeReviews() {
             <span className="h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-brand" />
           </div>
         ) : reviews.length === 0 ? (
-          <p className="py-8 text-center text-sm text-slate-400">Скоро здесь появятся отзывы!</p>
+          <p className="py-8 text-center text-sm text-slate-400">{language === 'en' ? 'Reviews will appear here soon!' : 'Скоро здесь появятся отзывы!'}</p>
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {reviews.map((r, idx) => (
@@ -977,7 +1029,7 @@ function HomeReviews() {
                 style={{ transitionDelay: visible ? `${120 + idx * 70}ms` : '0ms' }}
               >
                 <div className="mb-2 flex items-center justify-between gap-2">
-                  <p className="truncate text-sm font-semibold text-slate-800">{r.author_name ?? 'Покупатель SEMO'}</p>
+                  <p className="truncate text-sm font-semibold text-slate-800">{r.author_name ?? (language === 'en' ? 'SEMO customer' : 'Покупатель SEMO')}</p>
                   <p className="shrink-0 text-[11px] text-slate-400">
                     {new Date(r.created_at).toLocaleDateString('ru-RU')}
                   </p>
@@ -1000,7 +1052,7 @@ function HomeReviews() {
                   </div>
                 ) : null}
                 <p className="line-clamp-4 text-sm leading-relaxed text-slate-600">
-                  {r.body?.trim() || 'Отличный набор, буду заказывать еще!'}
+                  {r.body?.trim() || (language === 'en' ? 'Great box, I will order again!' : 'Отличный набор, буду заказывать еще!')}
                 </p>
               </div>
             ))}

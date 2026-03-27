@@ -3,11 +3,13 @@ import { Link, Navigate } from 'react-router-dom';
 import { BackArrow } from '../../components/BackArrow';
 import { AuthInitializingScreen, SemoPageSpinner, SEMO_SECTION_LOADING_CLASS } from '../../components/SemoPageSpinner';
 import { useAuth } from '../../context/AuthContext';
+import { useI18n } from '../../context/I18nContext';
 import { supabase } from '../../lib/supabase';
 
 type ReviewRow = { id: string; product_id: string; product: string; text: string; date: string; rating: number };
 
 export const ProfileReviews: React.FC = () => {
+  const { language } = useI18n();
   const { isLoggedIn, initialized, userId } = useAuth();
   const [list, setList] = useState<ReviewRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -15,7 +17,7 @@ export const ProfileReviews: React.FC = () => {
 
   const handleDelete = async (reviewId: string) => {
     if (!supabase) return;
-    if (!window.confirm('Удалить этот отзыв?')) return;
+    if (!window.confirm('Delete this review?')) return;
     setDeletingId(reviewId);
     try {
       await supabase.from('review_photos').delete().eq('review_id', reviewId);
@@ -24,7 +26,7 @@ export const ProfileReviews: React.FC = () => {
       setList((prev) => prev.filter((r) => r.id !== reviewId));
     } catch (e) {
       console.error(e);
-      window.alert(e instanceof Error ? e.message : 'Не удалось удалить отзыв.');
+      window.alert(e instanceof Error ? e.message : 'Failed to delete review.');
     } finally {
       setDeletingId(null);
     }
@@ -60,7 +62,7 @@ export const ProfileReviews: React.FC = () => {
             product_id: r.product_id ?? '',
             product: names[r.product_id] ?? '',
             text: r.body ?? '',
-            date: r.created_at ? new Date(r.created_at).toLocaleDateString('ru-RU') : '',
+            date: r.created_at ? new Date(r.created_at).toLocaleDateString('en-US') : '',
             rating: r.rating ?? 0,
           }))
         );
@@ -75,14 +77,14 @@ export const ProfileReviews: React.FC = () => {
   return (
     <main className="mx-auto max-w-xl px-4 py-6 sm:px-6 sm:py-10 md:py-14">
       <p className="mb-6">
-        <Link to="/profile" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> Profile</Link>
+        <Link to="/profile" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> {language === 'en' ? 'Profile' : 'Профиль'}</Link>
       </p>
       <header className="mb-8">
         <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
-          Мои отзывы
+          My reviews
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          Оставленные вами отзывы о товарах
+          Reviews you wrote for products
         </p>
       </header>
 
@@ -92,7 +94,7 @@ export const ProfileReviews: React.FC = () => {
         </div>
       ) : list.length === 0 ? (
         <p className="rounded-xl border border-slate-100 bg-slate-50/50 px-4 py-8 text-center text-slate-500">
-          Пока нет отзывов. Оформите заказ и оставьте отзыв — вам начислят баллы.
+          No reviews yet. Place an order and write a review to earn points.
         </p>
       ) : (
         <ul className="space-y-2">
@@ -115,8 +117,8 @@ export const ProfileReviews: React.FC = () => {
                     <Link
                       to={`/product/${r.product_id}?editReview=${encodeURIComponent(r.id)}#product-reviews`}
                       className="rounded border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-                      title="Изменить отзыв"
-                      aria-label="Изменить отзыв"
+                      title="Edit review"
+                      aria-label="Edit review"
                     >
                       <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
                         <path
@@ -136,8 +138,8 @@ export const ProfileReviews: React.FC = () => {
                     }}
                     disabled={deletingId === r.id}
                     className="rounded border border-slate-200 p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
-                    title="Удалить"
-                    aria-label="Удалить"
+                    title="Delete"
+                    aria-label="Delete"
                   >
                     {deletingId === r.id ? (
                       <span className="text-xs">…</span>

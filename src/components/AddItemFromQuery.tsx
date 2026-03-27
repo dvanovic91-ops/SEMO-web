@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
+import { useI18n } from '../context/I18nContext';
 import { supabase } from '../lib/supabase';
 
 /** 동일 세션에서 같은 URL로 이중 처리 방지 (React Strict Mode 이중 effect 대비) */
@@ -16,6 +17,7 @@ export function AddItemFromQuery() {
   const { search, pathname } = useLocation();
   const navigate = useNavigate();
   const { addItem } = useCart();
+  const { currency } = useI18n();
   const { initialized } = useAuth();
 
   useEffect(() => {
@@ -59,6 +61,7 @@ export function AddItemFromQuery() {
           price: prp ?? rrp ?? 0,
           imageUrl: thumb,
           originalPrice: prp != null && rrp != null ? rrp : undefined,
+          currency,
         });
 
         navigate({ pathname: '/cart', search: nextSearch }, { replace: true });

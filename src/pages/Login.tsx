@@ -5,6 +5,7 @@ import { supabase, setRememberMe } from '../lib/supabase';
 import { isValidEmailFormat } from '../lib/emailValidation';
 import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../components/SemoPageSpinner';
 import { LegalDocLinksRu } from '../components/LegalDocLinksRu';
+import { useI18n } from '../context/I18nContext';
 
 const inputClass =
   'w-full min-h-[44px] rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-base text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand sm:min-h-0';
@@ -16,7 +17,17 @@ const inputClass =
 
 export const Login: React.FC = () => {
   const navigate = useNavigate();
+  const { language } = useI18n();
   const { isLoggedIn, initialized, applySession } = useAuth();
+  const tt = {
+    title: language === 'en' ? 'Sign in / Register' : 'Войти / зарегистрироваться',
+    password: language === 'en' ? 'Password' : 'Пароль',
+    login: language === 'en' ? 'Sign in' : 'Войти',
+    loginLoading: language === 'en' ? 'Signing in…' : 'Вход…',
+    or: language === 'en' ? 'or' : 'или',
+    stay: language === 'en' ? 'Stay signed in' : 'Оставаться в системе',
+    register: language === 'en' ? 'Register' : 'Зарегистрироваться',
+  };
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMeChecked] = useState(true);
@@ -116,7 +127,7 @@ export const Login: React.FC = () => {
     <main className="mx-auto min-w-0 max-w-md px-3 py-10 sm:px-6 sm:py-16">
       <header className="mb-8 text-center sm:mb-10">
         <h1 className="prose-ru text-xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
-          Войти / зарегистрироваться
+          {tt.title}
         </h1>
       </header>
 
@@ -158,7 +169,7 @@ export const Login: React.FC = () => {
         </div>
         <div>
           <label htmlFor="password" className="mb-1 block text-sm font-medium text-slate-700">
-            Пароль
+            {tt.password}
           </label>
           <input
             id="password"
@@ -183,7 +194,7 @@ export const Login: React.FC = () => {
           disabled={loginLoading}
           className="min-h-11 w-full rounded-full bg-brand py-3 text-base font-semibold text-white transition hover:bg-brand/90 disabled:opacity-60"
         >
-          {loginLoading ? 'Вход…' : 'Войти'}
+          {loginLoading ? tt.loginLoading : tt.login}
         </button>
       </form>
 
@@ -198,11 +209,11 @@ export const Login: React.FC = () => {
           onChange={(e) => setRememberMeChecked(e.target.checked)}
           className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
         />
-        <span className="text-sm text-slate-700">Оставаться в системе</span>
+        <span className="text-sm text-slate-700">{tt.stay}</span>
       </label>
 
       <div className="mt-6 flex flex-col items-center gap-4">
-        <p className="text-sm text-slate-500">или</p>
+        <p className="text-sm text-slate-500">{tt.or}</p>
         <div className="flex items-center justify-center gap-8">
           <button
             type="button"
@@ -245,7 +256,7 @@ export const Login: React.FC = () => {
           to="/register"
           className="block w-full rounded-full border border-slate-200 py-3.5 text-center text-base font-medium text-slate-700 transition hover:border-brand hover:text-brand"
         >
-          Зарегистрироваться
+          {tt.register}
         </Link>
       </div>
     </main>

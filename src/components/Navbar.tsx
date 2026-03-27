@@ -1,12 +1,16 @@
 import { Link, NavLink, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useI18n } from '../context/I18nContext';
 import { useProductNavReplacement } from '../context/ProductNavReplacementContext';
 import { supabase } from '../lib/supabase';
 import { useCart } from '../context/CartContext';
 import { useNotifications, type NotificationRow } from '../hooks/useNotifications';
+import { useSkinReminderBadge } from '../hooks/useSkinReminderBadge';
 import { notificationKindBadgeRu, resolveNotificationHref } from '../lib/notificationNavigation';
 import { SEMO_BOX_SUBMENU, isSemoBoxSubmenuPath } from '../lib/semoBoxSubmenu';
+import { formatCurrencyAmount } from '../lib/market';
+import { t } from '../i18n/messages';
 const navLinkBase =
   'text-sm tracking-wide transition-colors border-b-2 border-transparent pb-1';
 
@@ -29,8 +33,8 @@ const NAV_LINKS: { to: string; label: string }[] = [
   { to: '/support', label: 'FAQ' },
 ];
 
-function formatPrice(price: number): string {
-  return `${price.toLocaleString('ru-RU')} руб.`;
+function formatPrice(price: number, currency: 'RUB' | 'USD' | 'KZT' | 'UZS'): string {
+  return formatCurrencyAmount(price, currency);
 }
 
 function formatNotificationDate(iso: string): string {
@@ -90,16 +94,24 @@ export const Navbar: React.FC = () => {
   const navigationType = useNavigationType();
   const { items, total, totalCount, updateQuantity } = useCart();
   const { isLoggedIn, userId } = useAuth();
+  const { count: skinReminderCount } = useSkinReminderBadge(userId, 'monthly');
+  const { language, currency, setLanguage, setCurrency } = useI18n();
   /** true: аккаунт привязан к Telegram — иконка в шапке #26A5E4; иначе тёмная */
   const [telegramLinkedNav, setTelegramLinkedNav] = useState<boolean | null>(null);
   const { items: notificationItems, unreadCount, markAllRead, markNotificationRead, deleteNotification } =
     useNotifications(isLoggedIn ? userId : null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [mobileLocaleQuickOpen, setMobileLocaleQuickOpen] = useState(false);
+  const [mobileLocaleQuickDismissed, setMobileLocaleQuickDismissed] = useState(false);
   const [semoBoxOpen, setSemoBoxOpen] = useState(false);
   /** 데스크톱: SEMO Box를 클릭해 연 경우 — 마우스가 벗어나도 호버처럼 서브바 유지 */
   const [semoBoxPinned, setSemoBoxPinned] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [cartPopoverOpen, setCartPopoverOpen] = useState(false);
+  const [langMenuOpen, setLangMenuOpen] = useState(false);
+  const [currencyMenuOpen, setCurrencyMenuOpen] = useState(false);
+  const langMenuRef = useRef<HTMLDivElement>(null);
+  const currencyMenuRef = useRef<HTMLDivElement>(null);
   const semoBoxDesktopRef = useRef<HTMLDivElement>(null);
   /** 데스크톱 SEMO Box 하단 서브바 — 외부 클릭 시 헤더 트리거와 함께 «안쪽»으로 인식 */
   const semoBoxSubbarRef = useRef<HTMLDivElement>(null);
@@ -153,6 +165,31 @@ export const Navbar: React.FC = () => {
   useEffect(() => {
     refreshTelegramLinkedNav();
   }, [location.pathname, refreshTelegramLinkedNav]);
+
+  useEffect(() => {
+    try {
+      const dismissed = localStorage.getItem('semo_mobile_locale_quick_dismissed');
+      setMobileLocaleQuickDismissed(dismissed === '1');
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!langMenuOpen && !currencyMenuOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (langMenuRef.current?.contains(t)) return;
+      if (currencyMenuRef.current?.contains(t)) return;
+      setLangMenuOpen(false);
+      setCurrencyMenuOpen(false);
+    };
+    const timer = setTimeout(() => document.addEventListener('click', onDocClick), 0);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('click', onDocClick);
+    };
+  }, [langMenuOpen, currencyMenuOpen]);
 
   /** Вкладка/окно снова в фокусе — после привязки в другой вкладке цвет иконки обновится */
   useEffect(() => {
@@ -311,11 +348,11 @@ export const Navbar: React.FC = () => {
   const cartPanelInner = (
     <>
       <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 py-3">
-        <p className="text-sm font-semibold text-slate-800">Корзина</p>
+        <p className="text-sm font-semibold text-slate-800">{t(language, 'navbar', 'cart')}</p>
         <button
           type="button"
           onClick={() => setCartPopoverOpen(false)}
-          aria-label="Закрыть"
+          aria-label={t(language, 'navbar', 'close')}
           className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100"
         >
           <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
@@ -325,7 +362,7 @@ export const Navbar: React.FC = () => {
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3">
         {items.length === 0 ? (
-          <p className="py-6 text-center text-sm text-slate-500">Пока пусто</p>
+          <p className="py-6 text-center text-sm text-slate-500">{t(language, 'navbar', 'cartEmpty')}</p>
         ) : (
           <ul className="space-y-3">
             {items.map((it) => (
@@ -369,11 +406,11 @@ export const Navbar: React.FC = () => {
                     <div className="min-w-0 max-w-[min(100%,11.5rem)] shrink text-right leading-tight">
                       {it.originalPrice != null && it.originalPrice > 0 && (
                         <p className="text-slate-400 line-through tabular-nums [font-size:clamp(0.625rem,2.6vw,0.8125rem)] [line-height:1.15]">
-                          {formatPrice(it.originalPrice * it.quantity)}
+                          {formatPrice(it.originalPrice * it.quantity, currency)}
                         </p>
                       )}
                       <p className="font-semibold tabular-nums text-slate-900 [font-size:clamp(0.6875rem,3.1vw,0.9375rem)] [line-height:1.2]">
-                        {formatPrice(it.price * it.quantity)}
+                        {formatPrice(it.price * it.quantity, currency)}
                       </p>
                     </div>
                   </div>
@@ -385,21 +422,21 @@ export const Navbar: React.FC = () => {
       </div>
       {items.length > 0 && (
         <div className="shrink-0 border-t border-slate-100 px-4 py-3">
-          <p className="mb-3 text-right text-base font-semibold text-slate-900">Итого: {formatPrice(total)}</p>
+          <p className="mb-3 text-right text-base font-semibold text-slate-900">{t(language, 'navbar', 'total')}: {formatPrice(total, currency)}</p>
           <div className="flex flex-row gap-2">
             <Link
               to="/cart"
               onClick={() => setCartPopoverOpen(false)}
               className="min-w-0 flex-1 rounded-full border border-slate-200 bg-white py-2.5 text-center text-xs font-medium text-slate-700 transition-colors hover:border-brand hover:text-brand hover:bg-brand-soft/20 sm:text-sm"
             >
-              В корзину
+              {t(language, 'navbar', 'goCart')}
             </Link>
             <Link
               to="/checkout"
               onClick={() => setCartPopoverOpen(false)}
               className="min-w-0 flex-1 rounded-full bg-brand py-2.5 text-center text-xs font-medium text-white hover:bg-brand/90 sm:text-sm"
             >
-              Оформить заказ
+              {t(language, 'navbar', 'checkout')}
             </Link>
           </div>
         </div>
@@ -485,11 +522,11 @@ export const Navbar: React.FC = () => {
                       productDesktopNav.prp != null &&
                       productDesktopNav.rrp !== productDesktopNav.prp && (
                         <span className="max-w-[28vw] truncate text-left text-xs tabular-nums text-slate-500 line-through sm:max-w-none sm:text-sm sm:whitespace-nowrap">
-                          {formatPrice(productDesktopNav.rrp)}
+                          {formatPrice(productDesktopNav.rrp, currency)}
                         </span>
                       )}
                     <span className="block min-w-0 max-w-[42vw] truncate text-left text-sm font-semibold tabular-nums text-slate-900 sm:max-w-[min(50vw,16rem)] sm:text-base">
-                      {formatPrice(productDesktopNav.prp ?? productDesktopNav.rrp ?? 0)}
+                      {formatPrice(productDesktopNav.prp ?? productDesktopNav.rrp ?? 0, currency)}
                     </span>
                     </div>
                   </div>
@@ -598,11 +635,102 @@ export const Navbar: React.FC = () => {
               )}
             </div>
             {/* 데스크톱: 유틸 아이콘 (컴팩트 시 В корзину는 오버레이 안) */}
-            <div className="relative z-20 flex min-w-0 shrink-0 items-center gap-0.5">
+            <div className="relative z-20 flex min-w-0 shrink-0 items-center gap-2">
+            <div className="flex items-center gap-1 pr-0.5">
+              <div ref={langMenuRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCurrencyMenuOpen(false);
+                    setLangMenuOpen((v) => !v);
+                  }}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200/90 bg-white text-slate-700 transition hover:border-brand/40 hover:bg-slate-50"
+                  aria-label={t(language, 'navbar', 'language')}
+                  aria-expanded={langMenuOpen}
+                >
+                  <span className="inline-flex flex-col items-center leading-none">
+                    <span aria-hidden className="text-[15px]">{language === 'ru' ? '🇷🇺' : '🇬🇧'}</span>
+                    <span className="mt-0.5 text-[9px] font-semibold">{language.toUpperCase()}</span>
+                  </span>
+                </button>
+                {langMenuOpen && (
+                  <div className="absolute left-1/2 top-full z-50 mt-1 max-h-36 w-20 -translate-x-1/2 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+                    {[
+                      { code: 'ru', flag: '🇷🇺', label: 'RU' },
+                      { code: 'en', flag: '🇬🇧', label: 'EN' },
+                    ].map((l) => (
+                      <button
+                        key={l.code}
+                        type="button"
+                        onClick={() => {
+                          setLanguage(l.code as 'ru' | 'en');
+                          setLangMenuOpen(false);
+                        }}
+                        className={`flex w-full items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-semibold transition ${
+                          language === l.code ? 'bg-brand-soft/40 text-brand' : 'text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        <span aria-hidden>{l.flag}</span>
+                        <span>{l.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div ref={currencyMenuRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLangMenuOpen(false);
+                    setCurrencyMenuOpen((v) => !v);
+                  }}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200/90 bg-white text-slate-700 transition hover:border-brand/40 hover:bg-slate-50"
+                  aria-label={t(language, 'navbar', 'currency')}
+                  aria-expanded={currencyMenuOpen}
+                >
+                  <span className="inline-flex flex-col items-center leading-none">
+                    <span aria-hidden className="text-[15px]">
+                      {currency === 'RUB'
+                        ? '🇷🇺'
+                        : currency === 'UZS'
+                          ? '🇺🇿'
+                          : currency === 'KZT'
+                            ? '🇰🇿'
+                            : '🇺🇸'}
+                    </span>
+                    <span className="mt-0.5 text-[8px] font-semibold">{currency}</span>
+                  </span>
+                </button>
+                {currencyMenuOpen && (
+                  <div className="absolute left-1/2 top-full z-50 mt-1 max-h-44 w-[5.6rem] -translate-x-1/2 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+                    {[
+                      { code: 'RUB', flag: '🇷🇺', label: 'RUB' },
+                      { code: 'UZS', flag: '🇺🇿', label: 'UZS' },
+                      { code: 'USD', flag: '🇺🇸', label: 'USD' },
+                    ].map((c) => (
+                      <button
+                        key={c.code}
+                        type="button"
+                        onClick={() => {
+                          setCurrency(c.code as 'RUB' | 'USD' | 'KZT' | 'UZS');
+                          setCurrencyMenuOpen(false);
+                        }}
+                        className={`flex w-full items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-semibold transition ${
+                          currency === c.code ? 'bg-brand-soft/40 text-brand' : 'text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        <span aria-hidden>{c.flag}</span>
+                        <span>{c.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
             <div ref={cartDesktopRef} className="relative">
               <button
                 type="button"
-                aria-label="Корзина"
+                aria-label={t(language, 'navbar', 'cart')}
                 onClick={() => {
                   setNotificationOpen(false);
                   setCartPopoverOpen((v) => !v);
@@ -641,8 +769,8 @@ export const Navbar: React.FC = () => {
                 }}
                 aria-label={
                   isLoggedIn && unreadCount > 0
-                    ? `Уведомления, непрочитано: ${unreadCount}`
-                    : 'Уведомления'
+                    ? `${t(language, 'navbar', 'notifications')}, unread: ${unreadCount}`
+                    : t(language, 'navbar', 'notifications')
                 }
                 className={`relative flex h-10 w-10 items-center justify-center rounded-full border border-slate-200/90 bg-white text-slate-700 transition hover:border-brand/40 hover:bg-brand-soft/15 ${
                   isNotificationActive ? 'border-brand/50 bg-brand-soft/25 text-brand' : ''
@@ -666,20 +794,20 @@ export const Navbar: React.FC = () => {
                   className={`fixed left-1/2 z-50 flex max-h-[min(72vh,calc(100vh-5rem))] w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl md:left-auto md:right-4 md:top-[var(--semo-desktop-header-h)] md:translate-x-0 ${mobilePopoverTopClass}`}
                 >
                   <div className="relative shrink-0 border-b border-slate-100 px-4 py-3 pr-12">
-                    <p className="text-sm font-semibold text-slate-800">Уведомления</p>
+                    <p className="text-sm font-semibold text-slate-800">{t(language, 'navbar', 'notifications')}</p>
                     {isLoggedIn && unreadCount > 0 && (
                       <button
                         type="button"
                         onClick={markAllNotificationsRead}
                         className="mt-1 text-left text-xs font-medium text-brand hover:underline"
                       >
-                        Прочитать все
+                        {t(language, 'navbar', 'readAll')}
                       </button>
                     )}
                     <button
                       type="button"
                       onClick={() => setNotificationOpen(false)}
-                      aria-label="Закрыть"
+                      aria-label={t(language, 'navbar', 'close')}
                       className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-full border border-slate-200/90 bg-white text-slate-500 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800"
                     >
                       <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" aria-hidden>
@@ -689,10 +817,10 @@ export const Navbar: React.FC = () => {
                   </div>
                   <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3">
                     {!isLoggedIn && (
-                      <p className="py-8 text-center text-sm text-slate-500">Войдите, чтобы видеть уведомления.</p>
+                      <p className="py-8 text-center text-sm text-slate-500">{t(language, 'navbar', 'loginForNotifications')}</p>
                     )}
                     {isLoggedIn && notificationRows.length === 0 && (
-                      <p className="py-8 text-center text-sm text-slate-500">Пока нет уведомлений.</p>
+                      <p className="py-8 text-center text-sm text-slate-500">{t(language, 'navbar', 'notificationsEmpty')}</p>
                     )}
                     {isLoggedIn && notificationRows.length > 0 && (
                       <ul className="space-y-3">
@@ -729,7 +857,7 @@ export const Navbar: React.FC = () => {
                                     e.stopPropagation();
                                     void deleteNotification(n.id);
                                   }}
-                                  aria-label="Удалить"
+                                  aria-label={t(language, 'navbar', 'delete')}
                                   className="flex h-6 w-6 items-center justify-center rounded-full border border-slate-200/90 bg-white text-slate-400 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700"
                                 >
                                   <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" aria-hidden>
@@ -765,8 +893,8 @@ export const Navbar: React.FC = () => {
 
             <Link
               to={isLoggedIn ? '/profile' : '/login'}
-              aria-label={isLoggedIn ? 'Profile' : 'Личный кабинет'}
-              className={`flex h-10 w-10 items-center justify-center rounded-full border bg-white transition hover:border-brand/40 hover:bg-brand-soft/15 ${
+              aria-label={isLoggedIn ? t(language, 'navbar', 'profile') : t(language, 'navbar', 'account')}
+              className={`relative flex h-10 w-10 items-center justify-center rounded-full border bg-white transition hover:border-brand/40 hover:bg-brand-soft/15 ${
                 isProfileActive
                   ? isLoggedIn
                     ? 'border-[#0088cc] bg-[#0088cc]/10 text-[#0088cc]'
@@ -776,6 +904,11 @@ export const Navbar: React.FC = () => {
                     : 'border-slate-200/90 text-slate-700'
               }`}
             >
+              {isLoggedIn && skinReminderCount > 0 && (
+                <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-semibold leading-none text-white">
+                  {skinReminderCount > 9 ? '9+' : skinReminderCount}
+                </span>
+              )}
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.6">
                 <circle cx="12" cy="9" r="3.5" />
                 <path d="M6 19.5c1.4-2.3 3.3-3.5 6-3.5s4.6 1.2 6 3.5" />
@@ -868,7 +1001,7 @@ export const Navbar: React.FC = () => {
             style={{ bottom: 'var(--semo-mobile-tabbar-h)' }}
           >
             <div className="relative shrink-0 border-b border-slate-100 px-4 py-3 pr-12">
-              <p className="text-sm font-semibold text-slate-800">Уведомления</p>
+              <p className="text-sm font-semibold text-slate-800">{t(language, 'navbar', 'notifications')}</p>
               {isLoggedIn && unreadCount > 0 && (
                 <button
                   type="button"
@@ -881,7 +1014,7 @@ export const Navbar: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setNotificationOpen(false)}
-                aria-label="Закрыть"
+                aria-label={t(language, 'navbar', 'close')}
                 className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-full border border-slate-200/90 bg-white text-slate-500 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800"
               >
                 <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" aria-hidden>
@@ -891,10 +1024,10 @@ export const Navbar: React.FC = () => {
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3">
               {!isLoggedIn && (
-                <p className="py-8 text-center text-sm text-slate-500">Войдите, чтобы видеть уведомления.</p>
+                <p className="py-8 text-center text-sm text-slate-500">{t(language, 'navbar', 'loginForNotifications')}</p>
               )}
               {isLoggedIn && notificationRows.length === 0 && (
-                <p className="py-8 text-center text-sm text-slate-500">Пока нет уведомлений.</p>
+                <p className="py-8 text-center text-sm text-slate-500">{t(language, 'navbar', 'notificationsEmpty')}</p>
               )}
               {isLoggedIn && notificationRows.length > 0 && (
                 <ul className="space-y-3">
@@ -931,7 +1064,7 @@ export const Navbar: React.FC = () => {
                               e.stopPropagation();
                               void deleteNotification(n.id);
                             }}
-                            aria-label="Удалить"
+                            aria-label={t(language, 'navbar', 'delete')}
                             className="flex h-6 w-6 items-center justify-center rounded-full border border-slate-200/90 bg-white text-slate-400 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700"
                           >
                             <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" aria-hidden>
@@ -961,7 +1094,7 @@ export const Navbar: React.FC = () => {
           onClick={() => {
             setMobileMenuOpen(true);
           }}
-          aria-label="Open menu"
+          aria-label={t(language, 'navbar', 'openMenu')}
           className={`flex h-9 min-w-0 flex-1 items-center justify-center rounded-full px-1 transition sm:px-2 ${
             isMenuActive ? 'text-brand' : 'text-slate-600'
           }`}
@@ -972,7 +1105,7 @@ export const Navbar: React.FC = () => {
         </button>
         <Link
           to="/"
-          aria-label="Главная"
+          aria-label={t(language, 'navbar', 'home')}
           onClick={(e) => {
             setMobileMenuOpen(false);
             setNotificationOpen(false);
@@ -1001,7 +1134,7 @@ export const Navbar: React.FC = () => {
         </Link>
         <Link
           to="/shop"
-          aria-label="Каталог Beauty box"
+          aria-label={t(language, 'navbar', 'catalogBeautyBox')}
           onClick={() => {
             setMobileMenuOpen(false);
             setNotificationOpen(false);
@@ -1036,8 +1169,8 @@ export const Navbar: React.FC = () => {
           }}
           aria-label={
             isLoggedIn && unreadCount > 0
-              ? `Уведомления, непрочитано: ${unreadCount}`
-              : 'Уведомления'
+              ? `${t(language, 'navbar', 'notifications')}, unread: ${unreadCount}`
+              : t(language, 'navbar', 'notifications')
           }
           className={`flex h-9 min-w-0 flex-1 items-center justify-center rounded-full px-1 transition sm:px-2 ${
             isNotificationActive ? 'text-brand' : 'text-slate-600 hover:text-brand'
@@ -1060,7 +1193,7 @@ export const Navbar: React.FC = () => {
         </button>
         <button
           type="button"
-          aria-label="Корзина"
+          aria-label={t(language, 'navbar', 'cart')}
           onClick={() => {
             setNotificationOpen(false);
             setCartPopoverOpen((v) => !v);
@@ -1084,7 +1217,7 @@ export const Navbar: React.FC = () => {
         </button>
         <Link
           to={isLoggedIn ? '/profile' : '/login'}
-          aria-label={isLoggedIn ? 'Profile' : 'Личный кабинет'}
+          aria-label={isLoggedIn ? t(language, 'navbar', 'profile') : t(language, 'navbar', 'account')}
           className="flex h-9 min-w-0 flex-1 items-center justify-center px-1 transition sm:px-2"
         >
           {/* 사람 아이콘에 맞춘 작은 원 — border-2·큰 박스 대신 얇은 링 + 타이트한 크기 */}
@@ -1114,6 +1247,87 @@ export const Navbar: React.FC = () => {
         </Link>
       </nav>
 
+      {/* 모바일 빠른 언어/통화 버튼: 햄버거를 열지 않아도 바로 변경 가능 */}
+      {!mobileLocaleQuickDismissed && (
+      <div className="fixed bottom-[calc(var(--semo-mobile-tabbar-h)+0.5rem)] right-3 z-40 md:hidden">
+        <button
+          type="button"
+          onClick={() => setMobileLocaleQuickOpen((v) => !v)}
+          className="inline-flex h-8 items-center gap-1 rounded-full border border-slate-200 bg-white/95 px-2 text-[10px] font-semibold text-slate-700 shadow-sm"
+          aria-label="Quick language and currency"
+          aria-expanded={mobileLocaleQuickOpen}
+        >
+          <span aria-hidden>{language === 'ru' ? '🇷🇺' : '🇬🇧'}</span>
+          <span>{language.toUpperCase()}</span>
+          <span className="text-slate-300">|</span>
+          <span>{currency}</span>
+        </button>
+        {mobileLocaleQuickOpen && (
+          <div className="absolute bottom-full right-0 mb-2 w-40 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+            <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+              {t(language, 'navbar', 'language')}
+            </p>
+            <div className="mb-2 grid grid-cols-2 gap-1">
+              {[
+                { code: 'ru', flag: '🇷🇺', label: 'RU' },
+                { code: 'en', flag: '🇬🇧', label: 'EN' },
+              ].map((l) => (
+                <button
+                  key={l.code}
+                  type="button"
+                  onClick={() => {
+                    setLanguage(l.code as 'ru' | 'en');
+                    setMobileLocaleQuickDismissed(true);
+                    try {
+                      localStorage.setItem('semo_mobile_locale_quick_dismissed', '1');
+                    } catch {
+                      /* ignore */
+                    }
+                    setMobileLocaleQuickOpen(false);
+                  }}
+                  className={`rounded-lg px-2 py-1.5 text-[11px] font-semibold ${
+                    language === l.code ? 'bg-brand-soft/40 text-brand' : 'text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  {l.flag} {l.label}
+                </button>
+              ))}
+            </div>
+            <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+              {t(language, 'navbar', 'currency')}
+            </p>
+            <div className="grid grid-cols-2 gap-1">
+                {[
+                  { code: 'RUB', flag: '🇷🇺' },
+                  { code: 'UZS', flag: '🇺🇿' },
+                  { code: 'USD', flag: '🇺🇸' },
+                ].map((c) => (
+                <button
+                  key={c.code}
+                  type="button"
+                  onClick={() => {
+                      setCurrency(c.code as 'RUB' | 'USD' | 'KZT' | 'UZS');
+                    setMobileLocaleQuickDismissed(true);
+                    try {
+                      localStorage.setItem('semo_mobile_locale_quick_dismissed', '1');
+                    } catch {
+                      /* ignore */
+                    }
+                    setMobileLocaleQuickOpen(false);
+                  }}
+                  className={`rounded-lg px-2 py-1.5 text-[11px] font-semibold ${
+                    currency === c.code ? 'bg-brand-soft/40 text-brand' : 'text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  {c.flag} {c.code}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+      )}
+
       {/* 모바일: 왼쪽 전체 메뉴 드로어 (햄버거 클릭 시) */}
       {mobileMenuOpen && (
         <>
@@ -1122,15 +1336,16 @@ export const Navbar: React.FC = () => {
             aria-hidden
             onClick={() => {
               setMobileMenuOpen(false);
+              setMobileLocaleQuickOpen(false);
             }}
           />
           <aside className="fixed left-0 top-0 bottom-0 z-50 flex w-[14.4rem] max-w-[68vw] flex-col bg-white shadow-xl md:hidden">
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-4">
-              <span className="font-semibold tracking-wide text-slate-800">Menu</span>
+              <span className="font-semibold tracking-wide text-slate-800">{t(language, 'navbar', 'menu')}</span>
               <button
                 type="button"
                 onClick={() => setMobileMenuOpen(false)}
-                aria-label="Close menu"
+                aria-label={t(language, 'navbar', 'closeMenu')}
                 className="flex h-10 w-10 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100"
               >
                 <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -1138,12 +1353,12 @@ export const Navbar: React.FC = () => {
                 </svg>
               </button>
             </div>
-            <nav className="flex flex-1 flex-col gap-3 overflow-auto p-4">
+            <nav className="flex flex-1 flex-col gap-2 overflow-hidden p-3">
               <NavLink
                 to="/about"
                 onClick={() => setMobileMenuOpen(false)}
                 className={({ isActive }) =>
-                  `rounded-xl px-4 py-3.5 text-base ${isActive ? 'bg-brand-soft/30 text-brand font-semibold' : 'text-slate-700 font-medium'}`
+                  `rounded-xl px-4 py-3 text-base ${isActive ? 'bg-brand-soft/30 text-brand font-semibold' : 'text-slate-700 font-medium'}`
                 }
               >
                 About SEMO
@@ -1152,7 +1367,7 @@ export const Navbar: React.FC = () => {
                 to="/journey"
                 onClick={() => setMobileMenuOpen(false)}
                 className={({ isActive }) =>
-                  `rounded-xl px-4 py-3.5 text-base ${isActive ? 'bg-brand-soft/30 text-brand font-semibold' : 'text-slate-700 font-medium'}`
+                  `rounded-xl px-4 py-3 text-base ${isActive ? 'bg-brand-soft/30 text-brand font-semibold' : 'text-slate-700 font-medium'}`
                 }
               >
                 Journey to SEMO
@@ -1160,7 +1375,7 @@ export const Navbar: React.FC = () => {
               {/* SEMO Box — 상단 행은 예전 접기 버튼과 동일 스타일, 하위는 항상 펼침(이전 펼친 상태와 동일) */}
               <div role="group" aria-label="SEMO Box">
                 <div
-                  className={`flex w-full items-center rounded-xl px-4 py-3.5 text-base ${
+                  className={`flex w-full items-center rounded-xl px-4 py-3 text-base ${
                     isSemoBoxActive ? 'bg-brand-soft/30 text-brand font-semibold' : 'text-slate-700 font-medium'
                   }`}
                 >
@@ -1190,7 +1405,7 @@ export const Navbar: React.FC = () => {
                 to="/support"
                 onClick={() => setMobileMenuOpen(false)}
                 className={({ isActive }) =>
-                  `rounded-xl px-4 py-3.5 text-base ${isActive ? 'bg-brand-soft/30 text-brand font-semibold' : 'text-slate-700 font-medium'}`
+                  `rounded-xl px-4 py-3 text-base ${isActive ? 'bg-brand-soft/30 text-brand font-semibold' : 'text-slate-700 font-medium'}`
                 }
               >
                 FAQ
@@ -1204,7 +1419,7 @@ export const Navbar: React.FC = () => {
                   if (telegramLinkedNav !== true) e.preventDefault();
                   else setMobileMenuOpen(false);
                 }}
-                className={`flex items-center gap-2 rounded-xl px-4 py-3.5 text-base font-medium ${
+                className={`-translate-y-[1vw] flex items-center gap-2 rounded-xl px-4 py-3 text-base font-medium ${
                   telegramLinkedNav === true
                     ? 'text-[#26A5E4] hover:bg-slate-50'
                     : 'cursor-not-allowed text-slate-400'
@@ -1216,6 +1431,95 @@ export const Navbar: React.FC = () => {
                 Telegram
               </a>
             </nav>
+            <div className="border-t border-slate-100 px-3 py-2.5">
+              <div className="flex items-center justify-center gap-2">
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCurrencyMenuOpen(false);
+                      setLangMenuOpen((v) => !v);
+                    }}
+                    className="inline-flex h-9 min-w-[4.3rem] items-center justify-center gap-1 rounded-full border border-slate-200/90 bg-white px-2 text-[11px] font-semibold text-slate-700 transition hover:border-brand/40"
+                    aria-label={t(language, 'navbar', 'language')}
+                    aria-expanded={langMenuOpen}
+                  >
+                    <span aria-hidden>{language === 'ru' ? '🇷🇺' : '🇬🇧'}</span>
+                    <span>{language.toUpperCase()}</span>
+                  </button>
+                  {langMenuOpen && (
+                    <div className="absolute bottom-full left-0 z-50 mb-1 max-h-36 w-20 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+                      {[
+                        { code: 'ru', flag: '🇷🇺', label: 'RU' },
+                        { code: 'en', flag: '🇬🇧', label: 'EN' },
+                      ].map((l) => (
+                        <button
+                          key={l.code}
+                          type="button"
+                          onClick={() => {
+                            setLanguage(l.code as 'ru' | 'en');
+                            setLangMenuOpen(false);
+                          }}
+                          className={`flex w-full items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-semibold transition ${
+                            language === l.code ? 'bg-brand-soft/40 text-brand' : 'text-slate-700 hover:bg-slate-100'
+                          }`}
+                        >
+                          <span aria-hidden>{l.flag}</span>
+                          <span>{l.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLangMenuOpen(false);
+                      setCurrencyMenuOpen((v) => !v);
+                    }}
+                    className="inline-flex h-9 min-w-[5.1rem] items-center justify-center gap-1 rounded-full border border-slate-200/90 bg-white px-2 text-[11px] font-semibold text-slate-700 transition hover:border-brand/40"
+                    aria-label={t(language, 'navbar', 'currency')}
+                    aria-expanded={currencyMenuOpen}
+                  >
+                    <span aria-hidden>
+                      {currency === 'RUB'
+                        ? '🇷🇺'
+                        : currency === 'UZS'
+                          ? '🇺🇿'
+                          : currency === 'KZT'
+                            ? '🇰🇿'
+                            : '🇺🇸'}
+                    </span>
+                    <span>{currency}</span>
+                  </button>
+                  {currencyMenuOpen && (
+                    <div className="absolute bottom-full left-0 z-50 mb-1 max-h-44 w-[5.6rem] overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+                      {[
+                        { code: 'RUB', flag: '🇷🇺', label: 'RUB' },
+                        { code: 'UZS', flag: '🇺🇿', label: 'UZS' },
+                        { code: 'USD', flag: '🇺🇸', label: 'USD' },
+                      ].map((c) => (
+                        <button
+                          key={c.code}
+                          type="button"
+                          onClick={() => {
+                            setCurrency(c.code as 'RUB' | 'USD' | 'KZT' | 'UZS');
+                            setCurrencyMenuOpen(false);
+                          }}
+                          className={`flex w-full items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-semibold transition ${
+                            currency === c.code ? 'bg-brand-soft/40 text-brand' : 'text-slate-700 hover:bg-slate-100'
+                          }`}
+                        >
+                          <span aria-hidden>{c.flag}</span>
+                          <span>{c.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           </aside>
         </>
       )}

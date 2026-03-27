@@ -1,12 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
+import { useI18n } from '../context/I18nContext';
+import { formatCurrencyAmount } from '../lib/market';
 
 /** 결제 완료 페이지 — Checkout에서 state·쿼리로 금액/수량/주문번호 전달. 새로고침 시 state는 사라지므로 쿼리 orderId로 주문번호 복구. */
 export const CheckoutComplete: React.FC = () => {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const { clearCart } = useCart();
+  const { language, currency } = useI18n();
   const state = (location.state as { total?: number; totalCount?: number; pointsUsed?: number; orderId?: string | null; orderNumber?: string | null } | null) ?? {};
   const total = state.total ?? 0;
   const totalCount = state.totalCount ?? 0;
@@ -18,6 +21,19 @@ export const CheckoutComplete: React.FC = () => {
   const orderNumber = orderNumberFromState ?? orderNumberFromQuery ?? (orderId ? orderId.slice(0, 8) : null);
   const clearedRef = useRef(false);
   const [showToast, setShowToast] = useState(!!orderNumber || !!orderId);
+  const tt = {
+    completed: language === 'en' ? 'Order placed' : 'Заказ оформлен',
+    desc:
+      language === 'en'
+        ? 'We will send a delivery notification soon. If you have questions, contact our Telegram bot.'
+        : 'В ближайшее время отправим вам уведомление о доставке. Если появятся вопросы — обращайтесь в наш Telegram-бот.',
+    orderNo: language === 'en' ? 'Order #' : 'Заказ №',
+    items: language === 'en' ? 'Items:' : 'Оформлено товаров:',
+    total: language === 'en' ? 'total' : 'на сумму',
+    points: language === 'en' ? 'points used' : 'баллами',
+    orders: language === 'en' ? 'Order history' : 'История заказов',
+    back: language === 'en' ? 'Back to catalog' : 'Вернуться в каталог',
+  };
 
   useEffect(() => {
     if ((orderId || orderNumber) && !clearedRef.current) {
@@ -40,7 +56,7 @@ export const CheckoutComplete: React.FC = () => {
           role="status"
           aria-live="polite"
         >
-          Заказ оформлен
+          {tt.completed}
         </div>
       )}
       <main className="mx-auto flex min-h-[60vh] max-w-xl flex-col items-center justify-center px-4 py-16 sm:py-24">
@@ -57,20 +73,20 @@ export const CheckoutComplete: React.FC = () => {
           </svg>
         </div>
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
-          Заказ оформлен
+          {tt.completed}
         </h1>
         <p className="mt-3 text-slate-600">
-          В ближайшее время отправим вам уведомление о доставке. Если появятся вопросы — обращайтесь в наш Telegram-бот.
+          {tt.desc}
         </p>
         {orderNumber && (
           <p className="mt-2 text-sm font-medium text-slate-700">
-            Заказ № {orderNumber}
+            {tt.orderNo} {orderNumber}
           </p>
         )}
         {(totalCount > 0 || total > 0) && (
           <p className="mt-1 text-sm text-slate-500">
-            Оформлено товаров: {totalCount} на сумму {total.toLocaleString('ru-RU')} руб.
-            {pointsUsed > 0 && ` (баллами: −${pointsUsed})`}
+            {tt.items} {totalCount} {tt.total} {formatCurrencyAmount(total, currency)}.
+            {pointsUsed > 0 && ` (${tt.points}: −${pointsUsed})`}
           </p>
         )}
       </div>
@@ -80,13 +96,13 @@ export const CheckoutComplete: React.FC = () => {
           to="/profile/orders"
           className="inline-flex items-center gap-1.5 rounded-full border border-brand bg-white px-6 py-3 text-sm font-medium text-brand hover:bg-brand-soft/20"
         >
-          История заказов
+          {tt.orders}
         </Link>
         <Link
           to="/shop"
           className="inline-flex items-center gap-1.5 rounded-full bg-brand px-6 py-3 text-sm font-medium text-white hover:bg-brand/90"
         >
-          Вернуться в каталог
+          {tt.back}
         </Link>
       </nav>
     </main>

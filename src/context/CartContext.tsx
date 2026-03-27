@@ -1,6 +1,8 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { useAuth } from './AuthContext';
+import { useI18n, type AppCurrency } from './I18nContext';
 import { supabase } from '../lib/supabase';
+import { loadProductMarketPrices } from '../lib/productMarketPrices';
 
 export interface CartItem {
   id: string;
@@ -10,6 +12,8 @@ export interface CartItem {
   imageUrl?: string | null;
   /** 정가(취소선 표시용). 할인가가 있을 때만 사용 */
   originalPrice?: number | null;
+  /** 이 가격이 어떤 통화 기준인지 */
+  currency?: string;
 }
 
 interface CartContextValue {
@@ -72,6 +76,7 @@ function loadCartFromStorage(key: string): CartItem[] {
         quantity: Math.max(1, Math.floor(Number(o?.quantity) || 1)),
         imageUrl: o?.imageUrl != null ? String(o.imageUrl) : null,
         originalPrice: o?.originalPrice != null ? Number(o.originalPrice) : null,
+        currency: o?.currency != null ? String(o.currency) : undefined,
       };
     }).filter((x) => x.id && x.name);
   } catch {
@@ -133,6 +138,7 @@ function normalizeRemoteCartItems(items: unknown[] | null | undefined): CartItem
         quantity: Math.max(1, Math.floor(Number(o?.quantity) || 1)),
         imageUrl: o?.imageUrl != null ? String(o.imageUrl) : null,
         originalPrice: o?.originalPrice != null ? Number(o.originalPrice) : null,
+        currency: o?.currency != null ? String(o.currency) : undefined,
       } as CartItem;
     })
     .filter((x) => x.id && x.name);
@@ -146,14 +152,18 @@ function toSnapshotItems(items: CartItem[]) {
     price: i.price,
     imageUrl: i.imageUrl ?? null,
     originalPrice: i.originalPrice ?? null,
+    currency: i.currency ?? null,
   }));
 }
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const { userId } = useAuth();
+  const { currency } = useI18n();
   const storageKey = scopedKey(CART_PREFIX, userId);
   const [items, setItems] = useState<CartItem[]>([]);
   const [remoteReady, setRemoteReady] = useState(false);
+  /** 마지막으로 가격을 갱신한 통화 (불필요한 재조회 방지) */
+  const lastRefreshedCurrency = useRef<string | null>(null);
 
   useEffect(() => {
     if (!userId) {
@@ -242,6 +252,69 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       alive = false;
     };
   }, [userId]);
+
+  /** 통화가 바뀌면 장바구니 아이템 가격을 product_market_prices에서 다시 로드 */
+  useEffect(() => {
+    if (!supabase || items.length === 0) return;
+    // 이미 같은 통화로 갱신했으면 스킵
+    if (lastRefreshedCurrency.current === currency) return;
+    // 모든 아이템이 이미 현재 통화면 스킵
+    if (items.every((it) => it.currency === currency)) {
+      lastRefreshedCurrency.current = currency;
+      return;
+    }
+
+    let alive = true;
+    const refreshPrices = async () => {
+      const productIds = [...new Set(items.map((it) => it.id))];
+      try {
+        const map = await loadProductMarketPrices(supabase!, productIds);
+        if (!alive) return;
+
+        // 또한 base 가격(RUB)을 위해 products 테이블에서도 로드
+        const { data: baseProducts } = await supabase!
+          .from('products')
+          .select('id, rrp_price, prp_price')
+          .in('id', productIds);
+        if (!alive) return;
+
+        const baseMap = new Map<string, { rrp: number | null; prp: number | null }>();
+        (baseProducts ?? []).forEach((p: any) => {
+          baseMap.set(p.id, { rrp: p.rrp_price ?? null, prp: p.prp_price ?? null });
+        });
+
+        setItems((prev) =>
+          prev.map((item) => {
+            const marketRows = map.get(item.id) ?? [];
+            const match = marketRows.find((r) => r.currency === currency);
+            const base = baseMap.get(item.id);
+
+            if (match) {
+              const newPrice = match.prp_price ?? match.rrp_price ?? item.price;
+              const newOriginal = match.prp_price != null && match.rrp_price != null ? match.rrp_price : item.originalPrice;
+              return { ...item, price: newPrice, originalPrice: newOriginal ?? null, currency };
+            }
+
+            // RUB fallback: use base product prices
+            if (currency === 'RUB' && base) {
+              const newPrice = base.prp ?? base.rrp ?? item.price;
+              const newOriginal = base.prp != null && base.rrp != null ? base.rrp : item.originalPrice;
+              return { ...item, price: newPrice, originalPrice: newOriginal ?? null, currency };
+            }
+
+            // 해당 통화 가격이 없으면 기존 유지 (관리자가 아직 안 넣은 경우)
+            return { ...item, currency };
+          }),
+        );
+        lastRefreshedCurrency.current = currency;
+      } catch (err) {
+        console.warn('[Cart] 통화별 가격 갱신 실패:', err);
+      }
+    };
+
+    void refreshPrices();
+    return () => { alive = false; };
+  }, [currency, items.length]); // items.length로 아이템 추가/삭제 시에도 갱신
 
   useEffect(() => {
     if (!userId) {
@@ -376,7 +449,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       const i = prev.findIndex((x) => x.id === item.id);
       if (i >= 0) {
         const next = [...prev];
-        next[i] = { ...next[i], quantity: next[i].quantity + qty };
+        next[i] = { ...next[i], quantity: next[i].quantity + qty, price: item.price, originalPrice: item.originalPrice, currency: item.currency };
         return next;
       }
       return [...prev, { ...item, quantity: qty }];

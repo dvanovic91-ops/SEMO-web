@@ -4,9 +4,11 @@ import { isSemoBoxSubmenuPath } from './lib/semoBoxSubmenu';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
 import { ProductNavReplacementProvider, useProductNavReplacement } from './context/ProductNavReplacementContext';
+import { I18nProvider } from './context/I18nContext';
 import { AddItemFromQuery } from './components/AddItemFromQuery';
 import { Footer } from './components/Footer';
 import { Navbar } from './components/Navbar';
+import { GlobalEnglishOverlay } from './components/GlobalEnglishOverlay';
 import { supabase } from './lib/supabase';
 import { getOrCreateVisitSessionId } from './lib/clientSession';
 
@@ -107,6 +109,7 @@ function AppLayout() {
     <>
       <AddItemFromQuery />
       <Navbar />
+      <GlobalEnglishOverlay />
       <TrackVisit />
       <ScrollToTop />
       <div
@@ -156,11 +159,13 @@ const App: React.FC = () => {
   return (
     <div className="flex min-h-screen min-w-0 flex-col overflow-x-hidden bg-white">
       <AuthProvider>
-        <CartProvider>
-          <ProductNavReplacementProvider>
-            <AppLayout />
-          </ProductNavReplacementProvider>
-        </CartProvider>
+        <I18nProvider>
+          <CartProvider>
+            <ProductNavReplacementProvider>
+              <AppLayout />
+            </ProductNavReplacementProvider>
+          </CartProvider>
+        </I18nProvider>
       </AuthProvider>
     </div>
   );

@@ -41,7 +41,7 @@ export const ProfileTestResults: React.FC = () => {
   const formatDate = (iso: string) => {
     try {
       const d = new Date(iso);
-      return d.toLocaleDateString('ru-RU', { year: 'numeric', month: '2-digit', day: '2-digit' });
+      return d.toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' });
     } catch {
       return iso.slice(0, 10);
     }
@@ -54,9 +54,9 @@ export const ProfileTestResults: React.FC = () => {
       </p>
       <header className="mb-8">
         <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
-          Результаты тестов
+          Test results
         </h1>
-        <p className="mt-1 text-sm text-slate-500">Последние результаты теста типа кожи</p>
+        <p className="mt-1 text-sm text-slate-500">Latest skin type test results</p>
       </header>
       {loading ? (
         <div className={SEMO_SECTION_LOADING_CLASS}>
@@ -64,7 +64,7 @@ export const ProfileTestResults: React.FC = () => {
         </div>
       ) : list.length === 0 ? (
         <p className="rounded-xl border border-slate-100 bg-slate-50/50 px-4 py-8 text-center text-slate-500">
-          Пока нет результатов. Пройдите тест типа кожи.
+          No results yet. Take a skin type test first.
         </p>
       ) : (
         <ul className="space-y-3">
@@ -83,7 +83,7 @@ export const ProfileTestResults: React.FC = () => {
                     <p className="font-medium text-slate-800">{r.skin_type ?? '—'}</p>
                     <p className="text-xs text-slate-500">{formatDate(r.completed_at)}</p>
                   </div>
-                  <span className="ml-3 shrink-0 text-xs font-medium text-brand">Посмотреть результат теста</span>
+                  <span className="ml-3 shrink-0 text-xs font-medium text-brand">View test result</span>
                 </Link>
               </li>
             );

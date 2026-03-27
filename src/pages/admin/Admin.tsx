@@ -36,11 +36,17 @@ import {
   normalizeBrief,
   type ProductIngredientBriefMap,
 } from '../../lib/productIngredients';
+import {
+  loadProductMarketPrices,
+  upsertProductMarketPrices,
+  type ProductMarketPriceRow,
+} from '../../lib/productMarketPrices';
 
 /** 관리자 폼: 모바일 100% 폭, 터치 친화적 min-height · text-base로 iOS 입력 시 자동 확대 완화 */
 const inputClass =
   'w-full min-w-0 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-base text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand min-h-[44px] sm:min-h-0 sm:text-sm';
 const labelClass = 'mb-1 block text-sm font-medium text-slate-700';
+const SKIN_API_URL = (import.meta as unknown as { env: Record<string, string> }).env?.VITE_SKIN_API_URL ?? 'http://localhost:5001';
 
 /** 주문 품목 요약: 단가 최고인 품목 1개 + "외 N개" (최대 3개 표현) */
 function formatOrderItemsSummary(items: unknown): string {
@@ -291,6 +297,8 @@ type Product = {
   history_order?: number | null;
 };
 
+type MarketPriceDraft = Record<'RUB' | 'KZT' | 'USD' | 'UZS', { rrp_price: number | null; prp_price: number | null }>;
+
 type ProductComponent = {
   id: string;
   product_id: string;
@@ -304,6 +312,8 @@ type ProductComponent = {
   layout?: 'image_left' | 'image_right';
   /** 연결된 SKU ID (재고 관리용) */
   sku_id?: string | null;
+  /** 커스터마이징 제품 여부: true = 이 피부 타입 전용 맞춤 제품 */
+  is_customized?: boolean;
 };
 
 type SkuItemSimple = { id: string; name: string; display_name: string | null; description: string | null; image_url: string | null; current_stock: number; unit: string; category: string };
@@ -391,6 +401,21 @@ type Slot = {
   image_url: string | null;
   product_id: string | null;
   link_url: string;
+};
+
+type BoxMatchAiResult = {
+  match_score: number;
+  score_label: '완벽' | '우수' | '보통' | '미흡' | string;
+  breakdown?: {
+    hydration?: number;
+    sensitivity?: number;
+    pigmentation?: number;
+    antiaging?: number;
+  };
+  strengths?: string[];
+  issues?: string[];
+  recommendations?: string[];
+  dermatologist_opinion?: string;
 };
 
 /** 프로모 배너 (상단 Promo 메뉴에 노출). Supabase 테이블 promos 사용 */
@@ -497,6 +522,12 @@ export const Admin: React.FC = () => {
   /** 상품 목록 표시 순서 (뷰티: 앞 7개가 쇼핑 슬롯 1~7, box_history 상품 제외). 드래그 후 「슬롯 순서 저장」 시 룸 테이블 반영 */
   const [orderedProductIds, setOrderedProductIds] = useState<string[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [marketPriceDraft, setMarketPriceDraft] = useState<MarketPriceDraft>({
+    RUB: { rrp_price: null, prp_price: null },
+    KZT: { rrp_price: null, prp_price: null },
+    USD: { rrp_price: null, prp_price: null },
+    UZS: { rrp_price: null, prp_price: null },
+  });
   const [savingProduct, setSavingProduct] = useState(false);
 
   /** 상품관리에서 정의한 슬롯(카탈로그 룸 테이블). 테스트 매칭 UI는 뷰티 룸만 별도 로드(skinMatchSlots) */
@@ -522,6 +553,43 @@ export const Admin: React.FC = () => {
       return prev;
     });
   }, [productCategory]);
+
+  useEffect(() => {
+    if (!supabase || !selectedProduct?.id) {
+      setMarketPriceDraft({
+        RUB: { rrp_price: null, prp_price: null },
+        KZT: { rrp_price: null, prp_price: null },
+        USD: { rrp_price: null, prp_price: null },
+        UZS: { rrp_price: null, prp_price: null },
+      });
+      return;
+    }
+    let alive = true;
+    const loadMarketPrices = async () => {
+      const map = await loadProductMarketPrices(supabase, [selectedProduct.id]);
+      const data = map.get(selectedProduct.id) ?? [];
+      if (!alive) return;
+      const next: MarketPriceDraft = {
+        RUB: { rrp_price: selectedProduct.rrp_price ?? null, prp_price: selectedProduct.prp_price ?? null },
+        KZT: { rrp_price: null, prp_price: null },
+        USD: { rrp_price: null, prp_price: null },
+        UZS: { rrp_price: null, prp_price: null },
+      };
+      (data ?? []).forEach((row) => {
+        const c = String((row as { currency?: string }).currency ?? '') as keyof MarketPriceDraft;
+        if (!next[c]) return;
+        next[c] = {
+          rrp_price: Number((row as { rrp_price?: number | null }).rrp_price ?? 0) || null,
+          prp_price: Number((row as { prp_price?: number | null }).prp_price ?? 0) || null,
+        };
+      });
+      setMarketPriceDraft(next);
+    };
+    void loadMarketPrices();
+    return () => {
+      alive = false;
+    };
+  }, [selectedProduct?.id, selectedProduct?.rrp_price, selectedProduct?.prp_price]);
 
   const [dashboardKpi, setDashboardKpi] = useState<DashboardKpi | null>(null);
   /** 실제 주문 목록(품목 포함): 매출 그래프·상품별 집계용. 목업이 아닐 때 사용 */
@@ -599,6 +667,9 @@ export const Admin: React.FC = () => {
   const [unmatchedTypes, setUnmatchedTypes] = useState<string[]>([]);
   const [skinMatchLoading, setSkinMatchLoading] = useState(false);
   const [skinMatchSaving, setSkinMatchSaving] = useState(false);
+  /** 테스트 매칭 슬롯별 AI 분석 결과 */
+  const [skinMatchAiBySlot, setSkinMatchAiBySlot] = useState<Record<number, BoxMatchAiResult | null>>({});
+  const [skinMatchAiLoadingSlot, setSkinMatchAiLoadingSlot] = useState<number | null>(null);
   /** 이번 세션에서 사용자가 «비우기»로 비운 슬롯 — 슬롯 개수 변경 후 재로드해도 해당 슬롯은 비워 두고 타입은 미매칭 유지 */
   const userClearedSlotsRef = useRef<Set<number>>(new Set());
 
@@ -1534,6 +1605,7 @@ export const Admin: React.FC = () => {
     if (tab !== 'skinMatch') return;
     const slotCount = skinMatchSlots.length;
     setSkinMatchLoading(true);
+    setSkinMatchAiBySlot({});
     fetchMapping()
       .then((dbMap) => {
         const bySlot: Record<number, string[]> = {};
@@ -1559,6 +1631,76 @@ export const Admin: React.FC = () => {
       .catch(() => {})
       .finally(() => setSkinMatchLoading(false));
   }, [tab, skinMatchSlots]);
+
+  /** 테스트 매칭 슬롯별 AI 분석 실행 */
+  const handleAnalyzeSkinMatchSlot = useCallback(
+    async (slotNum: number, slotInfo: Slot | undefined, assignedTypes: string[]) => {
+      if (!supabase) {
+        window.alert('Supabase 클라이언트가 초기화되지 않았습니다.');
+        return;
+      }
+      if (!slotInfo?.product_id) {
+        window.alert('이 슬롯에 연결된 상품이 없습니다.');
+        return;
+      }
+      if (assignedTypes.length === 0) {
+        window.alert('먼저 피부 타입을 이 슬롯에 매칭하세요.');
+        return;
+      }
+
+      setSkinMatchAiLoadingSlot(slotNum);
+      try {
+        const { data: compRows, error: compErr } = await supabase
+          .from('product_components')
+          .select('name, is_customized, sku_id, sku_items(name, display_name, brand, key_ingredients)')
+          .eq('product_id', slotInfo.product_id)
+          .order('sort_order', { ascending: true });
+        if (compErr) throw compErr;
+
+        const components = ((compRows as unknown[]) ?? []).map((row) => {
+          const r = row as {
+            name?: string | null;
+            is_customized?: boolean;
+            sku_items?:
+              | { name?: string | null; display_name?: string | null; brand?: string | null; key_ingredients?: string | null }
+              | Array<{ name?: string | null; display_name?: string | null; brand?: string | null; key_ingredients?: string | null }>
+              | null;
+          };
+          const sku = Array.isArray(r.sku_items) ? r.sku_items[0] : r.sku_items;
+          return {
+            name: r.name ?? sku?.display_name ?? sku?.name ?? null,
+            brand: sku?.brand ?? null,
+            key_ingredients: sku?.key_ingredients ?? null,
+            is_customized: !!r.is_customized,
+          };
+        });
+
+        const productName =
+          products.find((p) => p.id === slotInfo.product_id)?.name ?? slotInfo.title ?? `슬롯 ${slotNum}`;
+
+        const res = await fetch(`${SKIN_API_URL}/analyze-box-match`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            slot_num: slotNum,
+            product_name: productName,
+            skin_types: assignedTypes,
+            components,
+          }),
+        });
+        const payload = (await res.json()) as { success?: boolean; error?: string } & BoxMatchAiResult;
+        if (!res.ok || !payload.success) {
+          throw new Error(payload.error ?? `AI 분석 실패 (${res.status})`);
+        }
+        setSkinMatchAiBySlot((prev) => ({ ...prev, [slotNum]: payload }));
+      } catch (e) {
+        window.alert(`AI 매칭 분석 실패: ${e instanceof Error ? e.message : String(e)}`);
+      } finally {
+        setSkinMatchAiLoadingSlot((prev) => (prev === slotNum ? null : prev));
+      }
+    },
+    [products],
+  );
 
   // 히어로 이미지 탭: site_settings에서 JSON array 로드
   useEffect(() => {
@@ -1939,7 +2081,7 @@ export const Admin: React.FC = () => {
     }
     supabase
       .from('product_components')
-      .select('id, product_id, sort_order, name, image_url, image_urls, description, layout, sku_id')
+      .select('id, product_id, sort_order, name, image_url, image_urls, description, layout, sku_id, is_customized')
       .eq('product_id', selectedProduct.id)
       .then(
         ({ data }) => {
@@ -2236,6 +2378,21 @@ export const Admin: React.FC = () => {
     });
   };
 
+  const handleMarketPriceField = (
+    currency: keyof MarketPriceDraft,
+    key: 'rrp_price' | 'prp_price',
+    value: string,
+  ) => {
+    const n = Number(value);
+    setMarketPriceDraft((prev) => ({
+      ...prev,
+      [currency]: {
+        ...prev[currency],
+        [key]: Number.isFinite(n) && n > 0 ? n : null,
+      },
+    }));
+  };
+
   const handleSaveProduct = async () => {
     if (!supabase || !selectedProduct || !canGrantPermission) return;
     setSavingProduct(true);
@@ -2318,6 +2475,13 @@ export const Admin: React.FC = () => {
           setOrderedProductIds((prev) => (prev.includes(productId) ? prev : [...prev, productId]));
         }
       }
+      const marketRows: ProductMarketPriceRow[] = (['RUB', 'KZT', 'USD', 'UZS'] as const).map((currency) => ({
+        product_id: productId,
+        currency,
+        rrp_price: marketPriceDraft[currency].rrp_price,
+        prp_price: marketPriceDraft[currency].prp_price,
+      }));
+      await upsertProductMarketPrices(supabase, marketRows);
       const slotRoom = normalizedCat as CatalogSlotRoom;
       const { error: slotRmErr } = await supabase
         .from(CATALOG_ROOM_SLOTS_TABLE)
@@ -2339,6 +2503,7 @@ export const Admin: React.FC = () => {
           description: hasSku ? null : (c.description || null),
           layout: c.layout ?? 'image_left',
           sku_id: c.sku_id || null,
+          is_customized: c.is_customized ?? false,
         };
       });
       await supabase.from('product_components').delete().eq('product_id', productId);
@@ -4338,6 +4503,35 @@ export const Admin: React.FC = () => {
                     />
                   </div>
                 </div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3">
+                  <p className="mb-2 text-sm font-semibold text-slate-800">국가별 통화 가격</p>
+                  <div className="space-y-3">
+                    {([
+                      ['RUB', 'RUB (RU)'],
+                      ['KZT', 'KZT (KZ)'],
+                      ['UZS', 'UZS (UZ)'],
+                      ['USD', 'USD (Global)'],
+                    ] as const).map(([currency, label]) => (
+                      <div key={currency} className="grid gap-2 sm:grid-cols-[8rem_1fr_1fr] sm:items-center">
+                        <span className="text-xs font-medium text-slate-600">{label}</span>
+                        <input
+                          type="number"
+                          className={inputClass}
+                          placeholder="RRP"
+                          value={marketPriceDraft[currency].rrp_price ?? ''}
+                          onChange={(e) => handleMarketPriceField(currency, 'rrp_price', e.target.value)}
+                        />
+                        <input
+                          type="number"
+                          className={inputClass}
+                          placeholder="PRP"
+                          value={marketPriceDraft[currency].prp_price ?? ''}
+                          onChange={(e) => handleMarketPriceField(currency, 'prp_price', e.target.value)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
 
                 {normalizeProductCategory(selectedProduct.category ?? 'beauty') === 'beauty' && (
                   <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-3 text-sm">
@@ -4573,9 +4767,18 @@ export const Admin: React.FC = () => {
                                 </option>
                               ))}
                             </select>
-                            {comp.sku_id && (
-                              <span className="shrink-0 text-[10px] text-emerald-600">✓</span>
-                            )}
+                            {/* 커스터마이징 제품 체크박스 */}
+                            <label className="flex shrink-0 cursor-pointer items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[10px] text-slate-600 hover:border-orange-300 hover:bg-orange-50">
+                              <input
+                                type="checkbox"
+                                checked={comp.is_customized ?? false}
+                                onChange={(e) => handleComponentChange(idx, { is_customized: e.target.checked })}
+                                className="accent-orange-500"
+                              />
+                              <span className={comp.is_customized ? 'font-semibold text-orange-600' : ''}>
+                                {comp.is_customized ? '✦ 맞춤' : '공용'}
+                              </span>
+                            </label>
                             <div className="flex shrink-0 gap-1">
                               <button
                                 type="button"
@@ -4736,6 +4939,7 @@ export const Admin: React.FC = () => {
                     {Array.from({ length: skinMatchSlots.length }, (_, i) => i + 1).map((slotNum) => {
                       const isActive = slotNum <= skinMatchSlots.length;
                       const slotInfo = skinMatchSlots[slotNum - 1];
+                      const assignedTypes = skinMatchSlotTypes[slotNum] ?? [];
                       const productName = slotInfo?.product_id ? products.find((p) => p.id === slotInfo.product_id)?.name ?? slotInfo?.title : slotInfo?.title;
                       const slotLabel = productName ? `슬롯 ${slotNum} (${productName})` : `슬롯 ${slotNum}`;
                       return (
@@ -4770,28 +4974,42 @@ export const Admin: React.FC = () => {
                               {slotLabel}
                               {!isActive && ' (비활성)'}
                             </p>
-                            {isActive && (skinMatchSlotTypes[slotNum] ?? []).length > 0 && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const types = skinMatchSlotTypes[slotNum] ?? [];
-                                  if (types.length === 0) return;
-                                  userClearedSlotsRef.current.add(slotNum);
-                                  setSkinMatchSlotTypes((prev) => {
-                                    const next = { ...prev };
-                                    next[slotNum] = [];
-                                    return next;
-                                  });
-                                  setUnmatchedTypes((prev) => [...prev, ...types]);
-                                }}
-                                className="shrink-0 rounded px-2 py-0.5 text-[10px] font-medium text-slate-500 hover:bg-slate-200 hover:text-slate-700"
-                              >
-                                비우기
-                              </button>
+                            {isActive && (
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => void handleAnalyzeSkinMatchSlot(slotNum, slotInfo, assignedTypes)}
+                                  disabled={skinMatchAiLoadingSlot === slotNum || assignedTypes.length === 0 || !slotInfo?.product_id}
+                                  className="shrink-0 rounded px-2 py-0.5 text-[10px] font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-50"
+                                  title={!slotInfo?.product_id ? '연결된 상품이 필요합니다' : assignedTypes.length === 0 ? '피부 타입 매칭이 필요합니다' : 'AI 매칭 분석 실행'}
+                                >
+                                  {skinMatchAiLoadingSlot === slotNum ? '분석 중…' : 'AI 분석'}
+                                </button>
+                                {assignedTypes.length > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const types = skinMatchSlotTypes[slotNum] ?? [];
+                                      if (types.length === 0) return;
+                                      userClearedSlotsRef.current.add(slotNum);
+                                      setSkinMatchSlotTypes((prev) => {
+                                        const next = { ...prev };
+                                        next[slotNum] = [];
+                                        return next;
+                                      });
+                                      setUnmatchedTypes((prev) => [...prev, ...types]);
+                                      setSkinMatchAiBySlot((prev) => ({ ...prev, [slotNum]: null }));
+                                    }}
+                                    className="shrink-0 rounded px-2 py-0.5 text-[10px] font-medium text-slate-500 hover:bg-slate-200 hover:text-slate-700"
+                                  >
+                                    비우기
+                                  </button>
+                                )}
+                              </div>
                             )}
                           </div>
                           <div className="flex flex-wrap gap-1.5">
-                            {(skinMatchSlotTypes[slotNum] ?? []).map((type) => (
+                            {assignedTypes.map((type) => (
                               <span
                                 key={type}
                                 draggable={isActive}
@@ -4865,6 +5083,68 @@ export const Admin: React.FC = () => {
                 >
                   {skinMatchSaving ? '저장 중…' : '매칭 저장'}
                 </button>
+
+                {Object.entries(skinMatchAiBySlot).some(([, v]) => !!v) && (
+                  <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+                    <div className="mb-3 flex items-center gap-2">
+                      <span className="text-base">🤖</span>
+                      <h3 className="text-sm font-semibold text-slate-800">AI 매칭 분석 결과</h3>
+                    </div>
+                    <div className="space-y-3">
+                      {Array.from({ length: skinMatchSlots.length }, (_, i) => i + 1)
+                        .filter((slotNum) => !!skinMatchAiBySlot[slotNum])
+                        .map((slotNum) => {
+                          const result = skinMatchAiBySlot[slotNum]!;
+                          const slotInfo = skinMatchSlots[slotNum - 1];
+                          const productName = slotInfo?.product_id
+                            ? products.find((p) => p.id === slotInfo.product_id)?.name ?? slotInfo?.title
+                            : slotInfo?.title;
+                          return (
+                            <div key={`ai-${slotNum}`} className="rounded-lg border border-slate-200 bg-slate-50/40 p-3">
+                              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                                <p className="text-sm font-semibold text-slate-800">
+                                  슬롯 {slotNum}{productName ? ` · ${productName}` : ''}
+                                </p>
+                                <span
+                                  className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                                    result.match_score >= 80
+                                      ? 'bg-emerald-100 text-emerald-700'
+                                      : result.match_score >= 60
+                                        ? 'bg-amber-100 text-amber-700'
+                                        : 'bg-red-100 text-red-700'
+                                  }`}
+                                >
+                                  {result.match_score}% · {result.score_label}
+                                </span>
+                              </div>
+
+                              {result.breakdown && (
+                                <p className="mb-1 text-xs text-slate-600">
+                                  축별 점수: 보습 {result.breakdown.hydration ?? 0} / 진정 {result.breakdown.sensitivity ?? 0} / 색소{' '}
+                                  {result.breakdown.pigmentation ?? 0} / 탄력 {result.breakdown.antiaging ?? 0}
+                                </p>
+                              )}
+
+                              {Array.isArray(result.strengths) && result.strengths.length > 0 && (
+                                <p className="mb-1 text-xs text-emerald-700">강점: {result.strengths.slice(0, 3).join(' · ')}</p>
+                              )}
+                              {Array.isArray(result.issues) && result.issues.length > 0 && (
+                                <p className="mb-1 text-xs text-red-600">이슈: {result.issues.slice(0, 3).join(' · ')}</p>
+                              )}
+                              {result.match_score < 80 &&
+                                Array.isArray(result.recommendations) &&
+                                result.recommendations.length > 0 && (
+                                  <p className="mb-1 text-xs text-blue-700">대안: {result.recommendations.slice(0, 3).join(' · ')}</p>
+                                )}
+                              {result.dermatologist_opinion && (
+                                <p className="text-xs text-slate-700">전문의 의견: {result.dermatologist_opinion}</p>
+                              )}
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </div>

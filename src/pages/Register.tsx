@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import { AddressSuggest } from '../components/AddressSuggest';
 import { BackArrow } from '../components/BackArrow';
 import { useAuth } from '../context/AuthContext';
+import { useI18n } from '../context/I18nContext';
 import { accountPrimaryCtaClass } from '../lib/accountLinkUi';
 import {
   deliveryFormNoteRowClass,
@@ -15,6 +16,9 @@ import { isValidEmailFormat } from '../lib/emailValidation';
 import { clampDigits } from '../lib/digitsOnly';
 import { CustomsPassportNotice } from '../components/CustomsPassportNotice';
 import { LegalDocLinksRu } from '../components/LegalDocLinksRu';
+import { PhoneCountryCodeSelect } from '../components/PhoneCountryCodeSelect';
+import { CountrySelect } from '../components/CountrySelect';
+import { formatIntlPhoneByCountry, type PhoneCountry } from '../lib/phoneIntl';
 
 /**
  * 회원가입 — 기본인적 / 배송(주소 세분화). 이메일 인증 구조, 전화 포맷, INN/우편 제한.
@@ -34,30 +38,16 @@ function normalizeLatin(value: string): string {
   return value.replace(/[^A-Za-z\s-']/g, '');
 }
 
-/** 전화 입력: 숫자만 추출 후 +7 999 999 9999 형식으로 포맷 */
-function formatPhone(value: string): string {
-  let digits = value.replace(/\D/g, '').slice(0, 11);
-  if (digits.length === 0) return '';
-  if (digits.startsWith('8')) digits = '7' + digits.slice(1);
-  else if (!digits.startsWith('7')) digits = '7' + digits;
-  const a = digits.slice(0, 1);
-  const b = digits.slice(1, 4);
-  const c = digits.slice(4, 7);
-  const e = digits.slice(7, 11);
-  if (e.length) return `+${a} ${b} ${c} ${e}`;
-  if (c.length) return `+${a} ${b} ${c}`;
-  if (b.length) return `+${a} ${b}`;
-  return `+${a}`;
-}
-
 export const Register: React.FC = () => {
   const navigate = useNavigate();
+  const { country, setCountry } = useI18n();
   const { applySession } = useAuth();
   const [email, setEmail] = useState('');
   const [emailError, setEmailError] = useState(false);
   const [codeSent, setCodeSent] = useState(false);
   const [verificationCode, setVerificationCode] = useState('');
   const [phoneValue, setPhoneValue] = useState('');
+  const [phoneCountry, setPhoneCountry] = useState<PhoneCountry>('RU');
   const [password, setPassword] = useState('');
   const [passwordError, setPasswordError] = useState(false);
   const [nickname, setNickname] = useState('');
@@ -87,7 +77,7 @@ export const Register: React.FC = () => {
   };
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setPhoneValue(formatPhone(e.target.value));
+    setPhoneValue(formatIntlPhoneByCountry(e.target.value, phoneCountry));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -408,6 +398,7 @@ export const Register: React.FC = () => {
                 Номер телефона
               </label>
               <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-stretch">
+                <PhoneCountryCodeSelect value={phoneCountry} onChange={setPhoneCountry} />
                 <input
                   id="phone"
                   type="tel"
@@ -434,7 +425,18 @@ export const Register: React.FC = () => {
                 </div>
               </div>
             </div>
+            <div className={fieldColClass}>
+              <label htmlFor="register-country" className={fieldLabelClass}>
+                Страна доставки
+              </label>
+              <CountrySelect
+                id="register-country"
+                value={country}
+                onChange={(code) => setCountry(code as any)}
+              />
+            </div>
             <AddressSuggest
+              country={country}
               label={
                 <span className="inline-flex items-center gap-2">
                   Адрес (поиск по базе)

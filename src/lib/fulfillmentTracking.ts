@@ -60,7 +60,8 @@ export function carrierLabelRu(code: string | null | undefined): string | null {
   if (!code) return null;
   const m: Record<string, string> = {
     cdek: 'СДЭК',
-    pochta_ru: 'Почта России',
+    // 'pochta_ru'는 러시아 우편 캐리어 코드지만, 라벨은 다국가용으로 중립 표기
+    pochta_ru: 'Почта',
     boxberry: 'Boxberry',
     other: 'Доставка',
   };

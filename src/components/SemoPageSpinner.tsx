@@ -1,4 +1,5 @@
 import React from 'react';
+import { useI18n } from '../context/I18nContext';
 
 /**
  * 앱 레이아웃 기준 «보이는 본문 슬롯» 정중앙 — 고정 Navbar·모바일 하단 탭바를 제외한 영역에 flex 중앙.
@@ -30,17 +31,19 @@ export function SemoPageSpinner({
   sizeClass = 'h-12 w-12',
   showLabel = true,
 }: SemoPageSpinnerProps) {
+  const { language } = useI18n();
+  const isEn = language === 'en';
   return (
     <div
       className={`flex flex-col items-center justify-center gap-4 ${className}`}
       role="status"
       aria-live="polite"
-      aria-label="Загрузка"
+      aria-label={isEn ? 'Loading' : 'Загрузка'}
     >
       <svg className={`${sizeClass} animate-spin text-brand`} viewBox="0 0 24 24" fill="none" aria-hidden>
         <path d="M12 3L22 20H2L12 3Z" fill="currentColor" />
       </svg>
-      {showLabel ? <p className="text-sm text-slate-500">Загрузка…</p> : null}
+      {showLabel ? <p className="text-sm text-slate-500">{isEn ? 'Loading…' : 'Загрузка…'}</p> : null}
     </div>
   );
 }

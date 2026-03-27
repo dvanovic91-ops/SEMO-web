@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
+import { useI18n } from '../context/I18nContext';
+import type { AppCurrency } from '../context/I18nContext';
 import { supabase } from '../lib/supabase';
+import { formatCurrencyAmount } from '../lib/market';
+import { loadProductMarketPrices } from '../lib/productMarketPrices';
 import { ShopCardImage } from './ShopCardImage';
 import { SemoPageSpinner, SEMO_SECTION_LOADING_CLASS } from '../components/SemoPageSpinner';
 import {
@@ -34,10 +38,6 @@ const itemWidthPercentDesktop = 100 / VISIBLE_DESKTOP;
 /** 카드 한 장의 20%를 피크로 사용 (3.2 구성에서 약 6.25%) */
 const desktopPeekPercent = itemWidthPercentDesktop * 0.2;
 
-function formatPrice(price: number): string {
-  return `${price.toLocaleString('ru-RU')} руб.`;
-}
-
 /**
  * products.category 정규화 → 탭 키. 비어 있거나 알 수 없으면 null (어느 카탈로그에도 자동 배치 안 함).
  * 관리자 저장 시 beauty / inner_beauty / hair_beauty 로 고정됨.
@@ -69,7 +69,9 @@ type ShopProductCardProps = {
  * 상품 카드 — 모바일은 넓은 1열·충분한 패딩·버튼 min 44px, 데스크톱은 캐러셀 슬롯용
  */
 function ShopProductCard({ product, onAddToCart, layoutCategory, layout, archiveMode }: ShopProductCardProps) {
+  const { language, currency } = useI18n();
   const archive = Boolean(archiveMode);
+  const formatPrice = (price: number) => formatCurrencyAmount(price, currency);
   const articleBase =
     'flex w-full min-w-0 flex-col items-stretch rounded-xl border border-slate-200/80 bg-white md:min-h-[420px] md:items-center shadow-[0_1px_8px_-4px_rgba(15,23,42,0.18)]';
   const archiveTone = archive ? ' grayscale contrast-[0.92]' : '';
@@ -155,7 +157,7 @@ function ShopProductCard({ product, onAddToCart, layoutCategory, layout, archive
           }}
           className={`${cartBtnClass} ${layout === 'desktop-carousel' ? 'sm:w-auto' : ''} disabled:cursor-not-allowed disabled:opacity-40`}
         >
-          {archive ? 'Нет в продаже' : 'В корзину'}
+          {archive ? (language === 'en' ? 'Unavailable' : 'Нет в продаже') : language === 'en' ? 'Add to cart' : 'В корзину'}
         </button>
       </div>
     </article>
@@ -180,6 +182,52 @@ type ProductRowShop = {
   box_history?: boolean | null;
 };
 
+type MarketPriceRow = {
+  product_id: string;
+  currency: AppCurrency;
+  rrp_price: number | null;
+  prp_price: number | null;
+};
+
+type MarketPriceMap = Record<string, Partial<Record<AppCurrency, { rrp_price: number | null; prp_price: number | null }>>>;
+
+async function loadMarketPriceMap(
+  client: NonNullable<typeof supabase>,
+  productIds: string[],
+): Promise<MarketPriceMap> {
+  if (!productIds.length) return {};
+  // site_settings 폴백 포함한 공통 로더 사용 (Admin과 동일 경로)
+  const resultMap = await loadProductMarketPrices(client, productIds);
+  const map: MarketPriceMap = {};
+  resultMap.forEach((rows, productId) => {
+    map[productId] = {};
+    rows.forEach((row) => {
+      const c = row.currency as AppCurrency;
+      map[productId][c] = {
+        rrp_price: row.rrp_price != null ? Number(row.rrp_price) : null,
+        prp_price: row.prp_price != null ? Number(row.prp_price) : null,
+      };
+    });
+  });
+  return map;
+}
+
+function resolveDisplayPrices(
+  baseRrp: number | null,
+  basePrp: number | null,
+  _currency: AppCurrency,
+  marketPrice?: { rrp_price: number | null; prp_price: number | null },
+) {
+  // market row가 존재하고 실제 값이 있으면 사용, null이면 base(RUB) 폴백
+  const hasMarket = marketPrice != null &&
+    (marketPrice.rrp_price != null || marketPrice.prp_price != null);
+  const useRrp = hasMarket ? (marketPrice!.rrp_price ?? baseRrp) : baseRrp;
+  const usePrp = hasMarket ? (marketPrice!.prp_price ?? marketPrice!.rrp_price ?? basePrp) : basePrp;
+  const price = usePrp ?? useRrp ?? 0;
+  const originalPrice = usePrp != null && useRrp != null && usePrp !== useRrp ? useRrp : null;
+  return { price, originalPrice };
+}
+
 /** 스키마에 image_urls/box_theme 없으면 전체 select 가 400 → 최소 컬럼으로 재시도 (Admin 과 동일 패턴) */
 async function fetchProductsWithSchemaFallback(
   client: NonNullable<typeof supabase>,
@@ -203,18 +251,24 @@ async function fetchProductsWithSchemaFallback(
   return (data ?? []) as ProductRowShop[];
 }
 
-function rowsToShopItems(rows: ProductRowShop[], max: number): ShopItem[] {
+function rowsToShopItems(
+  rows: ProductRowShop[],
+  max: number,
+  currency: AppCurrency,
+  marketPriceMap: MarketPriceMap = {},
+): ShopItem[] {
   return rows.slice(0, max).map((p, idx) => {
     const prp = p.prp_price != null ? Number(p.prp_price) : null;
     const rrp = p.rrp_price != null ? Number(p.rrp_price) : null;
-    const price = prp ?? rrp ?? 0;
+    const market = marketPriceMap[p.id]?.[currency];
+    const { price, originalPrice } = resolveDisplayPrices(rrp, prp, currency, market);
     const imageUrls =
       Array.isArray(p.image_urls) && p.image_urls.length ? p.image_urls : p.image_url ? [p.image_url] : [];
     return {
       id: p.id,
       name: p.name?.trim() || `Слот ${idx + 1}`,
       price,
-      originalPrice: prp != null && rrp != null ? rrp : null,
+      originalPrice,
       imageUrl: imageUrls[0] ?? null,
       imageUrls,
       productId: p.id,
@@ -256,6 +310,7 @@ async function buildShopItemsFromCategoryProducts(
   client: NonNullable<typeof supabase>,
   layoutCategory: ShopLayoutCategory,
   max: number,
+  currency: AppCurrency,
 ): Promise<ShopItem[]> {
   const applyFilter =
     layoutCategory === 'beauty'
@@ -283,7 +338,9 @@ async function buildShopItemsFromCategoryProducts(
     filtered = filtered.filter((p) => !p.box_history);
   }
 
-  return rowsToShopItems(filtered, max);
+  const productIds = filtered.map((p) => p.id);
+  const marketPriceMap = await loadMarketPriceMap(client, productIds);
+  return rowsToShopItems(filtered, max, currency, marketPriceMap);
 }
 
 type ShopCatalogProps = {
@@ -297,6 +354,7 @@ type ShopCatalogProps = {
  * 슬롯은 `catalog_room_slots` 한 테이블에서 `.eq('catalog_room', …)` 로만 읽음.
  */
 export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle }: ShopCatalogProps) {
+  const { language, currency } = useI18n();
   const { addItem } = useCart();
   const [showAddedToast, setShowAddedToast] = useState(false);
   const [items, setItems] = useState<ShopItem[]>([]);
@@ -326,7 +384,7 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
         ]);
         if (slotErr) {
           console.warn('[ShopCatalog] catalog_room_slots:', slotErr.message);
-          setItems(await buildShopItemsFromCategoryProducts(supabase, layoutCategory, 5));
+          setItems(await buildShopItemsFromCategoryProducts(supabase, layoutCategory, 5, currency));
           setCatalogLoading(false);
           return;
         }
@@ -345,7 +403,7 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
           return (a.id ?? 0) - (b.id ?? 0);
         });
         if (!slots.length) {
-          setItems(await buildShopItemsFromCategoryProducts(supabase, layoutCategory, 5));
+          setItems(await buildShopItemsFromCategoryProducts(supabase, layoutCategory, 5, currency));
           setCatalogLoading(false);
           return;
         }
@@ -359,6 +417,7 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
         }));
 
         const productIds = [...new Set(normalizedSlots.map((s) => s.product_id).filter(Boolean))] as string[];
+        const marketPriceMap = await loadMarketPriceMap(supabase, productIds);
         const productsMap: Record<
           string,
           {
@@ -421,8 +480,8 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
           const productId = product ? rawPid : null;
           const prp = product?.prp_price != null ? Number(product.prp_price) : null;
           const rrp = product?.rrp_price != null ? Number(product.rrp_price) : null;
-          const price = prp ?? rrp ?? 0;
-          const originalPrice = prp != null && rrp != null ? rrp : null;
+          const market = productId ? marketPriceMap[productId]?.[currency] : undefined;
+          const { price, originalPrice } = resolveDisplayPrices(rrp, prp, currency, market);
 
           const productImageUrls =
             product && Array.isArray(product.image_urls) && product.image_urls.length
@@ -459,12 +518,12 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
         setItems(list.filter((item) => item.productId != null && !item.boxHistory));
       } catch (e) {
         console.warn('[ShopCatalog] load error:', e);
-        setItems(await buildShopItemsFromCategoryProducts(supabase, layoutCategory, 5));
+        setItems(await buildShopItemsFromCategoryProducts(supabase, layoutCategory, 5, currency));
       } finally {
         setCatalogLoading(false);
       }
     })();
-  }, [layoutCategory]);
+  }, [layoutCategory, currency]);
 
   useEffect(() => {
     if (!showAddedToast) return;
@@ -499,6 +558,7 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
       price: item.price,
       imageUrl: thumb,
       originalPrice: item.originalPrice ?? undefined,
+      currency,
     });
     setShowAddedToast(true);
   };
@@ -537,8 +597,12 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
         <>
           <p className="py-16 text-center text-sm text-slate-500">
             {layoutCategory === 'beauty'
-              ? 'Каталог временно недоступен.'
-              : 'Подборка скоро появится — следите за обновлениями.'}
+              ? language === 'en'
+                ? 'Catalog is temporarily unavailable.'
+                : 'Каталог временно недоступен.'
+              : language === 'en'
+                ? 'Collection is coming soon — stay tuned.'
+                : 'Подборка скоро появится — следите за обновлениями.'}
           </p>
           {layoutCategory === 'beauty' ? (
             <div className="mb-10 hidden translate-x-[3vw] justify-start pl-2 sm:pl-3 md:flex md:px-8 lg:px-10">
@@ -546,7 +610,7 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
                 to="/shop/box-history"
                 className="text-[calc(0.875rem-1pt)] font-medium text-slate-500 underline-offset-4 transition hover:text-slate-600 hover:underline sm:text-[calc(1rem-1pt)]"
               >
-                ← История боксов
+                ← {language === 'en' ? 'Box history' : 'История боксов'}
               </Link>
             </div>
           ) : null}
@@ -573,7 +637,7 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
                   to="/shop/box-history"
                   className="text-[calc(0.875rem-1pt)] font-medium text-slate-500 underline-offset-4 transition hover:text-slate-600 hover:underline"
                 >
-                  ← История боксов
+                  ← {language === 'en' ? 'Box history' : 'История боксов'}
                 </Link>
               </div>
             ) : null}
@@ -610,7 +674,7 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
                   onClick={goPrev}
                   disabled={carouselIndex === 0}
                   className="absolute left-0 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white shadow-md transition hover:bg-slate-50 disabled:opacity-30"
-                  aria-label="Предыдущие"
+                  aria-label={language === 'en' ? 'Previous' : 'Предыдущие'}
                 >
                   <svg className="h-5 w-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -621,7 +685,7 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
                   onClick={goNext}
                   disabled={carouselIndex >= maxIndex}
                   className="absolute right-0 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white shadow-md transition hover:bg-slate-50 disabled:opacity-30"
-                  aria-label="Следующие"
+                  aria-label={language === 'en' ? 'Next' : 'Следующие'}
                 >
                   <svg className="h-5 w-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -638,7 +702,7 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
                     type="button"
                     onClick={() => setCarouselIndex(i)}
                     className={`h-2 rounded-full transition ${i === carouselIndex ? 'w-6 bg-brand' : 'w-2 bg-slate-200'}`}
-                    aria-label={`Слайд ${i + 1}`}
+                    aria-label={language === 'en' ? `Slide ${i + 1}` : `Слайд ${i + 1}`}
                   />
                 ))}
               </div>
@@ -651,7 +715,7 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
                   to="/shop/box-history"
                   className="text-[calc(0.875rem-1pt)] font-medium text-slate-500 underline-offset-4 transition hover:text-slate-600 hover:underline sm:text-[calc(1rem-1pt)]"
                 >
-                  ← История боксов
+                  ← {language === 'en' ? 'Box history' : 'История боксов'}
                 </Link>
               </div>
             ) : null}
@@ -665,7 +729,7 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
           role="status"
           aria-live="polite"
         >
-          Добавлен в корзину
+          {language === 'en' ? 'Added to cart' : 'Добавлен в корзину'}
         </div>
       )}
     </main>
@@ -673,7 +737,7 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
 }
 
 export const Shop: React.FC = () => (
-  <ShopCatalog category="beauty" pageTitle="Beauty box" pageSubtitle="S/S 2026 Выбор SEMO" />
+  <ShopCatalog category="beauty" pageTitle="Beauty box" pageSubtitle="S/S 2026 SEMO selection" />
 );
 
 /** 히스토리 페이지 등에서 카드 재사용 */

@@ -3,6 +3,7 @@ import { Link, Navigate, useParams } from 'react-router-dom';
 import { BackArrow } from '../../components/BackArrow';
 import { AuthInitializingScreen, SemoPageSpinner, SEMO_SECTION_LOADING_CLASS } from '../../components/SemoPageSpinner';
 import { useAuth } from '../../context/AuthContext';
+import { useI18n } from '../../context/I18nContext';
 import { supabase } from '../../lib/supabase';
 
 type TestResultRow = {
@@ -15,6 +16,8 @@ type TestResultRow = {
 export const ProfileTestResultDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const { isLoggedIn, initialized, userId } = useAuth();
+  const { language } = useI18n();
+  const isEn = language === 'en';
   const [result, setResult] = useState<TestResultRow | null>(null);
   const [loading, setLoading] = useState(true);
   const requestRef = useRef({ id: '', userId: '' });
@@ -56,7 +59,7 @@ export const ProfileTestResultDetail: React.FC = () => {
       <main className="mx-auto max-w-xl px-4 py-6 sm:px-6 sm:py-10">
         <p className="mb-6">
           <Link to="/profile/test-results" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90">
-            <BackArrow /> Результаты тестов
+            <BackArrow /> {isEn ? 'Test results' : 'Результаты тестов'}
           </Link>
         </p>
         <div className={SEMO_SECTION_LOADING_CLASS}>
@@ -71,10 +74,12 @@ export const ProfileTestResultDetail: React.FC = () => {
       <main className="mx-auto max-w-xl px-4 py-6 sm:px-6 sm:py-10">
         <p className="mb-6">
           <Link to="/profile/test-results" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90">
-            <BackArrow /> Результаты тестов
+            <BackArrow /> {isEn ? 'Test results' : 'Результаты тестов'}
           </Link>
         </p>
-        <p className="rounded-xl border border-slate-100 bg-slate-50/50 px-4 py-8 text-center text-slate-500">Результат не найден.</p>
+        <p className="rounded-xl border border-slate-100 bg-slate-50/50 px-4 py-8 text-center text-slate-500">
+          {isEn ? 'Result not found.' : 'Результат не найден.'}
+        </p>
       </main>
     );
   }

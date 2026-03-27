@@ -3,6 +3,7 @@ import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { BackArrow } from '../../components/BackArrow';
 import { AuthInitializingScreen, SemoPageSpinner, SEMO_SECTION_LOADING_CLASS } from '../../components/SemoPageSpinner';
 import { useAuth } from '../../context/AuthContext';
+import { useI18n } from '../../context/I18nContext';
 import { supabase } from '../../lib/supabase';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -18,17 +19,18 @@ type CouponRow = {
 
 function couponTypeLabelRu(c: CouponRow): string {
   if (c.tier === 'special' || (c.quarter_label ?? '').startsWith('special-')) {
-    return 'Специальный купон';
+    return 'Special coupon';
   }
   const q = (c.quarter_label ?? '').trim();
   if (/^\d{4}Q[1-4]$/.test(q)) {
-    return `Квартальный (${q})`;
+    return `Quarterly (${q})`;
   }
-  return q ? `Купон (${q})` : 'Квартальный купон';
+  return q ? `Coupon (${q})` : 'Quarterly coupon';
 }
 
 /** 멤버십·특별 쿠폰 목록만 (포인트와 분리) */
 export const ProfileCoupons: React.FC = () => {
+  const { language } = useI18n();
   const [searchParams] = useSearchParams();
   const { userId, isLoggedIn, initialized, isAdmin } = useAuth();
   const targetUserId = useMemo(() => {
@@ -94,24 +96,24 @@ export const ProfileCoupons: React.FC = () => {
       if (error) {
         if (error.message.includes('function') || error.code === 'PGRST202') {
           setPromoRedeemMessage(
-            'Активация промокода пока недоступна. Обратитесь в поддержку или попробуйте позже.',
+            'Promo code activation is temporarily unavailable. Please contact support or try again later.',
           );
         } else {
-          setPromoRedeemMessage(error.message || 'Не удалось активировать код.');
+          setPromoRedeemMessage(error.message || 'Failed to activate code.');
         }
         return;
       }
       const ok = data && typeof data === 'object' && (data as { ok?: boolean }).ok === true;
       if (ok) {
-        setPromoRedeemMessage('Промокод активирован. Купон добавлен.');
+        setPromoRedeemMessage('Promo code activated. Coupon has been added.');
         setPromoCodeInput('');
         refresh();
       } else {
         const err = (data as { error?: string } | null)?.error;
-        setPromoRedeemMessage(err || 'Код недействителен или уже использован.');
+        setPromoRedeemMessage(err || 'Code is invalid or already used.');
       }
     } catch (e) {
-      setPromoRedeemMessage(e instanceof Error ? e.message : 'Ошибка сети.');
+      setPromoRedeemMessage(e instanceof Error ? e.message : 'Network error.');
     } finally {
       setPromoRedeemLoading(false);
     }
@@ -126,32 +128,32 @@ export const ProfileCoupons: React.FC = () => {
     <main className="mx-auto max-w-xl px-4 py-6 sm:px-6 sm:py-10 md:py-14">
       <p className="mb-6">
         <Link to="/profile" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90">
-          <BackArrow /> Profile
+          <BackArrow /> {language === 'en' ? 'Profile' : 'Профиль'}
         </Link>
       </p>
       {viewingOtherUser && (
         <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" role="status">
-          Просмотр купонов выбранного пользователя (админ).
+          Viewing selected user coupons (admin).
         </p>
       )}
       <header className="mb-8">
-        <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">Мои купоны</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">My coupons</h1>
         <p className="mt-2 text-sm text-slate-500">
-          Квартальные купоны по уровню участника и специальные купоны от SEMO Box.
+          Quarterly tier coupons and special coupons from SEMO Box.
         </p>
       </header>
 
       <section className="mb-8 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h2 className="text-sm font-semibold text-slate-900">Промокод</h2>
+        <h2 className="text-sm font-semibold text-slate-900">Promo code</h2>
         <p className="mt-1 text-xs text-slate-500">
-          Введите код (латиница и цифры). После активации сумма появится в списке купонов.
+          Enter the code (letters and numbers). After activation, the amount appears in your coupon list.
         </p>
         <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-stretch">
           <input
             type="text"
             value={promoCodeInput}
             onChange={(e) => setPromoCodeInput(e.target.value)}
-            placeholder="Например: SEMO-2026-XXXX"
+            placeholder="Example: SEMO-2026-XXXX"
             autoComplete="off"
             className="min-h-11 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
           />
@@ -161,7 +163,7 @@ export const ProfileCoupons: React.FC = () => {
             disabled={promoRedeemLoading || !promoCodeInput.trim()}
             className="min-h-11 shrink-0 rounded-xl bg-brand px-4 py-2 text-sm font-medium text-white transition hover:bg-brand/90 disabled:opacity-50"
           >
-            {promoRedeemLoading ? '…' : 'Активировать'}
+            {promoRedeemLoading ? '…' : 'Activate'}
           </button>
         </div>
         {promoRedeemMessage && (
@@ -179,7 +181,7 @@ export const ProfileCoupons: React.FC = () => {
           <SemoPageSpinner />
         </div>
       ) : coupons.length === 0 ? (
-        <p className="text-sm text-slate-500">Пока нет купонов.</p>
+        <p className="text-sm text-slate-500">No coupons yet.</p>
       ) : (
         <ul className="space-y-3">
           {coupons.map((c) => {
@@ -188,10 +190,10 @@ export const ProfileCoupons: React.FC = () => {
             const isUsed = !!c.used_at;
             const isExpired = !isUsed && expires.getTime() < now.getTime();
             const statusText = isUsed
-              ? 'Использован'
+              ? 'Used'
               : isExpired
-                ? 'Истёк'
-                : `Действует до ${expires.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}`;
+                ? 'Expired'
+                : `Valid until ${expires.toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })}`;
             return (
               <li
                 key={c.id}
@@ -203,8 +205,8 @@ export const ProfileCoupons: React.FC = () => {
                   </p>
                   <p className="text-xs text-slate-500">
                     {c.tier === 'special' || (c.quarter_label ?? '').startsWith('special-')
-                      ? 'Специальная акция · срок 2 недели от даты выдачи'
-                      : 'Квартальная программа · срок указан в дате окончания'}
+                      ? 'Special campaign · valid for 2 weeks from issue date'
+                      : 'Quarterly program · expiry shown in end date'}
                   </p>
                 </div>
                 <span

@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { useAuth, ADMIN_DUMMY_USER_ID } from '../context/AuthContext';
+import { useI18n } from '../context/I18nContext';
 import { supabase } from '../lib/supabase';
 import { resendSignupConfirmationEmail } from '../lib/authSignupResend';
 import {
@@ -13,6 +14,25 @@ import { AuthInitializingScreen } from '../components/SemoPageSpinner';
 
 /** 관리자 2계정은 등급 라벨을 VIP로 고정 표시 */
 const VIP_ADMIN_EMAILS = ['dvanovic91@gmail.com', 'admin@semo-box.ru'];
+
+type DbProfileState = {
+  name: string | null;
+  grade: string;
+  points: number;
+  telegram_id: string | null;
+  phone: string | null;
+};
+
+type ProfileMemCacheEntry = {
+  dbProfile: DbProfileState | null;
+  membershipTier: 'basic' | 'premium' | 'family';
+  updatedAt: number;
+};
+
+// 페이지 전환(리마운트) 시 0.1초 정도 스켈레톤이 보이는 문제를 완화하기 위한
+// "세션 동안만" 메모리 캐시(브라우저 영구 저장 X).
+const PROFILE_MEM_CACHE_TTL_MS = 60_000;
+const PROFILE_MEM_CACHE = new Map<string, ProfileMemCacheEntry>();
 
 /** 세션 내 텔레그램 연동 여부 캐시 — 프로필 API 응답 전에도 버튼 깜빡임 완화 */
 const TG_CACHE_PREFIX = 'semo_profile_tg_';
@@ -50,17 +70,46 @@ export const Profile: React.FC = () => {
     isEmailConfirmed,
     refreshEmailConfirmationFromServer,
   } = useAuth();
-  const [dbProfile, setDbProfile] = useState<{
-    name: string | null;
-    grade: string;
-    points: number;
-    telegram_id: string | null;
-    phone: string | null;
-  } | null>(null);
+  const { language, country, setCountry } = useI18n();
+  const tr = useCallback((ru: string, en: string) => (language === 'en' ? en : ru), [language]);
+
+  // 메모리 캐시(세션 내)로 인해 리마운트 순간에도 이름/포인트/텔레그램 상태가 즉시 채워지도록 함
+  const memCache = userId ? PROFILE_MEM_CACHE.get(userId) ?? null : null;
+  const cacheFresh = memCache ? Date.now() - memCache.updatedAt < PROFILE_MEM_CACHE_TTL_MS : false;
+  const initialDbProfile = cacheFresh ? memCache?.dbProfile ?? null : null;
+  const initialMembershipTier = cacheFresh ? memCache?.membershipTier ?? 'basic' : 'basic';
+
+  // 데스크탑 상단: 배송받을 국가(플래그) — I18nContext(country)로 localStorage에 유지
+  const [deliveryCountryOpen, setDeliveryCountryOpen] = useState(false);
+  const deliveryCountryWrapRef = useRef<HTMLDivElement | null>(null);
+  const deliveryCountryOptions = useMemo(
+    () =>
+      [
+        { code: 'RU', emoji: '🇷🇺', ru: 'Россия', en: 'Russia', short: 'RUS' },
+        { code: 'KZ', emoji: '🇰🇿', ru: 'Казахстан', en: 'Kazakhstan', short: 'KAZ' },
+        { code: 'AE', emoji: '🇦🇪', ru: 'ОАЭ', en: 'UAE', short: 'UAE' },
+        { code: 'UZ', emoji: '🇺🇿', ru: 'Узбекистан', en: 'Uzbekistan', short: 'UZB' },
+      ] as const,
+    [],
+  );
+  const selectedDelivery =
+    deliveryCountryOptions.find((o) => o.code === country) ?? deliveryCountryOptions[0];
+
+  useEffect(() => {
+    if (!deliveryCountryOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const el = deliveryCountryWrapRef.current;
+      if (!el) return setDeliveryCountryOpen(false);
+      if (!el.contains(e.target as Node)) setDeliveryCountryOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [deliveryCountryOpen]);
+  const [dbProfile, setDbProfile] = useState<DbProfileState | null>(initialDbProfile);
   /** 연동 성공 시 토스트 (다른 탭에서 연동 후 돌아왔을 때) */
   const [telegramLinkedToast, setTelegramLinkedToast] = useState(false);
   /** 회원 등급: basic(일반) / premium(프리미엄) / family(가족) — 주문 누계 기준으로 계산 */
-  const [membershipTier, setMembershipTier] = useState<'basic' | 'premium' | 'family'>('basic');
+  const [membershipTier, setMembershipTier] = useState<'basic' | 'premium' | 'family'>(initialMembershipTier);
   const [lastSkinType, setLastSkinType] = useState<string | null>(null);
   const [verifyEmailSending, setVerifyEmailSending] = useState(false);
   const [verifyEmailMessage, setVerifyEmailMessage] = useState<string | null>(null);
@@ -106,17 +155,22 @@ export const Profile: React.FC = () => {
         writeTelegramCache(requestedUserId, false);
       }
 
-      setDbProfile(
-        data
-          ? {
-              name: data.name ?? '',
-              grade: data.grade ?? 'Обычный участник',
-              points: data.points ?? 0,
-              telegram_id: nextTelegramId,
-              phone: data.phone ?? null,
-            }
-          : null,
-      );
+      const nextDbProfile: DbProfileState | null = data
+        ? {
+            name: data.name ?? '',
+            grade: data.grade ?? tr('Обычный участник', 'Regular member'),
+            points: data.points ?? 0,
+            telegram_id: nextTelegramId,
+            phone: data.phone ?? null,
+          }
+        : null;
+
+      setDbProfile(nextDbProfile);
+      PROFILE_MEM_CACHE.set(requestedUserId, {
+        dbProfile: nextDbProfile,
+        membershipTier: PROFILE_MEM_CACHE.get(requestedUserId)?.membershipTier ?? 'basic',
+        updatedAt: Date.now(),
+      });
     };
 
     return (async () => {
@@ -206,16 +260,19 @@ export const Profile: React.FC = () => {
           .filter((o) => !o.is_test)
           .reduce((acc, o) => acc + (o.total_cents ?? 0), 0);
         const sumRub = sumCents / 100;
-        if (sumRub >= 100_000) {
-          setMembershipTier('family');
-        } else if (sumRub >= 35_000) {
-          setMembershipTier('premium');
-        } else {
-          setMembershipTier('basic');
+        const nextTier: 'basic' | 'premium' | 'family' = sumRub >= 100_000 ? 'family' : sumRub >= 35_000 ? 'premium' : 'basic';
+        setMembershipTier(nextTier);
+        const prev = PROFILE_MEM_CACHE.get(userId);
+        if (prev) {
+          PROFILE_MEM_CACHE.set(userId, { ...prev, membershipTier: nextTier, updatedAt: Date.now() });
         }
       })
       .catch(() => {
         setMembershipTier('basic');
+        const prev = PROFILE_MEM_CACHE.get(userId);
+        if (prev) {
+          PROFILE_MEM_CACHE.set(userId, { ...prev, membershipTier: 'basic', updatedAt: Date.now() });
+        }
       });
   }, [userId]);
 
@@ -273,7 +330,7 @@ export const Profile: React.FC = () => {
   /** 프로필에서도 체크아웃과 동일한 매직링크 발송(리다이렉트 → /checkout?ck=…) */
   const handleSendProfileVerifyEmail = useCallback(async () => {
     if (!supabase || !userId || !userEmail?.trim()) {
-      setVerifyEmailError('Не удалось определить email. Войдите снова.');
+      setVerifyEmailError(tr('Не удалось определить email. Войдите снова.', 'Could not detect your email. Please sign in again.'));
       return;
     }
     setVerifyEmailSending(true);
@@ -286,7 +343,7 @@ export const Profile: React.FC = () => {
         return;
       }
       setVerifyEmailMessage(
-        'Письмо отправлено. Перейдите по ссылке — после подтверждения обновите страницу.',
+        tr('Письмо отправлено. Перейдите по ссылке — после подтверждения обновите страницу.', 'Email sent. Open the link and refresh after confirmation.'),
       );
     } finally {
       setVerifyEmailSending(false);
@@ -303,7 +360,7 @@ export const Profile: React.FC = () => {
     dbProfile === null
       ? null
       : (dbProfile.name && String(dbProfile.name).trim()) ||
-        (userEmail ? userEmail.split('@')[0] : 'SEMO клиент');
+        (userEmail ? userEmail.split('@')[0] : tr('SEMO клиент', 'SEMO customer'));
   /** 포인트: DB 조회 완료 후에만 숫자 표시(로딩 중 스켈레톤) */
   const pointsLoaded = dbProfile !== null;
   const displayPoints = dbProfile?.points ?? 0;
@@ -327,12 +384,12 @@ export const Profile: React.FC = () => {
         ? 'tier-silver-metal'
         : 'tier-bronze-metal';
   const tierTooltipText = isVipAdminAccount
-    ? 'VIP уровень'
+    ? tr('VIP уровень', 'VIP tier')
     : membershipTier === 'family'
-      ? 'Gold уровень'
+      ? tr('Gold уровень', 'Gold tier')
       : membershipTier === 'premium'
-        ? 'Silver уровень'
-        : 'Bronze уровень';
+        ? tr('Silver уровень', 'Silver tier')
+        : tr('Bronze уровень', 'Bronze tier');
   const tierLabelShort = isVipAdminAccount
     ? 'VIP'
     : membershipTier === 'family'
@@ -369,17 +426,17 @@ export const Profile: React.FC = () => {
         .select('token')
         .single();
       if (error || !data?.token) {
-        setTelegramLinkError('Не удалось создать ссылку Telegram. Попробуйте ещё раз.');
+        setTelegramLinkError(tr('Не удалось создать ссылку Telegram. Попробуйте ещё раз.', 'Could not create Telegram link. Try again.'));
         return;
       }
       const opened = window.open(`https://t.me/My_SEMO_Beautybot?start=link_${data.token}`, '_blank');
       if (!opened) {
-        setTelegramLinkError('Браузер заблокировал переход. Разрешите всплывающее окно и повторите.');
+        setTelegramLinkError(tr('Браузер заблокировал переход. Разрешите всплывающее окно и повторите.', 'Popup blocked by browser. Allow popups and try again.'));
         return;
       }
       setTimeout(() => void refreshProfile(), 1200);
     } catch {
-      setTelegramLinkError('Не удалось открыть Telegram. Проверьте интернет и повторите.');
+      setTelegramLinkError(tr('Не удалось открыть Telegram. Проверьте интернет и повторите.', 'Could not open Telegram. Check internet and try again.'));
     } finally {
       setTelegramLinkLoading(false);
     }
@@ -389,7 +446,7 @@ export const Profile: React.FC = () => {
     <main className="mx-auto w-full max-w-3xl px-3 py-5 sm:px-6 sm:py-10 md:py-14">
       <header className="mb-5 flex flex-wrap items-center justify-between gap-3 sm:mb-6 sm:gap-4">
         <h1 className="min-w-0 text-lg font-semibold tracking-tight text-slate-900 sm:text-2xl">
-          Личный кабинет
+          {tr('Личный кабинет', 'Account')}
         </h1>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           {isAdmin && (
@@ -406,7 +463,7 @@ export const Profile: React.FC = () => {
             onClick={handleLogout}
             className="inline-flex min-h-11 items-center justify-center rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
           >
-            Выйти
+            {tr('Выйти', 'Logout')}
           </button>
         </div>
       </header>
@@ -415,14 +472,64 @@ export const Profile: React.FC = () => {
       <div className="rounded-xl border border-sky-200/90 bg-sky-50/95 px-3 py-4 shadow-sm ring-1 ring-sky-100/80 sm:px-6 sm:py-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="break-words text-center text-base font-medium text-slate-800 sm:text-left sm:text-lg">
-            {displayName == null ? 'Здравствуйте!' : `Здравствуйте, ${displayName}!`}
+            {displayName == null ? tr('Здравствуйте!', 'Hello!') : language === 'en' ? `Hello, ${displayName}!` : `Здравствуйте, ${displayName}!`}
           </p>
           {/* 웹: 인사와 같은 행 우측 */}
           <div className="hidden shrink-0 flex-row items-center justify-end gap-2 sm:flex">
+            {/* 데스크탑: 배송받을 국가(플래그) — tier 버튼 왼쪽 */}
+            <div ref={deliveryCountryWrapRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setDeliveryCountryOpen((v) => !v)}
+                className="inline-flex h-11 min-h-11 w-20 min-w-20 flex-col items-center justify-center gap-0 rounded-lg border border-sky-200 bg-white/90 px-0 py-1 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-sky-100/80 focus:outline-none focus:ring-1 focus:ring-brand"
+                aria-label={tr('Страна доставки', 'Delivery country')}
+                title={tr('Страна доставки', 'Delivery country')}
+              >
+                <div className="flex h-[20px] w-full shrink-0 items-center justify-center" aria-hidden>
+                  <span className="text-[22px] leading-none">{selectedDelivery.emoji}</span>
+                </div>
+                <div className="h-[14px] w-full flex items-end justify-center">
+                  <span className="text-center text-[10px] font-semibold leading-none text-slate-600">
+                    {selectedDelivery.short}
+                  </span>
+                </div>
+              </button>
+              {deliveryCountryOpen && (
+                <div className="absolute right-0 top-full z-50 mt-1 w-52 rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+                  <div className="px-3 pt-2 pb-1 text-[11px] font-medium text-slate-500">
+                    {tr('Выберите страну доставки', 'Select delivery country')}
+                  </div>
+                  <div className="max-h-56 overflow-y-auto px-1 pb-1">
+                    {deliveryCountryOptions.map((opt) => {
+                      const active = opt.code === country;
+                      return (
+                        <button
+                          key={opt.code}
+                          type="button"
+                          onClick={() => {
+                            setCountry(opt.code);
+                            setDeliveryCountryOpen(false);
+                          }}
+                          className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition ${
+                            active ? 'bg-brand-soft/35 font-semibold text-brand' : 'text-slate-700 hover:bg-slate-100'
+                          }`}
+                          aria-pressed={active}
+                        >
+                          <span aria-hidden className="text-[18px] leading-none">
+                            {opt.emoji}
+                          </span>
+                          <span className="truncate">{language === 'en' ? opt.en : opt.ru}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
             <Link
               to="/profile/tier"
               className="inline-flex h-11 min-h-11 w-20 min-w-20 flex-col items-center justify-center gap-0 rounded-lg border border-sky-200 bg-white/90 px-0 py-1 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-sky-100/80"
-              aria-label="Уровень участника"
+              aria-label={tr('Уровень участника', 'Membership tier')}
               title={tierTooltipText}
             >
               <div className="flex h-[18px] w-full shrink-0 items-center justify-center">
@@ -465,7 +572,7 @@ export const Profile: React.FC = () => {
               {pointsLoaded ? (
                 <>
                   <div className="flex h-[18px] w-full shrink-0 items-center justify-center" aria-hidden>
-                    <span className="text-[16px] font-normal leading-none text-amber-500">★</span>
+                    <span className="text-[17px] font-normal leading-none text-amber-500">★</span>
                   </div>
                   <div className="mt-1 flex h-[14px] w-full items-end justify-center">
                     <span className="text-center text-[10px] font-semibold leading-none tabular-nums text-slate-700">{displayPoints}</span>
@@ -492,7 +599,7 @@ export const Profile: React.FC = () => {
               to="/profile/coupons"
               className="inline-flex h-11 min-h-11 w-20 min-w-20 flex-col items-center justify-center gap-0 rounded-lg border border-sky-200 bg-white/90 px-0 py-1 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-sky-100/80"
               aria-busy={couponCountLoading}
-              aria-label="Купоны"
+              aria-label={tr('Купоны', 'Coupons')}
             >
               {couponCountLoading ? (
                 <>
@@ -511,8 +618,8 @@ export const Profile: React.FC = () => {
                 </>
               ) : (
                 <>
-                  <div className="flex h-[18px] w-full shrink-0 items-center justify-center" aria-hidden title="Купоны">
-                    <svg className="h-[18px] w-auto max-w-[28px]" viewBox="0 0 30 20" fill="none">
+                  <div className="flex h-[18px] w-full shrink-0 items-center justify-center" aria-hidden title={tr('Купоны', 'Coupons')}>
+                    <svg className="h-[18px] w-[18px]" viewBox="0 0 30 20" fill="none">
                       <rect x="1.2" y="2" width="27.6" height="16" rx="3" fill="#E8F6FF" stroke="#7CCAF2" strokeWidth="1.2" />
                       <path d="M10.5 2.7v14.6" stroke="#7CCAF2" strokeWidth="1.2" strokeDasharray="2 2" />
                       <path d="M19.6 6.6a1.7 1.7 0 1 1 0 3.4 1.7 1.7 0 0 1 0-3.4Zm-4.7 5.3 5.4-7.4" stroke="#2E6F99" strokeWidth="1.2" strokeLinecap="round" />
@@ -532,7 +639,7 @@ export const Profile: React.FC = () => {
             <Link
               to="/profile/tier"
               className="inline-flex h-11 min-h-11 w-20 min-w-20 flex-col items-center justify-center gap-0 rounded-lg border border-sky-200 bg-white/90 px-0 py-1 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-sky-100/80"
-              aria-label="Уровень участника"
+              aria-label={tr('Уровень участника', 'Membership tier')}
               title={tierTooltipText}
             >
               <div className="flex h-[18px] w-full shrink-0 items-center justify-center">
@@ -611,7 +718,7 @@ export const Profile: React.FC = () => {
               to="/profile/coupons"
               className="inline-flex h-11 min-h-11 w-20 min-w-20 flex-col items-center justify-center gap-0 rounded-lg border border-sky-200 bg-white/90 px-0 py-1 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-sky-100/80"
               aria-busy={couponCountLoading}
-              aria-label="Купоны"
+              aria-label={tr('Купоны', 'Coupons')}
             >
               {couponCountLoading ? (
                 <>
@@ -630,7 +737,7 @@ export const Profile: React.FC = () => {
                 </>
               ) : (
                 <>
-                  <div className="flex h-[18px] w-full shrink-0 items-center justify-center" aria-hidden title="Купоны">
+                  <div className="flex h-[18px] w-full shrink-0 items-center justify-center" aria-hidden title={tr('Купоны', 'Coupons')}>
                     <svg className="h-[18px] w-auto max-w-[28px]" viewBox="0 0 30 20" fill="none">
                       <rect x="1.2" y="2" width="27.6" height="16" rx="3" fill="#E8F6FF" stroke="#7CCAF2" strokeWidth="1.2" />
                       <path d="M10.5 2.7v14.6" stroke="#7CCAF2" strokeWidth="1.2" strokeDasharray="2 2" />
@@ -672,8 +779,8 @@ export const Profile: React.FC = () => {
                   />
                 )}
                 {telegramButtonState === 'linked' && (
-                  <button type="button" disabled className={accountStatusPillClass} aria-label="Telegram привязан">
-                    Telegram привязан ✓
+                  <button type="button" disabled className={accountStatusPillClass} aria-label={tr('Telegram привязан', 'Telegram linked')}>
+                    {tr('Telegram привязан ✓', 'Telegram linked ✓')}
                   </button>
                 )}
                 {telegramButtonState === 'unlinked' && (
@@ -683,13 +790,13 @@ export const Profile: React.FC = () => {
                     disabled={telegramLinkLoading}
                     className={accountPrimaryCtaClass}
                   >
-                    {telegramLinkLoading ? 'Открываем…' : 'Привязать Telegram'}
+                    {telegramLinkLoading ? tr('Открываем…', 'Opening…') : tr('Привязать Telegram', 'Link Telegram')}
                   </button>
                 )}
               </div>
               {telegramButtonState === 'unlinked' && (
                 <p className={accountCardSubtextClass}>
-                  В Telegram спросим согласие на привязку номера и уведомления о новинках/скидках. Настройки можно изменить позже в профиле.
+                  {tr('В Telegram спросим согласие на привязку номера и уведомления о новинках/скидках. Настройки можно изменить позже в профиле.', 'Telegram will ask for consent to link your number and receive updates. You can change this later in profile settings.')}
                 </p>
               )}
               {telegramButtonState === 'unlinked' && telegramLinkError && (
@@ -713,8 +820,8 @@ export const Profile: React.FC = () => {
                 {!initialized ? (
                   <div className="h-11 w-full animate-pulse rounded-xl bg-slate-200/70" aria-hidden />
                 ) : isEmailConfirmed ? (
-                  <button type="button" disabled className={accountStatusPillClass} aria-label="Email подтверждён">
-                    Email подтверждён ✓
+                  <button type="button" disabled className={accountStatusPillClass} aria-label={tr('Email подтверждён', 'Email verified')}>
+                    {tr('Email подтверждён ✓', 'Email verified ✓')}
                   </button>
                 ) : (
                   <button
@@ -723,13 +830,13 @@ export const Profile: React.FC = () => {
                     onClick={() => void handleSendProfileVerifyEmail()}
                     className={accountPrimaryCtaClass}
                   >
-                    {verifyEmailSending ? 'Отправка…' : 'Подтвердить email'}
+                    {verifyEmailSending ? tr('Отправка…', 'Sending…') : tr('Подтвердить email', 'Verify email')}
                   </button>
                 )}
               </div>
               {initialized && !isEmailConfirmed && (
                 <p className={accountCardSubtextClass}>
-                  Email нужен для подтверждения заказов.
+                  {tr('Email нужен для подтверждения заказов.', 'Email is required to confirm orders.')}
                 </p>
               )}
             </div>
@@ -762,8 +869,8 @@ export const Profile: React.FC = () => {
             </svg>
           </span>
           <div className="min-w-0 px-0.5">
-            <p className="text-center text-sm font-semibold text-slate-800 sm:text-base whitespace-nowrap">Профиль</p>
-            <p className="prose-ru mt-0.5 text-center text-[10px] text-slate-500 sm:text-xs whitespace-nowrap">Личные данные</p>
+            <p className="text-center text-sm font-semibold text-slate-800 sm:text-base whitespace-nowrap">{tr('Профиль', 'Profile')}</p>
+            <p className="prose-ru mt-0.5 text-center text-[10px] text-slate-500 sm:text-xs whitespace-nowrap">{tr('Личные данные', 'Personal data')}</p>
           </div>
         </Link>
 
@@ -777,9 +884,9 @@ export const Profile: React.FC = () => {
             </svg>
           </span>
           <div className="min-w-0 px-0.5">
-            <p className="text-center text-sm font-semibold text-slate-800 sm:text-base whitespace-nowrap">Тесты</p>
+            <p className="text-center text-sm font-semibold text-slate-800 sm:text-base whitespace-nowrap">{tr('Тесты', 'Tests')}</p>
             <p className="prose-ru mt-0.5 text-center text-[10px] text-slate-500 sm:text-xs whitespace-nowrap">
-              {lastSkinType ? `Последний: ${lastSkinType}` : 'Последний: —'}
+              {lastSkinType ? (language === 'en' ? `Latest: ${lastSkinType}` : `Последний: ${lastSkinType}`) : tr('Последний: —', 'Latest: —')}
             </p>
           </div>
         </Link>
@@ -794,8 +901,8 @@ export const Profile: React.FC = () => {
             </svg>
           </span>
           <div className="min-w-0 px-0.5">
-            <p className="text-center text-sm font-semibold text-slate-800 sm:text-base whitespace-nowrap">Отзывы</p>
-            <p className="prose-ru mt-0.5 text-center text-[10px] text-slate-500 sm:text-xs whitespace-nowrap">Мои отзывы о товарах</p>
+            <p className="text-center text-sm font-semibold text-slate-800 sm:text-base whitespace-nowrap">{tr('Отзывы', 'Reviews')}</p>
+            <p className="prose-ru mt-0.5 text-center text-[10px] text-slate-500 sm:text-xs whitespace-nowrap">{tr('Мои отзывы о товарах', 'My product reviews')}</p>
           </div>
         </Link>
 
@@ -809,8 +916,8 @@ export const Profile: React.FC = () => {
             </svg>
           </span>
           <div className="min-w-0 px-0.5">
-            <p className="text-center text-sm font-semibold text-slate-800 sm:text-base whitespace-nowrap">Заказы</p>
-            <p className="prose-ru mt-0.5 text-center text-[10px] text-slate-500 sm:text-xs whitespace-nowrap">История и статус</p>
+            <p className="text-center text-sm font-semibold text-slate-800 sm:text-base whitespace-nowrap">{tr('Заказы', 'Orders')}</p>
+            <p className="prose-ru mt-0.5 text-center text-[10px] text-slate-500 sm:text-xs whitespace-nowrap">{tr('История и статус', 'History and status')}</p>
           </div>
         </Link>
 
@@ -818,7 +925,7 @@ export const Profile: React.FC = () => {
 
       {telegramLinkedToast && (
         <div className="fixed bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-brand px-5 py-2.5 text-sm font-medium text-white shadow-lg md:bottom-8" role="status" aria-live="polite">
-          Telegram привязан. Аккаунт успешно связан.
+          {tr('Telegram привязан. Аккаунт успешно связан.', 'Telegram linked. Account connected successfully.')}
         </div>
       )}
     </main>

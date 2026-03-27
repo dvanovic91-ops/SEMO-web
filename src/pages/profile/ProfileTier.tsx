@@ -88,13 +88,13 @@ export const ProfileTier: React.FC = () => {
       </p>
       {viewingOtherUser && (
         <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" role="status">
-          Просмотр уровня выбранного пользователя (админ).
+          Viewing selected user tier (admin).
         </p>
       )}
 
       <header className="mb-6">
-        <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">Уровень участника</h1>
-        <p className="mt-2 text-sm text-slate-500">Расчёт только по подтверждённым и доставленным заказам.</p>
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">Membership tier</h1>
+        <p className="mt-2 text-sm text-slate-500">Calculated only from confirmed and delivered orders.</p>
       </header>
 
       <section className="rounded-xl border border-sky-200 bg-sky-50/80 p-4">
@@ -104,18 +104,18 @@ export const ProfileTier: React.FC = () => {
           </div>
         ) : (
           <>
-            <p className="text-sm text-slate-600">Текущий уровень</p>
+            <p className="text-sm text-slate-600">Current tier</p>
             <p className="mt-1 text-lg font-semibold text-slate-900">
               {tierLabel}
             </p>
-            <p className="mt-3 text-sm text-slate-600">Сумма подтверждённых покупок</p>
+            <p className="mt-3 text-sm text-slate-600">Confirmed purchase total</p>
             <p className="mt-1 text-2xl font-semibold tabular-nums text-slate-900">
-              {sumRub.toLocaleString('ru-RU', { maximumFractionDigits: 0 })} ₽
+              {sumRub.toLocaleString('en-US', { maximumFractionDigits: 0 })} ₽
             </p>
-            <p className="mt-1 text-xs text-slate-500">Подходящих заказов: {orderCount}</p>
+            <p className="mt-1 text-xs text-slate-500">Eligible orders: {orderCount}</p>
             {nextTarget != null && (
               <p className="mt-3 text-xs text-slate-600">
-                До следующего уровня: {(nextTarget - sumRub).toLocaleString('ru-RU', { maximumFractionDigits: 0 })} ₽
+                To next tier: {(nextTarget - sumRub).toLocaleString('en-US', { maximumFractionDigits: 0 })} ₽
               </p>
             )}
           </>
@@ -124,7 +124,7 @@ export const ProfileTier: React.FC = () => {
 
       {!isVipAdminAccount && (
       <section className="mt-6 rounded-xl border border-slate-200 bg-white p-4">
-        <h2 className="text-sm font-semibold text-slate-900">Пороговые суммы</h2>
+        <h2 className="text-sm font-semibold text-slate-900">Tier thresholds</h2>
         <ul className="mt-3 space-y-3 text-sm text-slate-700">
           <li className="flex items-start gap-2">
             <span className="mt-0.5 inline-flex shrink-0" title="Бронзовый уровень" aria-label="Бронзовый уровень">
@@ -143,8 +143,8 @@ export const ProfileTier: React.FC = () => {
               <span className="bg-gradient-to-r from-amber-700 via-orange-700 to-amber-900 bg-clip-text font-semibold text-transparent">
                 Bronze
               </span>
-              : до 34 999 ₽ подтверждённых заказов
-              <span className="mt-0.5 block text-xs text-slate-500">Преимущество: купон 100 ₽ каждый квартал.</span>
+              : up to 34,999 ₽ in confirmed orders
+              <span className="mt-0.5 block text-xs text-slate-500">Benefit: 100 ₽ coupon every quarter.</span>
             </span>
           </li>
           <li className="flex items-start gap-2">
@@ -164,8 +164,8 @@ export const ProfileTier: React.FC = () => {
               <span className="bg-gradient-to-r from-slate-400 via-slate-500 to-slate-700 bg-clip-text font-semibold text-transparent">
                 Silver
               </span>
-              : от 35 000 ₽ до 99 999 ₽ подтверждённых заказов
-              <span className="mt-0.5 block text-xs text-slate-500">Преимущество: купон 200 ₽ каждый квартал.</span>
+              : from 35,000 ₽ to 99,999 ₽ in confirmed orders
+              <span className="mt-0.5 block text-xs text-slate-500">Benefit: 200 ₽ coupon every quarter.</span>
             </span>
           </li>
           <li className="flex items-start gap-2">
@@ -185,8 +185,8 @@ export const ProfileTier: React.FC = () => {
               <span className="bg-gradient-to-r from-amber-300 via-yellow-500 to-amber-700 bg-clip-text font-semibold text-transparent">
                 Gold
               </span>
-              : от 100 000 ₽ подтверждённых заказов
-              <span className="mt-0.5 block text-xs text-slate-500">Преимущество: купон 300 ₽ каждый квартал.</span>
+              : from 100,000 ₽ in confirmed orders
+              <span className="mt-0.5 block text-xs text-slate-500">Benefit: 300 ₽ coupon every quarter.</span>
             </span>
           </li>
         </ul>

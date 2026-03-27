@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { PRODUCT_DETAIL_WHITE_CARD_INNER } from '../lib/productDetailSectionClasses';
+import { useI18n } from '../context/I18nContext';
 
 /** 상세·피부테스트 결과에서 동일하게 쓰는 구성품 한 줄 */
 export type ProductCompositionItem = {
@@ -7,7 +8,12 @@ export type ProductCompositionItem = {
   name: string | null;
   image_url: string | null;
   image_urls?: string[] | null;
+  /** 한국어 설명 (관리탭·기본 fallback) */
   description?: string | null;
+  /** 영문 설명 — language==='en' 일 때 우선 사용 */
+  description_en?: string | null;
+  /** 러시아어 설명 — language==='ru' 일 때 우선 사용 */
+  description_ru?: string | null;
 };
 
 function getComponentImageUrls(comp: ProductCompositionItem): string[] {
@@ -27,7 +33,16 @@ type Props = {
  * «Состав набора» + 키 인그리디언트 토글 — ProductDetail·SkinTest 동일 UX.
  * 모바일: «Ключевые ингредиенты» + 펼침/접힘 화살표(한 줄) · sm+: 기존 «Смотреть/Скрыть…» 문구.
  */
+/** 언어에 맞는 description 반환 — en/ru/ko 순으로 fallback */
+function getLocalizedDesc(comp: ProductCompositionItem, language: string): string | null {
+  if (language === 'en' && comp.description_en) return comp.description_en;
+  if (language === 'ru' && comp.description_ru) return comp.description_ru;
+  return comp.description ?? null;
+}
+
 export function ProductCompositionGrid({ components, className, tighterMobileComposeTitle = false }: Props) {
+  const { language } = useI18n();
+  const isEn = language === 'en';
   const [ingredientPanelOpen, setIngredientPanelOpen] = useState(false);
 
   if (components.length === 0) return null;
@@ -54,7 +69,7 @@ export function ProductCompositionGrid({ components, className, tighterMobileCom
               tighterMobileComposeTitle ? 'text-[calc(0.75rem-1pt)] sm:text-xs' : 'text-xs'
             }`}
           >
-            Состав набора
+            {isEn ? 'Box composition' : 'Состав набора'}
           </p>
           <button
             type="button"
@@ -64,7 +79,7 @@ export function ProductCompositionGrid({ components, className, tighterMobileCom
           >
             {/* 모바일: «Ключевые ингредиенты» + 펼침/접힘 화살표만 (한 줄) */}
             <span className="inline-flex items-center gap-1 sm:hidden">
-              <span>Ключевые ингредиенты</span>
+              <span>{isEn ? 'Key ingredients' : 'Ключевые ингредиенты'}</span>
               {ingredientPanelOpen ? (
                 <svg className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
@@ -77,7 +92,13 @@ export function ProductCompositionGrid({ components, className, tighterMobileCom
             </span>
             {/* 태블릿+: 기존 문구 유지 */}
             <span className="hidden text-center sm:inline">
-              {ingredientPanelOpen ? 'Скрыть ключевые ингредиенты' : 'Смотреть ключевые ингредиенты'}
+              {ingredientPanelOpen
+                ? isEn
+                  ? 'Hide key ingredients'
+                  : 'Скрыть ключевые ингредиенты'
+                : isEn
+                  ? 'View key ingredients'
+                  : 'Смотреть ключевые ингредиенты'}
             </span>
           </button>
         </div>
@@ -111,9 +132,12 @@ export function ProductCompositionGrid({ components, className, tighterMobileCom
               {components.slice(0, 8).map((comp) => {
                 const imgs = getComponentImageUrls(comp);
                 const firstImg = imgs[0];
-                const fallbackText = comp.description?.trim()
-                  ? comp.description
-                  : 'Описание появится позже.';
+                const localizedDesc = getLocalizedDesc(comp, language);
+                const fallbackText = localizedDesc?.trim()
+                  ? localizedDesc
+                  : isEn
+                    ? 'Description will be added soon.'
+                    : 'Описание появится позже.';
                 const isLongFallback = fallbackText.length > 90;
                 const useTopAlign = isLongFallback;
                 return (
@@ -130,7 +154,9 @@ export function ProductCompositionGrid({ components, className, tighterMobileCom
                     </div>
                     {/* 모바일: 박스(테두리) 없음 · 제목/설명: 모바일 +1vw · sm+ 데스크톱 +2vw */}
                     <article className="grid h-full min-h-[6.25rem] grid-rows-[auto_1fr] translate-x-[1vw] p-0 sm:min-h-[7rem] md:min-h-[6.75rem] md:translate-x-[2vw]">
-                      <p className="text-[calc(13px-1pt)] font-semibold text-slate-900 sm:text-sm">{comp.name ?? 'Компонент'}</p>
+                      <p className="text-[calc(13px-1pt)] font-semibold text-slate-900 sm:text-sm">
+                        {comp.name ?? (isEn ? 'Component' : 'Компонент')}
+                      </p>
                       <div className={`mt-3 flex ${useTopAlign ? 'items-start' : 'items-center'}`}>
                         <p className="whitespace-pre-line text-[calc(0.75rem-1pt)] leading-relaxed text-slate-500 sm:text-xs">
                           {fallbackText}

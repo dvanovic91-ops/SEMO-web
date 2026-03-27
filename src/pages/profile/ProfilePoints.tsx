@@ -3,12 +3,14 @@ import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { BackArrow } from '../../components/BackArrow';
 import { AuthInitializingScreen } from '../../components/SemoPageSpinner';
 import { useAuth } from '../../context/AuthContext';
+import { useI18n } from '../../context/I18nContext';
 import { supabase } from '../../lib/supabase';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** 포인트 내역 — 잔액은 DB(profiles.points) 우선, 내역은 향후 API 연동 예정 */
 export const ProfilePoints: React.FC = () => {
+  const { language } = useI18n();
   const [searchParams] = useSearchParams();
   const { userEmail, userId, isLoggedIn, initialized, isAdmin } = useAuth();
   /** 관리자: ?userId= 로 다른 회원 포인트 조회 */
@@ -73,12 +75,12 @@ export const ProfilePoints: React.FC = () => {
 
         if (ledgerData && ledgerData.length > 0) {
           const rows = ledgerData.map((r) => {
-            let label = 'Изменение баллов';
-            if (r.reason === 'review_reward_general') label = 'Награда за подробный отзыв';
-            else if (r.reason === 'review_reward_special') label = 'Награда за специальный отзыв';
-            else if (r.reason === 'order_points_used') label = 'Использование баллов при оплате';
-            else if (r.reason === 'skin_test_bonus') label = 'Бонус за прохождение теста кожи';
-            else if (r.reason === 'telegram_link_bonus') label = 'Бонус за привязку Telegram';
+            let label = 'Points change';
+            if (r.reason === 'review_reward_general') label = 'Reward for detailed review';
+            else if (r.reason === 'review_reward_special') label = 'Reward for special review';
+            else if (r.reason === 'order_points_used') label = 'Points used at checkout';
+            else if (r.reason === 'skin_test_bonus') label = 'Skin test completion bonus';
+            else if (r.reason === 'telegram_link_bonus') label = 'Telegram link bonus';
             return {
               id: `ledger-${r.id}`,
               label,
@@ -99,7 +101,7 @@ export const ProfilePoints: React.FC = () => {
             if (deductedOrderIds.has(String(o.id))) return;
             rows.push({
               id: `order-points-fallback-${o.id}`,
-              label: 'Использование баллов при оплате',
+              label: 'Points used at checkout',
               amount: -Math.floor(used / 100),
               date: o.created_at,
             });
@@ -135,7 +137,7 @@ export const ProfilePoints: React.FC = () => {
             if (amount > 0) {
               next.push({
                 id: `review-${r.id}`,
-                label: amount >= 500 ? 'Награда за специальный отзыв' : 'Награда за подробный отзыв',
+                label: amount >= 500 ? 'Reward for special review' : 'Reward for detailed review',
                 amount,
                 date: r.created_at,
               });
@@ -146,7 +148,7 @@ export const ProfilePoints: React.FC = () => {
           (testRes ?? []).forEach((t: { id: string; completed_at?: string | null }) => {
             next.push({
               id: `skin-test-${t.id}`,
-              label: 'Бонус за прохождение теста кожи',
+              label: 'Skin test completion bonus',
               amount: 300,
               date: t.completed_at ?? '',
             });
@@ -158,7 +160,7 @@ export const ProfilePoints: React.FC = () => {
             if (used > 0) {
               next.push({
                 id: `order-points-${o.id}`,
-                label: 'Использование баллов при оплате',
+                label: 'Points used at checkout',
                 amount: -Math.floor(used / 100),
                 date: o.created_at,
               });
@@ -188,10 +190,10 @@ export const ProfilePoints: React.FC = () => {
 
   /** 잔액은 오직 DB(profiles.points) — 조회 전에는 0으로 표시 */
   const points = dbPoints ?? 0;
-  const hasTelegramLedger = history.some((h) => h.label === 'Бонус за привязку Telegram');
+  const hasTelegramLedger = history.some((h) => h.label === 'Telegram link bonus');
   const mergedHistory =
     profileMeta?.telegram_reward_given && !hasTelegramLedger
-      ? [...history, { id: 'telegram-reward', label: 'Бонус за привязку Telegram', amount: 200, date: '' }]
+      ? [...history, { id: 'telegram-reward', label: 'Telegram link bonus', amount: 200, date: '' }]
       : history;
 
   if (!initialized) return <AuthInitializingScreen />;
@@ -202,27 +204,27 @@ export const ProfilePoints: React.FC = () => {
   return (
     <main className="mx-auto max-w-xl px-4 py-6 sm:px-6 sm:py-10 md:py-14">
       <p className="mb-6">
-        <Link to="/profile" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> Profile</Link>
+        <Link to="/profile" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> {language === 'en' ? 'Profile' : 'Профиль'}</Link>
       </p>
       {viewingOtherUser && (
         <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" role="status">
-          Просмотр баллов выбранного пользователя (админ).
+          Viewing selected user points (admin).
         </p>
       )}
       <header className="mb-8">
         <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
-          История баллов
+          Point history
         </h1>
         <p className="mt-2 flex items-center gap-2 text-lg text-slate-700">
           <span className="tabular-nums font-medium">{points}</span>
           <span className="text-amber-500">★</span>
-          <span className="text-sm font-normal text-slate-500">текущий баланс</span>
+          <span className="text-sm font-normal text-slate-500">current balance</span>
         </p>
       </header>
 
       <ul className="space-y-3">
         {mergedHistory.length === 0 && (
-          <p className="text-sm text-slate-500">Пока нет записей.</p>
+          <p className="text-sm text-slate-500">No records yet.</p>
         )}
         {mergedHistory.map((item) => (
           <li
@@ -235,7 +237,7 @@ export const ProfilePoints: React.FC = () => {
                 {item.label}
               </p>
               <p className="text-xs text-slate-500 max-md:text-[length:calc(0.75rem-2pt)]">
-                {item.date ? new Date(item.date).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                {item.date ? new Date(item.date).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
               </p>
             </div>
             <span

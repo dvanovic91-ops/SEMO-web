@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { useAuth, ADMIN_DUMMY_USER_ID } from '../../context/AuthContext';
+import { useI18n } from '../../context/I18nContext';
 import { resendSignupConfirmationEmail } from '../../lib/authSignupResend';
 import { InnHelpTooltip } from '../../components/InnHelpTooltip';
 import { AddressSuggest } from '../../components/AddressSuggest';
+import { PhoneCountryCodeSelect } from '../../components/PhoneCountryCodeSelect';
+import { CountrySelect } from '../../components/CountrySelect';
 import { BackArrow } from '../../components/BackArrow';
 import { supabase } from '../../lib/supabase';
 import {
@@ -17,6 +20,7 @@ import {
 import { clearPendingShippingBackup, flushPendingShippingBackup, savePendingShippingBackup } from '../../lib/profileDeliveryOffline';
 import { shippingHasAnyField, validateShippingOrEmpty } from '../../lib/shippingValidation';
 import { clampDigits } from '../../lib/digitsOnly';
+import { detectCountryFromPhone, formatIntlPhoneByCountry, type PhoneCountry } from '../../lib/phoneIntl';
 import { CustomsPassportNotice } from '../../components/CustomsPassportNotice';
 import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../../components/SemoPageSpinner';
 import {
@@ -46,21 +50,6 @@ import {
  */
 /** Имя / пароль — mb-1 라벨 (delivery fieldLabelClass와 구분) */
 const labelClass = 'mb-1 block text-[length:calc(0.875rem-1pt)] font-medium text-slate-700';
-
-function formatPhone(value: string): string {
-  let digits = (value ?? '').replace(/\D/g, '').slice(0, 11);
-  if (digits.length === 0) return '';
-  if (digits.startsWith('8')) digits = '7' + digits.slice(1);
-  else if (!digits.startsWith('7')) digits = '7' + digits;
-  const a = digits.slice(0, 1);
-  const b = digits.slice(1, 4);
-  const c = digits.slice(4, 7);
-  const e = digits.slice(7, 11);
-  if (e.length) return `+${a} ${b} ${c} ${e}`;
-  if (c.length) return `+${a} ${b} ${c}`;
-  if (b.length) return `+${a} ${b}`;
-  return `+${a}`;
-}
 
 function normalizeLatin(value: string): string {
   return (value ?? '').replace(/[^A-Za-z\s-']/g, '');
@@ -122,6 +111,8 @@ class ProfileEditErrorBoundary extends React.Component<
 }
 
 export const ProfileEdit: React.FC = () => {
+  const { language, country, setCountry } = useI18n();
+  const tr = useCallback((ru: string, en: string) => (language === 'en' ? en : ru), [language]);
   const [searchParams] = useSearchParams();
   const focusPhone = searchParams.get('focus') === 'phone';
   const phoneInputRef = useRef<HTMLInputElement>(null);
@@ -148,6 +139,7 @@ export const ProfileEdit: React.FC = () => {
   const [pwSuccess, setPwSuccess] = useState(false);
   const [addressSearch, setAddressSearch] = useState('');
   const [phoneError, setPhoneError] = useState('');
+  const [phoneCountry, setPhoneCountry] = useState<PhoneCountry>('RU');
   const [noPatronymic, setNoPatronymic] = useState(false);
   /** Письмо подтверждения email (как на странице профиля) */
   const [verifyEmailSending, setVerifyEmailSending] = useState(false);
@@ -267,6 +259,10 @@ export const ProfileEdit: React.FC = () => {
   useEffect(() => {
     void refreshEmailConfirmationFromServer();
   }, [userId, refreshEmailConfirmationFromServer]);
+
+  useEffect(() => {
+    setPhoneCountry(detectCountryFromPhone(form?.phone ?? ''));
+  }, [form?.phone]);
 
   const handleSendProfileVerifyEmail = useCallback(async () => {
     if (!supabase || !userId || !safeUserEmail?.trim()) {
@@ -412,7 +408,7 @@ export const ProfileEdit: React.FC = () => {
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setPhoneError('');
-    handleChange('phone', formatPhone(e.target.value ?? ''));
+    handleChange('phone', formatIntlPhoneByCountry(e.target.value ?? '', phoneCountry));
   };
 
   const handleSave = async () => {
@@ -550,14 +546,14 @@ export const ProfileEdit: React.FC = () => {
 
         <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
           <section>
-            <h2 className="mb-4 text-[length:calc(1.125rem-1pt)] font-semibold text-slate-900">Основные данные</h2>
+            <h2 className="mb-4 text-[length:calc(1.125rem-1pt)] font-semibold text-slate-900">{tr('Основные данные', 'Basic information')}</h2>
             <div className="space-y-4">
               <div>
-                <label htmlFor="pe-name" className={labelClass}>Имя</label>
+                <label htmlFor="pe-name" className={labelClass}>{tr('Имя', 'Name')}</label>
                 <input
                   id="pe-name"
                   type="text"
-                  placeholder="Имя для обращения"
+                  placeholder={tr('Имя для обращения', 'Name for greeting')}
                   className={inputClass}
                   {...inputProps('name')}
                 />
@@ -590,9 +586,9 @@ export const ProfileEdit: React.FC = () => {
                           <div
                             className={accountStatusPillClass}
                             role="status"
-                            aria-label={telegramLinked ? 'Telegram привязан' : 'Telegram не привязан'}
+                            aria-label={telegramLinked ? tr('Telegram привязан', 'Telegram linked') : tr('Telegram не привязан', 'Telegram not linked')}
                           >
-                            {telegramLinked ? 'Telegram привязан ✓' : 'Telegram не привязан'}
+                            {telegramLinked ? tr('Telegram привязан ✓', 'Telegram linked ✓') : tr('Telegram не привязан', 'Telegram not linked')}
                           </div>
                         )}
                       </div>
@@ -614,9 +610,9 @@ export const ProfileEdit: React.FC = () => {
                           <div
                             className={accountStatusPillClass}
                             role="status"
-                            aria-label={isEmailConfirmed ? 'Email подтверждён' : 'Email не подтверждён'}
+                            aria-label={isEmailConfirmed ? tr('Email подтверждён', 'Email verified') : tr('Email не подтверждён', 'Email not verified')}
                           >
-                            {isEmailConfirmed ? 'Email подтверждён ✓' : 'Email не подтверждён'}
+                            {isEmailConfirmed ? tr('Email подтверждён ✓', 'Email verified ✓') : tr('Email не подтверждён', 'Email not verified')}
                           </div>
                         )}
                       </div>
@@ -626,31 +622,31 @@ export const ProfileEdit: React.FC = () => {
               )}
 
               <div className="mt-6 border-t border-slate-100 pt-4">
-                <h3 className="mb-3 text-[length:calc(0.875rem-1pt)] font-semibold text-slate-900">Сменить пароль</h3>
+                <h3 className="mb-3 text-[length:calc(0.875rem-1pt)] font-semibold text-slate-900">{tr('Сменить пароль', 'Change password')}</h3>
                 {!passwordSection ? (
                   <button
                     type="button"
                     onClick={() => setPasswordSection(true)}
                     className="rounded-full border border-slate-200 py-2.5 px-4 text-[length:calc(0.875rem-1pt)] font-medium text-slate-700 hover:border-brand hover:text-brand"
                   >
-                    Изменить пароль
+                    {tr('Изменить пароль', 'Change password')}
                   </button>
                 ) : (
                   <div className="space-y-4 rounded-xl border border-slate-100 bg-slate-50/50 p-4">
                     <div>
-                      <label htmlFor="pw-current" className={labelClass}>Текущий пароль</label>
+                      <label htmlFor="pw-current" className={labelClass}>{tr('Текущий пароль', 'Current password')}</label>
                       <input id="pw-current" type="password" className={inputClass} placeholder="••••••••" value={pwCurrent} onChange={(e) => { setPwCurrent(e.target.value); setPwError(''); }} />
                     </div>
                     <div>
-                      <label htmlFor="pw-new" className={labelClass}>Новый пароль</label>
+                      <label htmlFor="pw-new" className={labelClass}>{tr('Новый пароль', 'New password')}</label>
                       <input id="pw-new" type="password" className={inputClass} placeholder="••••••••" value={pwNew} onChange={(e) => { setPwNew(e.target.value); setPwError(''); }} />
                     </div>
                     <div>
-                      <label htmlFor="pw-confirm" className={labelClass}>Повторите новый пароль</label>
+                      <label htmlFor="pw-confirm" className={labelClass}>{tr('Повторите новый пароль', 'Repeat new password')}</label>
                       <input id="pw-confirm" type="password" className={inputClass} placeholder="••••••••" value={pwConfirm} onChange={(e) => { setPwConfirm(e.target.value); setPwError(''); }} />
                     </div>
                     {pwError && <p className="text-[length:calc(0.875rem-1pt)] text-red-600">{pwError}</p>}
-                    {pwSuccess && <p className="text-[length:calc(0.875rem-1pt)] text-green-600">Пароль успешно изменён.</p>}
+                    {pwSuccess && <p className="text-[length:calc(0.875rem-1pt)] text-green-600">{tr('Пароль успешно изменён.', 'Password updated successfully.')}</p>}
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
@@ -672,9 +668,9 @@ export const ProfileEdit: React.FC = () => {
                         }}
                         className="rounded-full bg-brand px-4 py-2.5 text-[length:calc(0.875rem-1pt)] font-medium text-white hover:bg-brand/90"
                       >
-                        Сменить пароль
+                        {tr('Сменить пароль', 'Change password')}
                       </button>
-                      <button type="button" onClick={() => { setPasswordSection(false); setPwCurrent(''); setPwNew(''); setPwConfirm(''); setPwError(''); setPwSuccess(false); }} className="text-[length:calc(0.875rem-1pt)] text-slate-500 hover:text-slate-700">Отмена</button>
+                      <button type="button" onClick={() => { setPasswordSection(false); setPwCurrent(''); setPwNew(''); setPwConfirm(''); setPwError(''); setPwSuccess(false); }} className="text-[length:calc(0.875rem-1pt)] text-slate-500 hover:text-slate-700">{tr('Отмена', 'Cancel')}</button>
                     </div>
                   </div>
                 )}
@@ -682,9 +678,9 @@ export const ProfileEdit: React.FC = () => {
 
               {userId && userId !== ADMIN_DUMMY_USER_ID && (
                 <div className="prose-ru mt-6 min-w-0 max-w-full border-t border-slate-100 pt-4">
-                  <p className="text-[length:calc(0.875rem-1pt)] font-semibold leading-snug text-slate-900">Уведомления в Telegram</p>
+                  <p className="text-[length:calc(0.875rem-1pt)] font-semibold leading-snug text-slate-900">{tr('Уведомления в Telegram', 'Telegram notifications')}</p>
                   <p className="mt-1.5 text-[length:calc(0.75rem-1pt)] leading-snug text-slate-500">
-                    Привязка Telegram — в разделе «Доставка» ниже. Уведомления о заказах и акциях.
+                    {tr('Привязка Telegram — в разделе «Доставка» ниже. Уведомления о заказах и акциях.', 'Telegram linking is in the Delivery section below. Notifications for orders and promotions.')}
                   </p>
                   <label className="mt-3 flex min-w-0 cursor-pointer items-start gap-2.5 text-[length:calc(0.875rem-1pt)] leading-snug text-slate-700">
                     <input
@@ -697,7 +693,7 @@ export const ProfileEdit: React.FC = () => {
                         void saveTelegramNotificationPrefs({ telegram_notify_orders: v });
                       }}
                     />
-                    <span className="min-w-0 flex-1">Заказы и доставка (статус, трекинг)</span>
+                    <span className="min-w-0 flex-1">{tr('Заказы и доставка (статус, трекинг)', 'Orders and delivery (status, tracking)')}</span>
                   </label>
                   <label className="mt-2.5 flex min-w-0 cursor-pointer items-start gap-2.5 text-[length:calc(0.875rem-1pt)] leading-snug text-slate-700">
                     <input
@@ -710,7 +706,7 @@ export const ProfileEdit: React.FC = () => {
                         void saveTelegramNotificationPrefs({ telegram_notify_marketing: v });
                       }}
                     />
-                    <span className="min-w-0 flex-1">Новинки, скидки и акции</span>
+                    <span className="min-w-0 flex-1">{tr('Новинки, скидки и акции', 'New products, discounts, promotions')}</span>
                   </label>
                 </div>
               )}
@@ -719,7 +715,7 @@ export const ProfileEdit: React.FC = () => {
 
           <section className="min-w-0">
             <h2 className="mb-4 text-[length:calc(1.125rem-1pt)] font-semibold text-slate-900">
-              Доставка <span className={hintClass}>(при заказе — обязательно)</span>
+              {tr('Доставка', 'Delivery')} <span className={hintClass}>{tr('(при заказе — обязательно)', '(required at checkout)')}</span>
             </h2>
             <div className={deliveryFormSectionStackClass}>
               <div className={deliveryFormInnerCardClass}>
@@ -772,7 +768,7 @@ export const ProfileEdit: React.FC = () => {
                   </div>
                   <div className="flex flex-col-reverse items-start gap-1 sm:grid sm:grid-cols-3 sm:items-start sm:justify-items-start sm:gap-x-3 sm:gap-y-0">
                     <p className="min-w-0 max-w-full text-[11px] leading-snug text-slate-500 sm:col-span-2 sm:row-start-1">
-                      * ФИО как в паспорте (латинскими буквами).
+                      {tr('* ФИО как в паспорте (латинскими буквами).', '* Full name as in passport (Latin letters).')}
                     </p>
                     <label className="inline-flex w-fit shrink-0 cursor-pointer items-center gap-1.5 text-[11px] text-slate-500 sm:col-start-3 sm:row-start-1 sm:place-self-start">
                       <input
@@ -785,7 +781,7 @@ export const ProfileEdit: React.FC = () => {
                         }}
                         className="h-3 w-3 rounded border-slate-300 text-brand focus:ring-brand"
                       />
-                      <span className="whitespace-nowrap">Нет отчества</span>
+                      <span className="whitespace-nowrap">{tr('Нет отчества', 'No middle name')}</span>
                     </label>
                   </div>
                 </div>
@@ -812,7 +808,7 @@ export const ProfileEdit: React.FC = () => {
                         onClick={() => void handleSendProfileVerifyEmail()}
                         className={`${accountPrimaryCtaClass} w-full shrink-0 sm:w-auto sm:px-5`}
                       >
-                        {verifyEmailSending ? 'Отправка…' : 'Подтвердить email'}
+                        {verifyEmailSending ? tr('Отправка…', 'Sending…') : tr('Подтвердить email', 'Verify email')}
                       </button>
                     )}
                   </div>
@@ -823,7 +819,7 @@ export const ProfileEdit: React.FC = () => {
                       </span>
                       <div className={deliveryFormNoteScrollClass}>
                         <span className={deliveryFormNoteTextClass}>
-                          Подтвердите email для оформления заказа.
+                          {tr('Подтвердите email для оформления заказа.', 'Verify email to place orders.')}
                         </span>
                       </div>
                     </div>
@@ -843,15 +839,16 @@ export const ProfileEdit: React.FC = () => {
                 {/* Телефон — поле flex-1 + узкая кнопка «Подтвердить» (текст без «в Telegram») */}
                 <div className={fieldColClass}>
                   <label htmlFor="pe-phone" className={fieldLabelClass}>
-                    Номер телефона
+                    {tr('Номер телефона', 'Phone number')}
                   </label>
                   <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-stretch">
+                    <PhoneCountryCodeSelect value={phoneCountry} onChange={setPhoneCountry} />
                     <input
                       ref={phoneInputRef}
                       id="pe-phone"
                       type="tel"
                       placeholder="+7 999 999 9999"
-                      title="+200 баллов за подтверждение в Telegram"
+                      title={tr('+200 баллов за подтверждение в Telegram', '+200 points for Telegram verification')}
                       className={`${phoneFieldClass} min-w-0 flex-1`}
                       value={form?.phone ?? ''}
                       onChange={editing && (!telegramLinked || phoneUnlinkRequested) ? handlePhoneChange : undefined}
@@ -865,7 +862,7 @@ export const ProfileEdit: React.FC = () => {
                         onClick={() => void handleTelegramVerify()}
                         className={`${accountPrimaryCtaClass} w-full shrink-0 sm:w-auto sm:px-5`}
                       >
-                        {pollingForTelegram ? 'Ожидание…' : 'Подтвердить'}
+                        {pollingForTelegram ? tr('Ожидание…', 'Waiting…') : tr('Подтвердить', 'Verify')}
                       </button>
                     )}
                   </div>
@@ -875,7 +872,7 @@ export const ProfileEdit: React.FC = () => {
                     </span>
                     <div className={deliveryFormNoteScrollClass}>
                       <span className={deliveryFormNoteTextClass}>
-                        Подтверждается через Telegram, за подтверждение +200 баллов.
+                        {tr('Подтверждается через Telegram, за подтверждение +200 баллов.', 'Verified via Telegram, +200 points for verification.')}
                       </span>
                     </div>
                   </div>
@@ -886,7 +883,7 @@ export const ProfileEdit: React.FC = () => {
                         onClick={handleUnlinkToChangePhone}
                         className="w-full rounded-xl border border-slate-200 bg-white py-2.5 text-center text-[length:calc(0.75rem-1pt)] font-semibold text-brand shadow-sm transition hover:border-brand/40 hover:bg-brand-soft/20"
                       >
-                        Изменить номер
+                        {tr('Изменить номер', 'Change number')}
                       </button>
                     </div>
                   )}
@@ -900,33 +897,44 @@ export const ProfileEdit: React.FC = () => {
                         }}
                         className="text-[length:calc(0.75rem-1pt)] font-medium text-slate-600 underline hover:text-slate-800"
                       >
-                        Отмена
+                        {tr('Отмена', 'Cancel')}
                       </button>
                     </div>
                   )}
                   {phoneUnlinkRequested && (
                     <p className="mt-2 text-[11px] leading-snug text-slate-600">
-                      Нажмите «Сохранить», чтобы записать номер и снять привязку Telegram. «Отмена» — без изменений в аккаунте.
+                      {tr('Нажмите «Сохранить», чтобы записать номер и снять привязку Telegram. «Отмена» — без изменений в аккаунте.', 'Press Save to update number and unlink Telegram. Cancel keeps account unchanged.')}
                     </p>
                   )}
                   {phoneError && <p className="mt-1 text-[length:calc(0.75rem-1pt)] text-red-500">{phoneError}</p>}
                 </div>
 
+                <div className={fieldColClass}>
+                  <label htmlFor="profile-country" className={fieldLabelClass}>
+                    {tr('Страна доставки', 'Delivery country')}
+                  </label>
+                  <CountrySelect
+                    id="profile-country"
+                    value={country}
+                    onChange={(code) => setCountry(code as any)}
+                  />
+                </div>
                 <AddressSuggest
+              country={country}
                   label={
                     <span className="inline-flex items-center gap-2">
-                      Адрес (поиск по базе)
-                      <span className="group relative ml-0.5 inline-flex cursor-help" aria-label="Подсказка">
+                      {tr('Адрес (поиск по базе)', 'Address (database search)')}
+                      <span className="group relative ml-0.5 inline-flex cursor-help" aria-label={tr('Подсказка', 'Hint')}>
                         <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 text-xs font-medium transition hover:border-brand hover:text-brand">
                           ?
                         </span>
                         <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 inline-block w-max -translate-x-1/2 whitespace-nowrap rounded border border-slate-100 bg-white px-2.5 py-1.5 text-left text-[length:calc(0.75rem-1pt)] font-medium leading-none text-brand shadow-md opacity-0 transition group-hover:opacity-100">
-                          При вводе адреса нижние поля заполнятся автоматически.
+                          {tr('При вводе адреса нижние поля заполнятся автоматически.', 'When you type an address, fields below fill automatically.')}
                         </span>
                       </span>
                     </span>
                   }
-                  placeholder="Начните вводить адрес, затем выберите вариант из списка"
+                  placeholder={tr('Начните вводить адрес, затем выберите вариант из списка', 'Start typing address, then choose from the list')}
                   value={addressSearch}
                   onChange={setAddressSearch}
                   onPartsChange={({ cityRegion, streetHouse, apartmentOffice, postcode }) => {
@@ -1034,7 +1042,7 @@ export const ProfileEdit: React.FC = () => {
               }}
               className="w-full rounded-full border border-slate-200 py-3.5 text-[length:calc(1rem-1pt)] font-medium text-slate-700 transition hover:border-brand hover:bg-brand-soft/10"
             >
-              Редактировать
+              {tr('Редактировать', 'Edit')}
             </button>
           ) : (
             isDirty && (
@@ -1050,7 +1058,7 @@ export const ProfileEdit: React.FC = () => {
                   disabled={saveLoading}
                   className="w-full rounded-full bg-brand py-3.5 text-[length:calc(1rem-1pt)] font-semibold text-white transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-70"
                 >
-                  {saveLoading ? 'Сохранение…' : 'Сохранить'}
+                  {saveLoading ? tr('Сохранение…', 'Saving…') : tr('Сохранить', 'Save')}
                 </button>
               </div>
             )
@@ -1059,7 +1067,7 @@ export const ProfileEdit: React.FC = () => {
 
         {telegramLinkedToast && (
           <div className="fixed bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-brand px-5 py-2.5 text-[length:calc(0.875rem-1pt)] font-medium text-white shadow-lg md:bottom-8" role="status" aria-live="polite">
-            Telegram привязан. Аккаунт успешно связан.
+            {tr('Telegram привязан. Аккаунт успешно связан.', 'Telegram linked. Account connected successfully.')}
           </div>
         )}
         {saveSuccessToast && (
@@ -1069,7 +1077,7 @@ export const ProfileEdit: React.FC = () => {
               role="status"
               aria-live="polite"
             >
-              Сохранено.
+              {tr('Сохранено.', 'Saved.')}
             </div>
           </div>
         )}

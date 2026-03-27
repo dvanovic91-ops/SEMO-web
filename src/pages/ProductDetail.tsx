@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import { Link, useSearchParams, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useI18n } from '../context/I18nContext';
 import { useProductNavReplacement } from '../context/ProductNavReplacementContext';
 import { useCart } from '../context/CartContext';
 import { supabase } from '../lib/supabase';
+import { formatCurrencyAmount } from '../lib/market';
+import { loadProductMarketPrices } from '../lib/productMarketPrices';
 import { BackArrow } from '../components/BackArrow';
 import { ProductCompositionGrid } from '../components/ProductCompositionGrid';
 import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../components/SemoPageSpinner';
@@ -28,6 +31,12 @@ type Product = {
   stock: number | null;
 };
 
+type ProductMarketPrice = {
+  currency: 'RUB' | 'KZT' | 'USD' | 'UZS';
+  rrp_price: number | null;
+  prp_price: number | null;
+};
+
 type Component = {
   id: string;
   sort_order: number;
@@ -35,6 +44,8 @@ type Component = {
   image_url: string | null;
   image_urls?: string[] | null;
   description: string | null;
+  description_en?: string | null;
+  description_ru?: string | null;
   /** 상세 «Подробнее о составе» 블록 배치 */
   layout?: 'image_left' | 'image_right';
 };
@@ -97,10 +108,6 @@ type Review = {
   review_photos?: { image_url: string }[];
 };
 
-function formatPrice(price: number): string {
-  return `${price.toLocaleString('ru-RU')} руб.`;
-}
-
 /** UUID 형식인지 (DB products.id는 UUID) */
 function isUuid(s: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
@@ -123,9 +130,14 @@ export const ProductDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const { isLoggedIn, userId, canGrantPermission } = useAuth();
+  const { language, currency } = useI18n();
+  const isEn = language === 'en';
+  const tr = useCallback((en: string, ru: string) => (isEn ? en : ru), [isEn]);
   const { addItem } = useCart();
+  const formatPrice = useCallback((price: number) => formatCurrencyAmount(price, currency), [currency]);
 
   const [product, setProduct] = useState<Product | null>(null);
+  const [productMarketPrice, setProductMarketPrice] = useState<ProductMarketPrice | null>(null);
   const [components, setComponents] = useState<Component[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [ingredientBrief, setIngredientBrief] = useState<ProductIngredientBrief | null>(null);
@@ -286,14 +298,14 @@ export const ProductDetail: React.FC = () => {
       else valid.push(files[i]);
     }
     if (tooBig.length > 0) {
-      setReviewToast({ type: 'error', message: `Файл слишком большой. Макс. 5 МБ.` });
-      setReviewError(tooBig.length === 1 ? `«${tooBig[0]}» — больше 5 МБ.` : `${tooBig.length} файлов больше 5 МБ.`);
+      setReviewToast({ type: 'error', message: tr('File is too large. Max 5 MB.', `Файл слишком большой. Макс. 5 МБ.`) });
+      setReviewError(tooBig.length === 1 ? tr(`"${tooBig[0]}" is larger than 5 MB.`, `«${tooBig[0]}» — больше 5 МБ.`) : tr(`${tooBig.length} files are larger than 5 MB.`, `${tooBig.length} файлов больше 5 МБ.`));
     }
     if (valid.length > 0) {
       setReviewPhotoFiles((prev) => {
         const next = [...prev, ...valid];
         if (next.length > MAX_REVIEW_PHOTOS) {
-          setReviewToast({ type: 'error', message: `Макс. ${MAX_REVIEW_PHOTOS} фото.` });
+          setReviewToast({ type: 'error', message: tr(`Max ${MAX_REVIEW_PHOTOS} photos.`, `Макс. ${MAX_REVIEW_PHOTOS} фото.`) });
           return next.slice(0, MAX_REVIEW_PHOTOS);
         }
         setReviewError(null);
@@ -350,16 +362,16 @@ export const ProductDetail: React.FC = () => {
       else valid.push(files[i]);
     }
     if (tooBig.length > 0) {
-      setReviewToast({ type: 'error', message: `Файл слишком большой. Макс. 5 МБ.` });
-      setReviewEditError(tooBig.length === 1 ? `«${tooBig[0]}» — больше 5 МБ.` : `${tooBig.length} файлов больше 5 МБ.`);
+      setReviewToast({ type: 'error', message: tr('File is too large. Max 5 MB.', `Файл слишком большой. Макс. 5 МБ.`) });
+      setReviewEditError(tooBig.length === 1 ? tr(`"${tooBig[0]}" is larger than 5 MB.`, `«${tooBig[0]}» — больше 5 МБ.`) : tr(`${tooBig.length} files are larger than 5 MB.`, `${tooBig.length} файлов больше 5 МБ.`));
     }
     if (valid.length > 0) {
       setEditReviewNewFiles((prev) => {
         const next = [...prev, ...valid];
         const cap = MAX_REVIEW_PHOTOS - editReviewKeptPhotoUrls.length;
         if (next.length > cap) {
-          setReviewToast({ type: 'error', message: `Макс. ${MAX_REVIEW_PHOTOS} фото.` });
-          setReviewEditError(`Максимум ${MAX_REVIEW_PHOTOS} фото (с учётом уже прикреплённых).`);
+          setReviewToast({ type: 'error', message: tr(`Max ${MAX_REVIEW_PHOTOS} photos.`, `Макс. ${MAX_REVIEW_PHOTOS} фото.`) });
+          setReviewEditError(tr(`Maximum ${MAX_REVIEW_PHOTOS} photos (including already attached).`, `Максимум ${MAX_REVIEW_PHOTOS} фото (с учётом уже прикреплённых).`));
           return next.slice(0, Math.max(0, cap));
         }
         setReviewEditError(null);
@@ -373,12 +385,12 @@ export const ProductDetail: React.FC = () => {
     if (!supabase || !id || !userId) return;
     const trimmed = editReviewBody.trim();
     if (!trimmed) {
-      setReviewEditError('Напишите текст отзыва.');
+      setReviewEditError(tr('Write your review text.', 'Напишите текст отзыва.'));
       return;
     }
     const totalPhotos = editReviewKeptPhotoUrls.length + editReviewNewFiles.length;
     if (totalPhotos > MAX_REVIEW_PHOTOS) {
-      setReviewEditError(`Максимум ${MAX_REVIEW_PHOTOS} фото.`);
+      setReviewEditError(tr(`Maximum ${MAX_REVIEW_PHOTOS} photos.`, `Максимум ${MAX_REVIEW_PHOTOS} фото.`));
       return;
     }
     setUpdatingReviewId(reviewId);
@@ -398,7 +410,7 @@ export const ProductDetail: React.FC = () => {
 
       const uploadedUrls: string[] = [];
       if (editReviewNewFiles.length > 0) {
-        setReviewToast({ type: 'uploading', message: 'Загрузка…' });
+        setReviewToast({ type: 'uploading', message: tr('Uploading…', 'Загрузка…') });
       }
       for (let i = 0; i < editReviewNewFiles.length; i++) {
         const file = editReviewNewFiles[i];
@@ -409,8 +421,8 @@ export const ProductDetail: React.FC = () => {
           .from(BUCKET_REVIEW_PHOTOS)
           .upload(path, file, { cacheControl: '3600', upsert: false, contentType: file.type || `image/${safeExt}` });
         if (upErr) {
-          setReviewToast({ type: 'error', message: 'Ошибка загрузки.' });
-          throw new Error(upErr.message || 'Не удалось загрузить фото.');
+          setReviewToast({ type: 'error', message: tr('Upload error.', 'Ошибка загрузки.') });
+          throw new Error(upErr.message || tr('Failed to upload photo.', 'Не удалось загрузить фото.'));
         }
         const { data: urlData } = supabase.storage.from(BUCKET_REVIEW_PHOTOS).getPublicUrl(path);
         uploadedUrls.push(urlData.publicUrl);
@@ -445,10 +457,10 @@ export const ProductDetail: React.FC = () => {
       setEditReviewKeptPhotoUrls([]);
       setEditReviewInitialPhotoUrls([]);
       setEditReviewNewFiles([]);
-      setReviewToast({ type: 'success', message: 'Отзыв обновлён.' });
+      setReviewToast({ type: 'success', message: tr('Review updated.', 'Отзыв обновлён.') });
     } catch (e) {
-      setReviewEditError(e instanceof Error ? e.message : 'Не удалось сохранить отзыв.');
-      setReviewToast({ type: 'error', message: 'Не удалось сохранить отзыв.' });
+      setReviewEditError(e instanceof Error ? e.message : tr('Failed to save review.', 'Не удалось сохранить отзыв.'));
+      setReviewToast({ type: 'error', message: tr('Failed to save review.', 'Не удалось сохранить отзыв.') });
     } finally {
       setUpdatingReviewId(null);
     }
@@ -456,7 +468,7 @@ export const ProductDetail: React.FC = () => {
 
   const handleDeleteReview = async (reviewId: string) => {
     if (!supabase || !id) return;
-    if (!window.confirm('Удалить этот отзыв?')) return;
+    if (!window.confirm(tr('Delete this review?', 'Удалить этот отзыв?'))) return;
     setDeletingReviewId(reviewId);
     setReviewError(null);
     try {
@@ -465,7 +477,7 @@ export const ProductDetail: React.FC = () => {
       if (error) throw error;
       setReviews((prev) => prev.filter((r) => r.id !== reviewId));
     } catch (e) {
-      setReviewError(e instanceof Error ? e.message : 'Не удалось удалить отзыв.');
+      setReviewError(e instanceof Error ? e.message : tr('Failed to delete review.', 'Не удалось удалить отзыв.'));
     } finally {
       setDeletingReviewId(null);
     }
@@ -543,8 +555,10 @@ export const ProductDetail: React.FC = () => {
           }
           // PGRST116 = no rows for .single() → 상품 없음
           const errMsg = (prodErr?.code === 'PGRST116' || prodErr?.message?.includes('0 rows'))
-            ? 'Товар не найден'
-            : (prodErr?.message ?? 'Товар не найден');
+            ? language === 'en'
+              ? 'Product not found'
+              : 'Товар не найден'
+            : (prodErr?.message ?? (language === 'en' ? 'Product not found' : 'Товар не найден'));
           setLoadError(errMsg);
           setProduct(null);
           setComponents([]);
@@ -575,19 +589,35 @@ export const ProductDetail: React.FC = () => {
         try {
           const { data: compData, error: compErr } = await supabase
             .from('product_components')
-            .select('*, sku_items(display_name, description, image_url)')
+            .select('*, sku_items(display_name, description, description_en, description_ru, key_ingredients_desc, image_url)')
             .eq('product_id', currentId);
           if (!compErr && compData && Array.isArray(compData)) {
             const rows = (compData as any[]).map((r) => {
-              const sku = r.sku_items as { display_name?: string | null; description?: string | null; image_url?: string | null } | null;
-              // sku_id가 연결된 경우 SKU 데이터 우선 사용
+              type SkuRow = {
+                display_name?: string | null;
+                description?: string | null;
+                description_en?: string | null;
+                description_ru?: string | null;
+                key_ingredients_desc?: Array<{ name: string; ko: string; en: string; ru: string }> | null;
+                image_url?: string | null;
+              };
+              const sku = r.sku_items as SkuRow | null;
               const hasSkuImage = !!sku?.image_url;
+
+              // key_ingredients_desc 에서 언어별 설명 포맷 (description 이 없을 때 fallback)
+              const heroes = sku?.key_ingredients_desc ?? [];
+              const fmtKo = heroes.length ? heroes.map((h) => `✨ ${h.name} — ${h.ko}`).join('\n') : null;
+              const fmtEn = heroes.length ? heroes.map((h) => `✨ ${h.name} — ${h.en}`).join('\n') : null;
+              const fmtRu = heroes.length ? heroes.map((h) => `✨ ${h.name} — ${h.ru}`).join('\n') : null;
+
               return {
                 ...r,
-                name: (sku?.display_name) ? sku.display_name : r.name,
-                description: (sku?.description) ? sku.description : r.description,
-                image_url: hasSkuImage ? sku.image_url : r.image_url,
-                image_urls: hasSkuImage ? [sku.image_url!] : (r.image_urls ?? []),
+                name: sku?.display_name ?? r.name,
+                description:    sku?.description    ?? fmtKo ?? r.description ?? null,
+                description_en: sku?.description_en ?? fmtEn ?? null,
+                description_ru: sku?.description_ru ?? fmtRu ?? null,
+                image_url:  hasSkuImage ? sku!.image_url : r.image_url,
+                image_urls: hasSkuImage ? [sku!.image_url!] : (r.image_urls ?? []),
               } as Component & { created_at?: string };
             });
             compList = rows.slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
@@ -725,6 +755,33 @@ export const ProductDetail: React.FC = () => {
       }
     };
   }, [id, userId]);
+
+  useEffect(() => {
+    if (!supabase || !id || !isUuid(id)) {
+      setProductMarketPrice(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      // site_settings fallback 포함한 공통 로더 사용
+      const map = await loadProductMarketPrices(supabase, [id]);
+      if (cancelled) return;
+      const rows = map.get(id) ?? [];
+      const match = rows.find((r) => r.currency === currency);
+      if (!match || (match.rrp_price == null && match.prp_price == null)) {
+        setProductMarketPrice(null);
+        return;
+      }
+      setProductMarketPrice({
+        currency,
+        rrp_price: match.rrp_price ?? null,
+        prp_price: match.prp_price ?? null,
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id, currency]);
 
   /**
    * 모바일 상단 고정바: 본문 «В корзину» getBoundingClientRect + 스크롤/리사이즈.
@@ -865,15 +922,15 @@ export const ProductDetail: React.FC = () => {
   const handleSubmitReview = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!userId || !id || !supabase || !isUuid(id)) {
-      setReviewError('Войдите, чтобы оставить отзыв.');
+      setReviewError(tr('Sign in to leave a review.', 'Войдите, чтобы оставить отзыв.'));
       return;
     }
     if (!reviewOrderId) {
-      setReviewError('Оставить отзыв можно только после покупки набора.');
+      setReviewError(tr('You can leave a review only after purchase.', 'Оставить отзыв можно только после покупки набора.'));
       return;
     }
     if (reviewBody.trim().length === 0) {
-      setReviewError('Напишите текст отзыва.');
+      setReviewError(tr('Write your review text.', 'Напишите текст отзыва.'));
       return;
     }
     setSubmittingReview(true);
@@ -881,7 +938,7 @@ export const ProductDetail: React.FC = () => {
     try {
       const uploadedUrls: string[] = [];
       if (reviewPhotoFiles.length > 0) {
-        setReviewToast({ type: 'uploading', message: 'Загрузка…' });
+        setReviewToast({ type: 'uploading', message: tr('Uploading…', 'Загрузка…') });
       }
       for (let i = 0; i < reviewPhotoFiles.length; i++) {
         const file = reviewPhotoFiles[i];
@@ -892,8 +949,8 @@ export const ProductDetail: React.FC = () => {
           .from(BUCKET_REVIEW_PHOTOS)
           .upload(path, file, { cacheControl: '3600', upsert: false, contentType: file.type || `image/${safeExt}` });
         if (upErr) {
-          setReviewToast({ type: 'error', message: 'Ошибка загрузки.' });
-          setReviewError(upErr.message || 'Не удалось загрузить фото.');
+          setReviewToast({ type: 'error', message: tr('Upload error.', 'Ошибка загрузки.') });
+          setReviewError(upErr.message || tr('Failed to upload photo.', 'Не удалось загрузить фото.'));
           setSubmittingReview(false);
           return;
         }
@@ -954,10 +1011,10 @@ export const ProductDetail: React.FC = () => {
         })),
       );
       setReviewComposerOpen(false);
-      setReviewToast({ type: 'success', message: 'Отзыв отправлен.' });
+      setReviewToast({ type: 'success', message: tr('Review submitted.', 'Отзыв отправлен.') });
     } catch (err) {
-      setReviewToast({ type: 'error', message: 'Ошибка. Не удалось отправить отзыв.' });
-      setReviewError(err instanceof Error ? err.message : 'Не удалось отправить отзыв.');
+      setReviewToast({ type: 'error', message: tr('Error. Failed to submit review.', 'Ошибка. Не удалось отправить отзыв.') });
+      setReviewError(err instanceof Error ? err.message : tr('Failed to submit review.', 'Не удалось отправить отзыв.'));
     } finally {
       setSubmittingReview(false);
     }
@@ -969,14 +1026,23 @@ export const ProductDetail: React.FC = () => {
       (Array.isArray(product.image_urls) && product.image_urls.length
         ? product.image_urls[0]
         : product.image_url) ?? null;
-    const prp = product.prp_price != null ? Number(product.prp_price) : null;
-    const rrp = product.rrp_price != null ? Number(product.rrp_price) : null;
+    const prp = productMarketPrice?.prp_price != null
+      ? Number(productMarketPrice.prp_price)
+      : product.prp_price != null
+        ? Number(product.prp_price)
+        : null;
+    const rrp = productMarketPrice?.rrp_price != null
+      ? Number(productMarketPrice.rrp_price)
+      : product.rrp_price != null
+        ? Number(product.rrp_price)
+        : null;
     addItem({
       id: product.id,
       name: product.name,
       price: prp ?? rrp ?? 0,
       imageUrl: thumb,
       originalPrice: prp != null && rrp != null ? rrp : undefined,
+      currency,
     });
     setCartToast(true);
   };
@@ -984,7 +1050,9 @@ export const ProductDetail: React.FC = () => {
   /* setLoading 없음: !product && !loadError → 로딩. 단, return 전에 갤러리 훅을 두어 훅 순서 고정 (로딩 시 return으로 훅 생략 시 크래시). */
   const isLoading = id?.trim() && !product && !loadError;
 
-  const price = product?.prp_price ?? product?.rrp_price ?? null;
+  const displayRrp = productMarketPrice?.rrp_price ?? product?.rrp_price ?? null;
+  const displayPrp = productMarketPrice?.prp_price ?? product?.prp_price ?? null;
+  const price = displayPrp ?? displayRrp ?? null;
   const mainImages: string[] = useMemo(() => {
     if (!product) return [];
     const urls = product.image_urls;
@@ -1039,7 +1107,7 @@ export const ProductDetail: React.FC = () => {
   }, [galleryIndex, mainImages.length]);
 
   const stickyThumb = mainImages[galleryIndex] ?? mainImages[0];
-  const hasDiscount = (product?.prp_price != null) && (product?.rrp_price != null);
+  const hasDiscount = displayPrp != null && displayRrp != null;
   const catalogParam = searchParams.get('catalog');
   const effectiveCatalog = (catalogParam || product?.category || 'beauty') as 'beauty' | 'inner_beauty' | 'hair_beauty';
   const backCatalogPath = effectiveCatalog === 'inner_beauty' ? '/inner-beauty' : effectiveCatalog === 'hair_beauty' ? '/hair-beauty' : '/shop';
@@ -1057,12 +1125,14 @@ export const ProductDetail: React.FC = () => {
     }
     setProductDesktopNav({
       compact: desktopPriceSticky,
-      rrp: product.rrp_price != null ? Number(product.rrp_price) : null,
-      prp: product.prp_price != null ? Number(product.prp_price) : null,
+      // 고정 네비바는 "현재 선택 통화" 기준 가격(displayRrp/displayPrp)을 사용해야 함.
+      // (product.rrp_price/prp_price는 기본(대개 RUB) 값이라 통화 표시가 어긋날 수 있음)
+      rrp: displayRrp != null ? Number(displayRrp) : null,
+      prp: displayPrp != null ? Number(displayPrp) : null,
       thumbUrl: stickyThumb ?? null,
       onAddToCart: () => addToCartNavRef.current(),
     });
-  }, [product, id, desktopPriceSticky, setProductDesktopNav, stickyThumb]);
+  }, [product, id, desktopPriceSticky, setProductDesktopNav, stickyThumb, displayRrp, displayPrp]);
 
   useEffect(() => {
     return () => setProductDesktopNav(null);
@@ -1071,9 +1141,9 @@ export const ProductDetail: React.FC = () => {
   if (!product && (loadError || !id?.trim())) {
     return (
       <main className="mx-auto max-w-3xl px-4 py-12">
-        {loadError && loadError !== 'timeout' && <p className="text-slate-600">Ошибка: {loadError}</p>}
-        {loadError === 'timeout' && <p className="text-slate-600">Загрузка заняла слишком много времени.</p>}
-        {!id?.trim() && !loadError && <p className="text-slate-600">Товар не найден.</p>}
+        {loadError && loadError !== 'timeout' && <p className="text-slate-600">{tr('Error', 'Ошибка')}: {loadError}</p>}
+        {loadError === 'timeout' && <p className="text-slate-600">{language === 'en' ? 'Loading took too long.' : 'Загрузка заняла слишком много времени.'}</p>}
+        {!id?.trim() && !loadError && <p className="text-slate-600">{language === 'en' ? 'Product not found.' : 'Товар не найден.'}</p>}
         <p className="mt-4">
           <Link to={backCatalogPath} className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> {backCatalogLabel}</Link>
         </p>
@@ -1109,11 +1179,11 @@ export const ProductDetail: React.FC = () => {
             )}
           </div>
           <div className="flex min-w-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap px-0.5">
-            {product?.rrp_price != null && (
+            {displayRrp != null && (
               <span
                 className={`shrink truncate text-[10px] leading-none tabular-nums ${hasDiscount ? 'text-slate-500 line-through' : 'text-slate-500'}`}
               >
-                {formatPrice(Number(product.rrp_price))}
+                {formatPrice(Number(displayRrp))}
               </span>
             )}
             <span className="shrink-0 text-xs font-semibold tabular-nums text-slate-900">
@@ -1125,7 +1195,7 @@ export const ProductDetail: React.FC = () => {
             onClick={handleAddToCart}
             className="shrink-0 rounded-full border border-brand/90 bg-brand px-3 py-1.5 text-xs font-medium leading-tight text-white min-h-8 min-w-0 transition hover:bg-brand/90"
           >
-            В корзину
+            {language === 'en' ? 'Add to cart' : 'В корзину'}
           </button>
         </div>
       )}
@@ -1136,7 +1206,7 @@ export const ProductDetail: React.FC = () => {
           className="fixed left-1/2 z-50 max-w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-slate-200 bg-slate-900 px-4 py-3 text-center text-sm font-medium text-white shadow-lg max-md:bottom-[calc(var(--semo-mobile-tabbar-h)+0.5rem)] md:bottom-8"
           role="status"
         >
-          Добавлен в корзину
+          {tr('Added to cart', 'Добавлен в корзину')}
         </div>
       )}
 
@@ -1174,7 +1244,7 @@ export const ProductDetail: React.FC = () => {
                     onScroll={onGalleryScroll}
                     className="flex snap-x snap-mandatory overflow-x-auto scroll-smooth [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                     role="region"
-                    aria-label="Фото товара"
+                    aria-label={tr('Product photos', 'Фото товара')}
                   >
                     {mainImages.map((src, i) => (
                       <div
@@ -1194,24 +1264,24 @@ export const ProductDetail: React.FC = () => {
                   {/* Десктоп: мышь — стрелки по краям; тачпад обычно свайпает контейнер */}
                   <button
                     type="button"
-                    aria-label="Предыдущее фото"
+                    aria-label={tr('Previous photo', 'Предыдущее фото')}
                     disabled={galleryIndex <= 0}
                     onClick={() => scrollGalleryTo(galleryIndex - 1)}
                     className="absolute left-1 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200/80 bg-white/95 text-slate-700 shadow-sm backdrop-blur-sm transition hover:bg-white disabled:pointer-events-none disabled:opacity-35 md:left-2"
                   >
-                    <span className="sr-only">Назад</span>
+                    <span className="sr-only">{tr('Back', 'Назад')}</span>
                     <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
                     </svg>
                   </button>
                   <button
                     type="button"
-                    aria-label="Следующее фото"
+                    aria-label={tr('Next photo', 'Следующее фото')}
                     disabled={galleryIndex >= mainImages.length - 1}
                     onClick={() => scrollGalleryTo(galleryIndex + 1)}
                     className="absolute right-1 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200/80 bg-white/95 text-slate-700 shadow-sm backdrop-blur-sm transition hover:bg-white disabled:pointer-events-none disabled:opacity-35 md:right-2"
                   >
-                    <span className="sr-only">Вперёд</span>
+                    <span className="sr-only">{tr('Next', 'Вперёд')}</span>
                     <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                     </svg>
@@ -1224,7 +1294,7 @@ export const ProductDetail: React.FC = () => {
                       type="button"
                       onClick={() => scrollGalleryTo(i)}
                       className={`h-2 rounded-full transition ${i === galleryIndex ? 'w-6 bg-brand' : 'w-2 bg-slate-300'}`}
-                      aria-label={`Фото ${i + 1} из ${mainImages.length}`}
+                      aria-label={tr(`Photo ${i + 1} of ${mainImages.length}`, `Фото ${i + 1} из ${mainImages.length}`)}
                       aria-pressed={i === galleryIndex}
                     />
                   ))}
@@ -1242,7 +1312,7 @@ export const ProductDetail: React.FC = () => {
                   />
                 ) : (
                   <div className="absolute right-3 top-3 text-right text-[10px] text-slate-400 sm:text-xs">
-                    Изображение не загружено
+                    {tr('Image not uploaded', 'Изображение не загружено')}
                   </div>
                 )}
               </div>
@@ -1254,7 +1324,7 @@ export const ProductDetail: React.FC = () => {
               className="mt-6 flex flex-col gap-3 md:relative md:min-h-[3.75rem] md:w-full md:gap-0 md:py-0 lg:min-h-[3.5rem]"
             >
               <div className="flex flex-col items-center gap-0.5 text-center md:hidden">
-                {product?.rrp_price != null && (
+                {displayRrp != null && (
                   <span
                     className={`text-sm tabular-nums ${hasDiscount ? 'text-slate-500 line-through' : 'text-slate-500'}`}
                   >
@@ -1273,7 +1343,7 @@ export const ProductDetail: React.FC = () => {
                         hasDiscount ? 'text-slate-500 line-through' : 'text-slate-500'
                       }`}
                     >
-                      {formatPrice(Number(product.rrp_price))}
+                      {formatPrice(Number(displayRrp))}
                     </span>
                   )}
                   <p className="text-center text-lg font-semibold tabular-nums text-slate-900 sm:text-xl min-w-0 max-w-[min(48vw,14rem)] truncate sm:max-w-[min(42vw,16rem)]">
@@ -1288,7 +1358,7 @@ export const ProductDetail: React.FC = () => {
                   onClick={handleAddToCart}
                   className="min-h-9 w-[11.4rem] max-w-full shrink-0 rounded-full border border-brand/90 bg-brand py-2 px-6 text-sm font-medium leading-tight text-white transition hover:bg-brand/90 md:min-h-8 md:w-full md:px-4 md:py-1.5 md:text-xs lg:px-5 lg:text-sm whitespace-nowrap"
                 >
-                  В корзину
+                  {language === 'en' ? 'Add to cart' : 'В корзину'}
                 </button>
               </div>
             </div>
@@ -1301,7 +1371,7 @@ export const ProductDetail: React.FC = () => {
         {(ingredientBrief?.infographic_image_url || (product?.detail_description && /^https?:\/\//i.test(product.detail_description))) && (
           <section id="product-description" className="mt-6 overflow-hidden rounded-2xl bg-white shadow-[0_1px_10px_-6px_rgba(15,23,42,0.2)] ring-1 ring-slate-200/70">
             <div className={PRODUCT_DETAIL_WHITE_CARD_INNER}>
-              <p className="mb-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Подробнее о составе</p>
+              <p className="mb-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">{tr('More about ingredients', 'Подробнее о составе')}</p>
               <div className="overflow-hidden rounded-xl border border-slate-200/70 bg-white">
                 <img
                   src={ingredientBrief?.infographic_image_url || product?.detail_description || ''}
@@ -1315,7 +1385,7 @@ export const ProductDetail: React.FC = () => {
 
         <section id="product-reviews">
           <h2 className="mb-3 text-left text-xs font-bold uppercase tracking-wider text-slate-700 md:text-lg md:font-semibold md:normal-case md:tracking-tight md:text-slate-900" style={{ paddingLeft: '2vw' }}>
-            Отзывы
+            {language === 'en' ? 'Reviews' : 'Отзывы'}
           </h2>
 
           <ul className="space-y-4">
@@ -1327,12 +1397,12 @@ export const ProductDetail: React.FC = () => {
                       {r.profiles?.name?.trim()
                         ? r.profiles.name.trim()
                         : r.profiles?.email
-                        ? r.profiles.email.split('@')[0] || 'Гость'
-                        : 'Гость'}
+                        ? r.profiles.email.split('@')[0] || tr('Guest', 'Гость')
+                        : tr('Guest', 'Гость')}
                     </span>
                     <span className="text-amber-500">{'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}</span>
                     <span className="text-[length:calc(0.75rem-1pt)] text-slate-400">
-                      {new Date(r.created_at).toLocaleDateString('ru-RU')}
+                      {new Date(r.created_at).toLocaleDateString(isEn ? 'en-US' : 'ru-RU')}
                     </span>
                   </div>
                   {canDeleteReview(r) && (
@@ -1342,8 +1412,8 @@ export const ProductDetail: React.FC = () => {
                         onClick={() => (editingReviewId === r.id ? cancelEditReview() : beginEditReview(r))}
                         disabled={deletingReviewId === r.id || updatingReviewId === r.id}
                         className="rounded border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-50"
-                        title={editingReviewId === r.id ? 'Отменить редактирование' : 'Изменить отзыв'}
-                        aria-label={editingReviewId === r.id ? 'Отменить редактирование' : 'Изменить отзыв'}
+                        title={editingReviewId === r.id ? tr('Cancel editing', 'Отменить редактирование') : tr('Edit review', 'Изменить отзыв')}
+                        aria-label={editingReviewId === r.id ? tr('Cancel editing', 'Отменить редактирование') : tr('Edit review', 'Изменить отзыв')}
                       >
                         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
                           <path
@@ -1359,8 +1429,8 @@ export const ProductDetail: React.FC = () => {
                         onClick={() => handleDeleteReview(r.id)}
                         disabled={deletingReviewId === r.id || updatingReviewId === r.id}
                         className="rounded border border-slate-200 p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
-                        title="Удалить"
-                        aria-label="Удалить"
+                        title={tr('Delete', 'Удалить')}
+                        aria-label={tr('Delete', 'Удалить')}
                       >
                         {deletingReviewId === r.id ? (
                           <span className="text-xs">…</span>
@@ -1375,7 +1445,7 @@ export const ProductDetail: React.FC = () => {
                 </div>
                 {editingReviewId === r.id ? (
                   <div className="mt-3 space-y-3 rounded-lg border border-slate-200 bg-white p-3">
-                    <label className="text-xs font-medium text-slate-600">Текст</label>
+                    <label className="text-xs font-medium text-slate-600">{tr('Text', 'Текст')}</label>
                     <textarea
                       value={editReviewBody}
                       onChange={(e) => setEditReviewBody(e.target.value)}
@@ -1383,7 +1453,7 @@ export const ProductDetail: React.FC = () => {
                       rows={4}
                     />
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs font-medium text-slate-600">Оценка</span>
+                      <span className="text-xs font-medium text-slate-600">{tr('Rating', 'Оценка')}</span>
                       <select
                         value={editReviewRating}
                         onChange={(e) => setEditReviewRating(Number(e.target.value))}
@@ -1397,7 +1467,7 @@ export const ProductDetail: React.FC = () => {
                       </select>
                     </div>
                     <div>
-                      <p className="mb-1 text-xs font-medium text-slate-600">Фото</p>
+                      <p className="mb-1 text-xs font-medium text-slate-600">{tr('Photos', 'Фото')}</p>
                       <div className="flex flex-wrap gap-2">
                         {editReviewKeptPhotoUrls.map((url) => (
                           <div key={url} className="relative h-12 w-12 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
@@ -1406,7 +1476,7 @@ export const ProductDetail: React.FC = () => {
                               type="button"
                               onClick={() => setEditReviewKeptPhotoUrls((prev) => prev.filter((u) => u !== url))}
                               className="absolute right-0.5 top-0.5 rounded-full bg-white/80 px-1 text-[10px] text-slate-600 hover:bg-red-50 hover:text-red-600"
-                              aria-label="Убрать фото"
+                              aria-label={tr('Remove photo', 'Убрать фото')}
                             >
                               ×
                             </button>
@@ -1419,7 +1489,7 @@ export const ProductDetail: React.FC = () => {
                               type="button"
                               onClick={() => setEditReviewNewFiles((prev) => prev.filter((_, j) => j !== i))}
                               className="absolute right-0.5 top-0.5 rounded-full bg-white/80 px-1 text-[10px] text-slate-600 hover:bg-red-50 hover:text-red-600"
-                              aria-label="Удалить"
+                              aria-label={tr('Delete', 'Удалить')}
                             >
                               ×
                             </button>
@@ -1427,7 +1497,7 @@ export const ProductDetail: React.FC = () => {
                         ))}
                       </div>
                       <p className="mt-1 text-[11px] text-slate-500">
-                        * До {MAX_REVIEW_PHOTOS} фото, 5 МБ каждое ({editReviewKeptPhotoUrls.length + editReviewNewFiles.length}/
+                        * {tr(`Up to ${MAX_REVIEW_PHOTOS} photos, 5 MB each`, `До ${MAX_REVIEW_PHOTOS} фото, 5 МБ каждое`)} ({editReviewKeptPhotoUrls.length + editReviewNewFiles.length}/
                         {MAX_REVIEW_PHOTOS})
                       </p>
                     </div>
@@ -1438,7 +1508,7 @@ export const ProductDetail: React.FC = () => {
                         disabled={updatingReviewId === r.id || editReviewKeptPhotoUrls.length + editReviewNewFiles.length >= MAX_REVIEW_PHOTOS}
                         className="min-w-0 basis-0 flex-1 rounded-full border border-slate-300 bg-white px-4 py-1.5 text-sm font-medium leading-tight text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                       >
-                        +Фото
+                        {tr('+Photo', '+Фото')}
                       </button>
                       <button
                         type="button"
@@ -1446,7 +1516,7 @@ export const ProductDetail: React.FC = () => {
                         disabled={updatingReviewId === r.id}
                         className="min-w-0 basis-0 flex-1 rounded-full border border-slate-300 bg-white px-4 py-1.5 text-sm font-medium leading-tight text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                       >
-                        Отмена
+                        {tr('Cancel', 'Отмена')}
                       </button>
                       <button
                         type="button"
@@ -1454,7 +1524,7 @@ export const ProductDetail: React.FC = () => {
                         disabled={updatingReviewId === r.id}
                         className="min-w-0 basis-0 flex-1 rounded-full border border-brand/90 bg-brand px-4 py-1.5 text-sm font-medium leading-tight text-white hover:bg-brand/90 disabled:opacity-60"
                       >
-                        {updatingReviewId === r.id ? 'Сохранение…' : 'Сохранить'}
+                        {updatingReviewId === r.id ? tr('Saving…', 'Сохранение…') : tr('Save', 'Сохранить')}
                       </button>
                       <input
                         ref={editReviewFileInputRef}
@@ -1482,7 +1552,7 @@ export const ProductDetail: React.FC = () => {
                           type="button"
                           onClick={() => setReviewPhotoLightbox({ urls, index: i })}
                           className="block overflow-hidden rounded-lg ring-offset-2 transition hover:opacity-95 focus:outline-none focus:ring-2 focus:ring-brand/60"
-                          aria-label={`Фото ${i + 1} из ${urls.length}`}
+                          aria-label={tr(`Photo ${i + 1} of ${urls.length}`, `Фото ${i + 1} из ${urls.length}`)}
                         >
                           <img src={ph.image_url} alt="" className="h-20 w-20 object-cover" />
                         </button>
@@ -1493,7 +1563,7 @@ export const ProductDetail: React.FC = () => {
               </li>
             ))}
           </ul>
-          {reviews.length === 0 && <p className="text-xs text-slate-500 sm:text-sm" style={{ paddingLeft: '2vw' }}>Пока нет отзывов.</p>}
+          {reviews.length === 0 && <p className="text-xs text-slate-500 sm:text-sm" style={{ paddingLeft: '2vw' }}>{language === 'en' ? 'No reviews yet.' : 'Пока нет отзывов.'}</p>}
 
           {isLoggedIn && id && isUuid(id) ? (
             reviewOrderId ? (
@@ -1506,7 +1576,7 @@ export const ProductDetail: React.FC = () => {
                 aria-expanded={reviewComposerOpen}
                 id="review-composer-toggle"
               >
-                <h3 className="text-sm font-semibold text-slate-800">Оставить отзыв</h3>
+                <h3 className="text-sm font-semibold text-slate-800">{language === 'en' ? 'Leave a review' : 'Оставить отзыв'}</h3>
                 <span className="shrink-0 text-slate-400" aria-hidden>
                   {reviewComposerOpen ? (
                     <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1520,7 +1590,7 @@ export const ProductDetail: React.FC = () => {
                 </span>
               </button>
               {!reviewComposerOpen ? (
-                <p className="mt-1 text-xs text-slate-500">Нажмите, чтобы написать отзыв и прикрепить фото.</p>
+                <p className="mt-1 text-xs text-slate-500">{tr('Click to write a review and attach photos.', 'Нажмите, чтобы написать отзыв и прикрепить фото.')}</p>
               ) : null}
 
               <div
@@ -1530,7 +1600,7 @@ export const ProductDetail: React.FC = () => {
                 aria-labelledby="review-composer-toggle"
               >
               <div className="mb-3 flex items-center justify-start gap-1.5">
-                <span className="text-xs font-semibold text-slate-700 sm:text-sm">Фотоотзыв и бонусные баллы</span>
+                <span className="text-xs font-semibold text-slate-700 sm:text-sm">{tr('Photo review and bonus points', 'Фотоотзыв и бонусные баллы')}</span>
                 <div
                   className="relative inline-flex items-center"
                   onMouseEnter={() => {
@@ -1547,7 +1617,7 @@ export const ProductDetail: React.FC = () => {
                   <button
                     type="button"
                     className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-amber-300 bg-amber-50 text-[11px] font-semibold leading-none text-amber-700"
-                    aria-label="Информация о бонусных баллах"
+                    aria-label={tr('Bonus points info', 'Информация о бонусных баллах')}
                     aria-expanded={reviewInfoOpen}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -1566,14 +1636,14 @@ export const ProductDetail: React.FC = () => {
                         onClick={() => setReviewInfoOpen(false)}
                       />
                       <div className="fixed left-1/2 top-[calc(50vh-5.5rem)] z-[60] w-[min(36rem,calc(100vw-1.5rem))] max-w-[calc(100vw-1.5rem)] -translate-x-1/2 rounded-lg border border-slate-200 bg-white px-4 py-3 text-[10px] leading-snug text-slate-700 shadow-lg md:hidden">
-                        <p>• Содержательный и искренний отзыв: бонус до 500 pt. ⭐</p>
-                        <p className="mt-2">• Неподходящие материалы могут быть удалены без предупреждения. ⚠️</p>
-                        <p className="mt-2">• Авторские права на отзывы принадлежат SEMO. ©</p>
+                        <p>{tr('• Detailed and sincere review: bonus up to 500 pt. ⭐', '• Содержательный и искренний отзыв: бонус до 500 pt. ⭐')}</p>
+                        <p className="mt-2">{tr('• Inappropriate content may be removed without notice. ⚠️', '• Неподходящие материалы могут быть удалены без предупреждения. ⚠️')}</p>
+                        <p className="mt-2">{tr('• Review copyrights belong to SEMO. ©', '• Авторские права на отзывы принадлежат SEMO. ©')}</p>
                       </div>
                       <div className="absolute left-0 top-full z-20 mt-1 hidden w-max max-w-[min(30rem,calc(100vw-2rem))] rounded-lg border border-slate-200 bg-white px-4 py-3 text-[11px] leading-snug text-slate-700 shadow-lg md:block">
-                        <p>• Содержательный и искренний отзыв: бонус до 500 pt. ⭐</p>
-                        <p className="mt-2">• Неподходящие материалы могут быть удалены без предупреждения. ⚠️</p>
-                        <p className="mt-2">• Авторские права на отзывы принадлежат SEMO. ©</p>
+                        <p>{tr('• Detailed and sincere review: bonus up to 500 pt. ⭐', '• Содержательный и искренний отзыв: бонус до 500 pt. ⭐')}</p>
+                        <p className="mt-2">{tr('• Inappropriate content may be removed without notice. ⚠️', '• Неподходящие материалы могут быть удалены без предупреждения. ⚠️')}</p>
+                        <p className="mt-2">{tr('• Review copyrights belong to SEMO. ©', '• Авторские права на отзывы принадлежат SEMO. ©')}</p>
                       </div>
                     </>
                   )}
@@ -1582,10 +1652,10 @@ export const ProductDetail: React.FC = () => {
               <div className="mb-3">
                 <div className="mb-1 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
-                    <label className="text-xs font-medium text-slate-600">Текст отзыва</label>
+                    <label className="text-xs font-medium text-slate-600">{tr('Review text', 'Текст отзыва')}</label>
                   </div>
                   <div className="relative flex items-center gap-2">
-                    <span className="text-xs font-medium text-slate-600">Оценка</span>
+                    <span className="text-xs font-medium text-slate-600">{tr('Rating', 'Оценка')}</span>
                     <button
                       type="button"
                       onClick={(e) => {
@@ -1640,7 +1710,7 @@ export const ProductDetail: React.FC = () => {
                             type="button"
                             onClick={() => setReviewPhotoFiles((prev) => prev.filter((_, j) => j !== i))}
                             className="absolute right-0.5 top-0.5 rounded-full bg-white/80 px-1 text-[10px] text-slate-600 hover:bg-red-50 hover:text-red-600"
-                            aria-label="Удалить"
+                            aria-label={tr('Delete', 'Удалить')}
                           >
                             ×
                           </button>
@@ -1653,11 +1723,11 @@ export const ProductDetail: React.FC = () => {
                     onChange={(e) => setReviewBody(e.target.value)}
                     className="w-full border-0 bg-transparent px-1 pb-1 text-sm placeholder:text-slate-400 focus:outline-none"
                     rows={3}
-                    placeholder="Поделитесь впечатлениями о наборе"
+                    placeholder={tr('Share your impression of this box', 'Поделитесь впечатлениями о наборе')}
                   />
                 </div>
                 <p className="mt-1 text-[11px] text-slate-500">
-                  * До {MAX_REVIEW_PHOTOS} фото, 5 МБ каждое
+                  * {tr(`Up to ${MAX_REVIEW_PHOTOS} photos, 5 MB each`, `До ${MAX_REVIEW_PHOTOS} фото, 5 МБ каждое`)}
                 </p>
               </div>
               <div className="mb-3 flex flex-row items-stretch gap-2">
@@ -1666,14 +1736,14 @@ export const ProductDetail: React.FC = () => {
                   onClick={() => reviewFileInputRef.current?.click()}
                   className="min-w-0 basis-0 flex-1 rounded-full border border-slate-300 bg-white px-4 py-1.5 text-sm font-medium leading-tight text-slate-700 hover:bg-slate-50"
                 >
-                  +Фото
+                  {tr('+Photo', '+Фото')}
                 </button>
                 <button
                   type="submit"
                   disabled={submittingReview}
                   className="min-w-0 basis-0 flex-1 rounded-full border border-brand/90 bg-brand px-4 py-1.5 text-sm font-medium leading-tight text-white hover:bg-brand/90 disabled:opacity-60"
                 >
-                  {submittingReview ? 'Отправка…' : 'Отправить отзыв'}
+                  {submittingReview ? tr('Submitting…', 'Отправка…') : tr('Submit review', 'Отправить отзыв')}
                 </button>
                 <input
                   ref={reviewFileInputRef}
@@ -1699,12 +1769,14 @@ export const ProductDetail: React.FC = () => {
             </>
             ) : !reviewOrderCheckLoading ? (
               <p className="mt-4 text-sm text-slate-500">
-                Оставить отзыв могут только покупатели этого набора. Оформите заказ, чтобы поделиться впечатлением.
+                {language === 'en'
+                  ? 'Only customers who purchased this box can leave a review. Please place an order first.'
+                  : 'Оставить отзыв могут только покупатели этого набора. Оформите заказ, чтобы поделиться впечатлением.'}
               </p>
             ) : null
           ) : !isLoggedIn ? (
             <p className="mt-4 text-sm text-slate-500">
-              <Link to="/login" className="text-brand hover:underline">Войдите</Link>, чтобы оставить отзыв.
+              <Link to="/login" className="text-brand hover:underline">{tr('Sign in', 'Войдите')}</Link>{tr(', to leave a review.', ', чтобы оставить отзыв.')}
             </p>
           ) : null}
         </section>
@@ -1716,12 +1788,12 @@ export const ProductDetail: React.FC = () => {
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/88 p-3 sm:p-6"
           role="dialog"
           aria-modal="true"
-          aria-label="Просмотр фото отзыва"
+          aria-label={tr('Review photo viewer', 'Просмотр фото отзыва')}
         >
           <button
             type="button"
             className="absolute inset-0 cursor-default"
-            aria-label="Закрыть"
+            aria-label={tr('Close', 'Закрыть')}
             onClick={() => setReviewPhotoLightbox(null)}
           />
           <div
@@ -1766,7 +1838,7 @@ export const ProductDetail: React.FC = () => {
                       })
                     }
                     className="absolute left-1 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-slate-800 shadow-md transition hover:bg-white md:left-0"
-                    aria-label="Предыдущее фото"
+                    aria-label={tr('Previous photo', 'Предыдущее фото')}
                   >
                     <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
@@ -1782,7 +1854,7 @@ export const ProductDetail: React.FC = () => {
                       })
                     }
                     className="absolute right-1 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-slate-800 shadow-md transition hover:bg-white md:right-0"
-                    aria-label="Следующее фото"
+                    aria-label={tr('Next photo', 'Следующее фото')}
                   >
                     <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
@@ -1802,7 +1874,7 @@ export const ProductDetail: React.FC = () => {
                 onClick={() => setReviewPhotoLightbox(null)}
                 className="rounded-full border border-white/40 bg-white/10 px-4 py-1.5 text-sm font-medium text-white backdrop-blur-sm hover:bg-white/20"
               >
-                Закрыть
+                {tr('Close', 'Закрыть')}
               </button>
             </div>
           </div>

@@ -30,6 +30,7 @@ interface AddressSuggestProps {
     apartmentOffice?: string;
     postcode?: string;
   }) => void;
+  country?: string;
 }
 
 const DADATA_TOKEN = import.meta.env.VITE_DADATA_API_KEY as string | undefined;
@@ -41,6 +42,7 @@ export const AddressSuggest: React.FC<AddressSuggestProps> = ({
   value,
   onChange,
   onPartsChange,
+  country = 'RU',
 }) => {
   const [query, setQuery] = useState(value);
   const [suggestions, setSuggestions] = useState<DadataAddressSuggestion[]>([]);
@@ -52,7 +54,7 @@ export const AddressSuggest: React.FC<AddressSuggestProps> = ({
   }, [value]);
 
   useEffect(() => {
-    if (!DADATA_TOKEN) return;
+    if (!DADATA_TOKEN || country !== 'RU') return;
     if (!query || query.length < 3) {
       setSuggestions([]);
       return;
@@ -94,7 +96,7 @@ export const AddressSuggest: React.FC<AddressSuggestProps> = ({
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [query]);
+  }, [query, country]);
 
   const handleSelect = (s: DadataAddressSuggestion) => {
     onChange(s.value);
@@ -122,7 +124,7 @@ export const AddressSuggest: React.FC<AddressSuggestProps> = ({
   };
 
   // DaData 키가 없으면 그냥 일반 인풋만 보여준다.
-  if (!DADATA_TOKEN) {
+  if (!DADATA_TOKEN || country !== 'RU') {
     return (
       <div>
         <label className="mb-1 block text-sm font-medium text-slate-700">

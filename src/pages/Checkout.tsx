@@ -2,7 +2,10 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
+import { useI18n } from '../context/I18nContext';
 import { BackArrow } from '../components/BackArrow';
+import { PhoneCountryCodeSelect } from '../components/PhoneCountryCodeSelect';
+import { CountrySelect } from '../components/CountrySelect';
 import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../components/SemoPageSpinner';
 import { AddressSuggest } from '../components/AddressSuggest';
 import { generateOrderNumber } from '../lib/orderNumber';
@@ -20,6 +23,8 @@ import {
 import { clearPendingShippingBackup, flushPendingShippingBackup, savePendingShippingBackup } from '../lib/profileDeliveryOffline';
 import { validateShippingComplete } from '../lib/shippingValidation';
 import { clampDigits } from '../lib/digitsOnly';
+import { detectCountryFromPhone, formatIntlPhoneByCountry, type PhoneCountry } from '../lib/phoneIntl';
+import { formatCurrencyAmount } from '../lib/market';
 import { CustomsPassportNotice } from '../components/CustomsPassportNotice';
 import { InnHelpTooltip } from '../components/InnHelpTooltip';
 import { accountPrimaryCtaClass } from '../lib/accountLinkUi';
@@ -38,26 +43,6 @@ import {
   deliveryFormNoteTextClass,
   deliveryFormSectionStackClass,
 } from '../lib/profileDeliveryFormUi';
-
-function formatPrice(price: number): string {
-  return `${price.toLocaleString('ru-RU')} руб.`;
-}
-
-/** ProfileEdit / Register와 동일 — RU 휴대폰 마스크 */
-function formatPhone(value: string): string {
-  let digits = (value ?? '').replace(/\D/g, '').slice(0, 11);
-  if (digits.length === 0) return '';
-  if (digits.startsWith('8')) digits = '7' + digits.slice(1);
-  else if (!digits.startsWith('7')) digits = '7' + digits;
-  const a = digits.slice(0, 1);
-  const b = digits.slice(1, 4);
-  const c = digits.slice(4, 7);
-  const e = digits.slice(7, 11);
-  if (e.length) return `+${a} ${b} ${c} ${e}`;
-  if (c.length) return `+${a} ${b} ${c}`;
-  if (b.length) return `+${a} ${b}`;
-  return `+${a}`;
-}
 
 /** 배송 폼 필드 키 (개인정보·shipping_addresses 와 동일) */
 const DELIVERY_KEYS = [
@@ -140,6 +125,7 @@ const POINTS_MAX_PERCENT_OF_TOTAL = 0.1;
 
 export const Checkout: React.FC = () => {
   const navigate = useNavigate();
+  const { currency, country, setCountry } = useI18n();
   const [searchParams] = useSearchParams();
   const { isLoggedIn, userId, userEmail, initialized, isEmailConfirmed } = useAuth();
   /** 가짜(테스트) 주문 여부. URL에 ?test=1 있으면 true → is_test로 저장해 나중에 구분·삭제 가능 */
@@ -184,13 +170,19 @@ export const Checkout: React.FC = () => {
   /** «Изменить номер» без мгновенного сброса telegram_id в БД — снятие привязки при сохранении заказа/адреса */
   const [phoneUnlinkRequested, setPhoneUnlinkRequested] = useState(false);
   const [pollingForTelegram, setPollingForTelegram] = useState(false);
+  const [phoneCountry, setPhoneCountry] = useState<PhoneCountry>('RU');
   const pollingForTelegramRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const phoneInputRef = useRef<HTMLInputElement>(null);
   const deliveryFormInitialized = useRef(false);
+
+  useEffect(() => {
+    setPhoneCountry(detectCountryFromPhone(deliveryForm.phone ?? ''));
+  }, [deliveryForm.phone]);
   /** CS 방어: 결제 단계에서 가격 본 적 한 번만 로그 */
   const paymentStepViewedLoggedRef = useRef(false);
   /** 결제 시점 클라이언트 IP (결제 단계 진입 시 한 번 조회) */
   const clientIpRef = useRef<string | null>(null);
+  const formatPrice = useCallback((price: number) => formatCurrencyAmount(price, currency), [currency]);
 
   /** Доставка: ИНН 12 / индекс 6 / паспорт 4+6 / телефон +7 полный — validateShippingComplete */
   const shippingValidation = validateShippingComplete(deliveryFormToShippingFormCamel(deliveryForm));
@@ -436,9 +428,9 @@ export const Checkout: React.FC = () => {
     (e: React.ChangeEvent<HTMLInputElement>) => {
       if (profile?.telegram_id && !phoneUnlinkRequested) return;
       setPhoneError('');
-      setDeliveryField('phone', formatPhone(e.target.value ?? ''));
+      setDeliveryField('phone', formatIntlPhoneByCountry(e.target.value ?? '', phoneCountry));
     },
-    [profile?.telegram_id, phoneUnlinkRequested, setDeliveryField],
+    [profile?.telegram_id, phoneUnlinkRequested, setDeliveryField, phoneCountry],
   );
 
   const handleTelegramVerify = useCallback(async () => {
@@ -1108,6 +1100,7 @@ export const Checkout: React.FC = () => {
                 Номер телефона
               </label>
               <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-stretch">
+                <PhoneCountryCodeSelect value={phoneCountry} onChange={setPhoneCountry} />
                 <input
                   ref={phoneInputRef}
                   id="ck-phone"
@@ -1175,7 +1168,18 @@ export const Checkout: React.FC = () => {
               {phoneError ? <p className="mt-1 text-xs text-red-500">{phoneError}</p> : null}
             </div>
 
+            <div className={deliveryFormFieldColClass}>
+              <label htmlFor="checkout-country" className={deliveryFormFieldLabelClass}>
+                Страна доставки
+              </label>
+              <CountrySelect
+                id="checkout-country"
+                value={country}
+                onChange={(code) => setCountry(code as any)}
+              />
+            </div>
             <AddressSuggest
+              country={country}
               label={
                 <span className="inline-flex items-center gap-2">
                   Адрес (поиск по базе)
