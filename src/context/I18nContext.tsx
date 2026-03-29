@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useMemo, useRef, useState 
 
 export type AppLanguage = 'ru' | 'en';
 export type AppCurrency = 'RUB' | 'USD' | 'KZT' | 'UZS';
-export type AppCountry = 'RU' | 'KZ' | 'UZ';
+export type AppCountry = 'RU' | 'KZ' | 'UZ' | 'AE';
 
 type I18nContextValue = {
   country: AppCountry;
@@ -23,7 +23,8 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [country, setCountry] = useState<AppCountry>('RU');
   const [language, setLanguage] = useState<AppLanguage>('ru');
   const [currency, setCurrency] = useState<AppCurrency>('RUB');
-  const hydratedRef = useRef(false);
+  /** localStorage 초기 읽기가 끝나기 전에는 저장 effect가 돌면 안 됨 — 기본값 ru/RUB 로 덮어쓰는 레이스 방지 */
+  const [storageLoaded, setStorageLoaded] = useState(false);
   // 사용자가 직접 언어/통화를 변경한 뒤에는, IP 기반 자동설정이 늦게 도착해 값을 덮어쓰지 않도록 막는다.
   const userInteractedRef = useRef(false);
 
@@ -47,13 +48,11 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const savedLang = localStorage.getItem(LANG_KEY);
       const savedCurrency = localStorage.getItem(CURRENCY_KEY);
       const savedCountry = localStorage.getItem(COUNTRY_KEY);
-      if (savedCountry === 'RU' || savedCountry === 'KZ' || savedCountry === 'UZ') setCountry(savedCountry);
+      if (savedCountry === 'RU' || savedCountry === 'KZ' || savedCountry === 'UZ' || savedCountry === 'AE') setCountry(savedCountry as AppCountry);
       if (savedLang === 'ru' || savedLang === 'en') setLanguage(savedLang);
       if (savedCurrency === 'RUB' || savedCurrency === 'USD' || savedCurrency === 'KZT' || savedCurrency === 'UZS') {
         setCurrency(savedCurrency);
       }
-      // 요청: AED(현재 타입 없음) / KZT는 제거 방향 — KZT가 저장돼 있으면 USD로 흡수
-      if (savedCurrency === 'KZT') setCurrency('USD');
       // 첫 방문자(저장값 없음)만 IP 국가 기반 자동 기본값 적용
       if (!savedLang && !savedCurrency && !savedCountry) {
         const controller = new AbortController();
@@ -73,16 +72,21 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
               if (userInteractedRef.current) return;
               setCountry('KZ');
               setLanguage('ru');
-              // KZT 제거 방향: KZ라도 USD로 시작
-              setCurrency('USD');
+              setCurrency('KZT');
               return;
             }
             if (cc === 'UZ') {
               if (userInteractedRef.current) return;
               setCountry('UZ');
               setLanguage('ru');
-              // UZS는 유지
               setCurrency('UZS');
+              return;
+            }
+            if (cc === 'AE') {
+              if (userInteractedRef.current) return;
+              setCountry('AE');
+              setLanguage('en');
+              setCurrency('USD');
               return;
             }
             // 기타 국가는 영어/달러로 시작
@@ -98,14 +102,12 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {
       /* ignore */
     } finally {
-      // 초기 hydrating(로컬스토리지 읽기/자동설정) 완료 전에는
-      // 다른 effect에서 localStorage를 기본값으로 덮어쓰지 않도록 한다.
-      hydratedRef.current = true;
+      setStorageLoaded(true);
     }
   }, []);
 
   useEffect(() => {
-    if (!hydratedRef.current) return;
+    if (!storageLoaded) return;
     try {
       localStorage.setItem(LANG_KEY, language);
       localStorage.setItem(CURRENCY_KEY, currency);
@@ -114,7 +116,7 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
       /* ignore */
     }
     document.documentElement.lang = language;
-  }, [language, currency, country]);
+  }, [language, currency, country, storageLoaded]);
 
   const value = useMemo(
     () => ({

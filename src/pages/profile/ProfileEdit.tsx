@@ -111,7 +111,7 @@ class ProfileEditErrorBoundary extends React.Component<
 }
 
 export const ProfileEdit: React.FC = () => {
-  const { language, country, setCountry } = useI18n();
+  const { language, country, setCountry, setCurrency } = useI18n();
   const tr = useCallback((ru: string, en: string) => (language === 'en' ? en : ru), [language]);
   const [searchParams] = useSearchParams();
   const focusPhone = searchParams.get('focus') === 'phone';
@@ -916,7 +916,18 @@ export const ProfileEdit: React.FC = () => {
                   <CountrySelect
                     id="profile-country"
                     value={country}
-                    onChange={(code) => setCountry(code as any)}
+                    onChange={(code) => {
+                      setCountry(code as any);
+                      // 국가 변경 시 대표 화폐 자동 전환
+                      const currencyMap: Record<string, 'RUB' | 'KZT' | 'UZS' | 'USD'> = {
+                        RU: 'RUB',
+                        KZ: 'KZT',
+                        UZ: 'UZS',
+                        AE: 'USD',
+                      };
+                      const next = currencyMap[code];
+                      if (next) setCurrency(next);
+                    }}
                   />
                 </div>
                 <AddressSuggest

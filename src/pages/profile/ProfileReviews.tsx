@@ -5,11 +5,12 @@ import { AuthInitializingScreen, SemoPageSpinner, SEMO_SECTION_LOADING_CLASS } f
 import { useAuth } from '../../context/AuthContext';
 import { useI18n } from '../../context/I18nContext';
 import { supabase } from '../../lib/supabase';
+import { formatStorefrontDate } from '../../lib/formatStorefrontDate';
 
-type ReviewRow = { id: string; product_id: string; product: string; text: string; date: string; rating: number };
+type ReviewRow = { id: string; product_id: string; product: string; text: string; created_at: string; rating: number };
 
 export const ProfileReviews: React.FC = () => {
-  const { language } = useI18n();
+  const { language, country, currency } = useI18n();
   const { isLoggedIn, initialized, userId } = useAuth();
   const [list, setList] = useState<ReviewRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,7 +63,7 @@ export const ProfileReviews: React.FC = () => {
             product_id: r.product_id ?? '',
             product: names[r.product_id] ?? '',
             text: r.body ?? '',
-            date: r.created_at ? new Date(r.created_at).toLocaleDateString('en-US') : '',
+            created_at: r.created_at ?? '',
             rating: r.rating ?? 0,
           }))
         );
@@ -108,7 +109,9 @@ export const ProfileReviews: React.FC = () => {
                   <p className="text-[length:calc(0.875rem-1pt)] font-medium text-slate-800">{r.product}</p>
                   <p className="mt-1 text-[length:calc(0.875rem-1pt)] text-slate-600">{r.text}</p>
                   <p className="mt-2 flex items-center gap-2 text-[length:calc(0.75rem-1pt)] text-slate-500">
-                    <span>{r.date}</span>
+                    <span>
+                      {r.created_at ? formatStorefrontDate(r.created_at, { language, country, currency }) : ''}
+                    </span>
                     <span className="text-amber-500">{'★'.repeat(r.rating)}</span>
                   </p>
                 </Link>

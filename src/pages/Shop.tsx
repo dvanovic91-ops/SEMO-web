@@ -10,6 +10,7 @@ import { ShopCardImage } from './ShopCardImage';
 import { SemoPageSpinner, SEMO_SECTION_LOADING_CLASS } from '../components/SemoPageSpinner';
 import {
   CATALOG_ROOM_SLOTS_TABLE,
+  CATALOG_SLOT_ROW_PERSIST,
   CATALOG_SLOT_VISIBLE_BY_ROOM_KEY,
   clampCatalogVisibleCount,
   parseCatalogVisibleByRoom,
@@ -384,7 +385,12 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
         ]);
         if (slotErr) {
           console.warn('[ShopCatalog] catalog_room_slots:', slotErr.message);
-          setItems(await buildShopItemsFromCategoryProducts(supabase, layoutCategory, 5, currency));
+          const visMapErr = parseCatalogVisibleByRoom(visRow?.value);
+          const cvErr = clampCatalogVisibleCount(
+            visMapErr[layoutCategory] ?? CATALOG_SLOT_ROW_PERSIST,
+            CATALOG_SLOT_ROW_PERSIST,
+          );
+          setItems(await buildShopItemsFromCategoryProducts(supabase, layoutCategory, cvErr, currency));
           setCatalogLoading(false);
           return;
         }
@@ -402,14 +408,20 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
           if (d !== 0) return d;
           return (a.id ?? 0) - (b.id ?? 0);
         });
+        const visMap = parseCatalogVisibleByRoom(visRow?.value);
         if (!slots.length) {
-          setItems(await buildShopItemsFromCategoryProducts(supabase, layoutCategory, 5, currency));
+          const cv0 = clampCatalogVisibleCount(
+            visMap[layoutCategory] ?? CATALOG_SLOT_ROW_PERSIST,
+            CATALOG_SLOT_ROW_PERSIST,
+          );
+          setItems(await buildShopItemsFromCategoryProducts(supabase, layoutCategory, cv0, currency));
           setCatalogLoading(false);
           return;
         }
-        const visMap = parseCatalogVisibleByRoom(visRow?.value);
-        const fallbackVisible = Math.min(5, Math.max(1, slots.length));
-        const targetVisible = clampCatalogVisibleCount(visMap[layoutCategory] ?? fallbackVisible, fallbackVisible);
+        // 관리자 «슬롯 개수» = site_settings.catalog_slot_visible_by_room[room] (없으면 DB 슬롯 행 수까지)
+        const fallbackCap = Math.min(CATALOG_SLOT_ROW_PERSIST, Math.max(1, slots.length));
+        const catalogVisible = clampCatalogVisibleCount(visMap[layoutCategory] ?? fallbackCap, fallbackCap);
+        const targetVisible = Math.min(slots.length, catalogVisible);
         // DB에 slot_index 가 구멍 나 있으면 정렬 후 앞에서 targetVisible 개만 쓰고 표시 순서는 0..n-1 로 압축
         const normalizedSlots: SlotRow[] = slots.slice(0, targetVisible).map((row, i) => ({
           ...row,
@@ -430,7 +442,8 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
             box_history?: boolean | null;
           }
         > = {};
-        // 1) 슬롯에 연결된 상품 — 행은 이미 catalog_room 으로 구분됨. category 문자열이 DB와 어긋나도 슬롯에 넣은 UUID는 그대로 표시(안 그러면 0₽·플레이스홀더만 뜸)
+        // 1) 슬롯에 연결된 상품 — catalog_room 으로 룸이 이미 정해졌으므로, 관리자가 슬롯에 넣은 UUID는 products.category 와 무관하게 표시한다.
+        //    (예전에는 category 불일치 시 맵에서 빼 2칸만 노출되는 버그가 있었음 — 슬롯이 진실 소스.)
         if (productIds.length > 0) {
           let slotProdRes = await supabase.from('products').select(PRODUCTS_SELECT_FULL).in('id', productIds);
           if (slotProdRes.error) {
@@ -458,8 +471,14 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
               }) => {
               const pk = strictProductLayoutKey(p.category);
               if (pk != null && pk !== layoutCategory) {
-                console.warn('[ShopCatalog] 카테고리 불일치 상품 제외:', p.id, p.category, '≠', layoutCategory);
-                return; // 카테고리 불일치 상품 제외
+                console.warn(
+                  '[ShopCatalog] 슬롯 상품이 products.category 와 룸이 다릅니다. 쇼핑몰에는 그대로 노출합니다. id=',
+                  p.id,
+                  'category=',
+                  p.category,
+                  'room=',
+                  layoutCategory,
+                );
               }
               productsMap[p.id] = {
                 name: p.name ?? null,
@@ -513,12 +532,33 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
             boxHistory,
           };
         });
-        // 슬롯에 UUID는 있으나 카테고리 불일치·삭제 등으로 상품을 못 붙인 행은 노출하지 않음.
+        // 슬롯에 UUID는 있으나 삭제·RLS 등으로 상품 행을 못 붙인 경우는 노출하지 않음.
         // 뷰티: box_history(과거 시즌) 상품은 메인 카탈로그에서 제외 → «История боксов» 전용
-        setItems(list.filter((item) => item.productId != null && !item.boxHistory));
+        const slotFiltered = list.filter((item) => item.productId != null && !item.boxHistory);
+        // 핏/헤어 등: catalog_room_slots 행은 있는데 product_id 가 비었거나 전부 걸러지면 카드 0개 →
+        // 슬롯 없을 때와 같이 products.category 로 채움 (빈 슬롯만 마이그레이션된 경우 흔함)
+        if (slotFiltered.length === 0) {
+          setItems(
+            await buildShopItemsFromCategoryProducts(
+              supabase,
+              layoutCategory,
+              catalogVisible,
+              currency,
+            ),
+          );
+        } else {
+          setItems(slotFiltered);
+        }
       } catch (e) {
         console.warn('[ShopCatalog] load error:', e);
-        setItems(await buildShopItemsFromCategoryProducts(supabase, layoutCategory, 5, currency));
+        setItems(
+          await buildShopItemsFromCategoryProducts(
+            supabase,
+            layoutCategory,
+            CATALOG_SLOT_ROW_PERSIST,
+            currency,
+          ),
+        );
       } finally {
         setCatalogLoading(false);
       }

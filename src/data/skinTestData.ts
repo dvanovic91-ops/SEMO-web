@@ -74,21 +74,6 @@ export const PROFILE_STEPS = [
   { key: 'age', label: 'Ваш возраст?', options: [['До 20 лет', 'age_1'], ['20–25', 'age_2'], ['26–30', 'age_3'], ['31–35', 'age_4'], ['36–40', 'age_5'], ['41–45', 'age_6'], ['45+', 'age_7']] as OptionItem[] },
   { key: 'gender', label: 'Ваш пол?', options: [['Женский', 'gen_f'], ['Мужской', 'gen_m']] as OptionItem[] },
   {
-    key: 'city',
-    label: 'Ваш город?',
-    options: [
-      ['Москва и МО', 'city_1'],
-      ['СПб и ЛО', 'city_2'],
-      ['Новосибирск', 'city_3'],
-      ['Екатеринбург', 'city_4'],
-      ['Казань', 'city_5'],
-      ['Нижний Новгород', 'city_6'],
-      ['Челябинск', 'city_7'],
-      ['Самара', 'city_8'],
-      ['Другой город', 'city_9'],
-    ] as OptionItem[],
-  },
-  {
     key: 'concern',
     label: 'Главная проблема с кожей?',
     options: [

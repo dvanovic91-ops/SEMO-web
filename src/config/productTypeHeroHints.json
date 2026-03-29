@@ -1,0 +1,213 @@
+{
+  "클렌저": {
+    "summaryKo": "클렌저: 세안 후 장벽·당김(S/R·D/O)이 핵심입니다. 히어로는 세정·유화·용해(서팩턴트·오일·계면활성)를 우선하고, 보습·미백만으로 대표 성분을 삼지 않습니다.",
+    "geminiHint": "HERO SELECTION FOR CLEANSER/WASH-OFF: Prioritize cleansing story — surfactants, emulsifiers, oils that lift sebum/makeup, rinse-off feel, mild pH. Do NOT feature pure hydrating/brightening/anti-aging actives as heroes unless they clearly support post-rinse comfort (barrier/soothing) alongside real cleansing function. Panthenol or HA alone is not a cleanser hero.",
+    "heroGeminiPromptExtra": "CLEANSER OVERRIDE: At least 2 of 3 heroes must be real wash-off mechanics (surfactant, emulsifier, oil/cleansing ester, solubilizer). Panthenol, glycerin, or HA are not heroes if a primary surfactant or cleansing oil appears in the JSON. Consumer-recognition list must not override cleansing story.",
+    "primaryTags": ["oil_control", "exfoliating", "acne", "soothing", "barrier"],
+    "secondaryTags": ["hydrating", "antioxidant"],
+    "nameKeywordBoost": ["glucoside", "betaine", "coco", "lauryl", "laureth", "sulfosuccinate", "isethionate", "olea", "carthamus", "helianthus", "oil", "wax", "soap"],
+    "deprioritizeIfOnlyTags": ["brightening", "anti_aging", "firming"],
+    "heroNarrowPoolTopN": 20,
+    "heroNarrowPoolMergeLateAnyTag": ["oil_control", "exfoliating", "acne"],
+    "heroNarrowPoolLateMergeCutoffMultiplier": 2
+  },
+  "토너": {
+    "summaryKo": "토너: 즉각 수분·pH·가벼운 각질(D/O·S/R)이 중심입니다. 히어로는 수분·진정·각질 준비 성분을 우선하고, 세럼급 고농축 미백·주름 단일 활성만 내세우지 않습니다.",
+    "geminiHint": "HERO SELECTION FOR TONER: Prioritize light hydration, soothing after cleanse, pH prep, mild AHA/BHA if present. Avoid naming only heavy anti-aging or pigment actives as top heroes unless they dominate the formula and position.",
+    "primaryTags": ["hydrating", "soothing", "exfoliating", "barrier", "oil_control"],
+    "secondaryTags": ["brightening", "antioxidant", "anti_aging"],
+    "nameKeywordBoost": ["hyaluron", "betaine", "panthenol", "allantoin", "glycolic", "salicylic", "lactic", "pha", "niacinamide"],
+    "deprioritizeIfOnlyTags": ["firming"],
+    "heroNarrowPoolTopN": 20,
+    "heroNarrowPoolMergeLateAnyTag": ["exfoliating", "brightening", "anti_aging"],
+    "heroNarrowPoolLateMergeCutoffMultiplier": 2
+  },
+  "비타민C": {
+    "summaryKo": "비타민 C 제형: 건/지(D/O)와 민감/저항(S/R), 톤·광채·항산화(P/N)를 함께 봅니다. 히어로는 아스코빅애씨드·에틸아스코빅애씨드·AA2G 등 비타민C 계열과 안정화·배합(비타민E·페롤산 등)과 연결된 성분을 우선하고, 단순 베이스 보습제만 대표로 세우지 않습니다.",
+    "geminiHint": "HERO SELECTION FOR VITAMIN C PRODUCTS: Prioritize vitamin C family actives (L-ascorbic acid, ethyl ascorbic acid, sodium ascorbyl phosphate, ascorbyl glucoside, magnesium ascorbyl phosphate, etc.) and their stabilization partners (e.g. ferulic acid, vitamin E/tocopherol) when present. Brightening/antioxidant story must dominate; do not pick only glycerin/HA/panthenol as all three heroes if a clear vitamin C active ranks reasonably high. Mention oxidation sensitivity/pH where relevant; avoid over-claiming medical results.",
+    "heroGeminiPromptExtra": "VITAMIN C OVERRIDE: At least 1–2 heroes must be vitamin C family or clearly paired stabilizers (ferulic, tocopherol). Long or technical INCI names for VC derivatives are acceptable heroes. Do not fill all three slots with glycerin, panthenol, or hyaluronic acid if any ascorb* / ethyl ascorb* / MAP / SAP / AA2G appears in the JSON at MED or better position.",
+    "heroConcFloorByTag": {
+      "brightening": 1.12,
+      "antioxidant": 1.08
+    },
+    "heroPenalizeNameUnlessAnyTag": [
+      {
+        "unlessHasAnyOf": ["brightening", "antioxidant"],
+        "nameSubstrings": ["glycerin", "glycerol", "panthenol", "sodium hyaluronate", "hyaluronic acid", "hyaluronate", "butylene glycol"],
+        "multiplyBaseBy": 0.12
+      }
+    ],
+    "primaryTags": ["brightening", "antioxidant", "anti_aging"],
+    "secondaryTags": ["hydrating", "soothing", "barrier"],
+    "nameKeywordBoost": ["ascorb", "ethyl ascorb", "magnesium ascorb", "sodium ascorb", "ascorbyl", "aa2g", "3-o-ethyl", "ferulic", "tocopherol", "glutathione"],
+    "deprioritizeIfOnlyTags": [],
+    "heroNarrowPoolTopN": 20,
+    "heroNarrowPoolMergeLateAnyTag": ["brightening", "antioxidant"],
+    "heroNarrowPoolLateMergeCutoffMultiplier": 2
+  },
+  "세럼": {
+    "summaryKo": "건/지·보습·피지 밸런스(D/O), 민감/저항(S/R), 미백·톤·주름·탄력(P/N·W/T) 네 쌍을 모두 봅니다. 히어로는 뚜렷한 기능성 활성을 우선합니다.",
+    "geminiHint": "HERO SELECTION FOR SERUM: Prioritize high-impact actives — brightening, anti-aging, firming, exfoliating, antioxidants at meaningful positions. Mention irritation risk if AHA/BHA/retinoids/Vit C family appear. Do not pick only generic humectants if a clear active exists higher in the list.",
+    "primaryTags": ["brightening", "anti_aging", "firming", "exfoliating", "antioxidant", "acne"],
+    "secondaryTags": ["hydrating", "soothing", "barrier", "oil_control"],
+    "nameKeywordBoost": ["niacinamide", "ascorb", "retinol", "retinal", "adenosine", "peptide", "acid", "bakuchiol", "arbutin", "tranexamic"],
+    "deprioritizeIfOnlyTags": [],
+    "heroNarrowPoolTopN": 20,
+    "heroNarrowPoolMergeLateAnyTag": ["anti_aging", "brightening", "firming", "exfoliating", "acne", "antioxidant"],
+    "heroNarrowPoolLateMergeCutoffMultiplier": 2
+  },
+  "에센스": {
+    "summaryKo": "에센스: 건/지(D/O)와 민감/저항(S/R), 미백·톤·주름·탄력(P/N·W/T)을 함께 봅니다. 히어로는 기능성 활성 우선입니다.",
+    "geminiHint": "HERO SELECTION FOR ESSENCE: Same as serum — functional actives (tone, wrinkles, firming, exfoliation, acne) over plain humectants when position supports it.",
+    "primaryTags": ["brightening", "anti_aging", "firming", "exfoliating", "antioxidant", "hydrating", "acne"],
+    "secondaryTags": ["soothing", "barrier", "oil_control"],
+    "nameKeywordBoost": ["niacinamide", "ascorb", "retinol", "ferment", "galacto", "bifida", "peptide", "acid"],
+    "deprioritizeIfOnlyTags": [],
+    "heroNarrowPoolTopN": 20,
+    "heroNarrowPoolMergeLateAnyTag": ["anti_aging", "brightening", "firming", "exfoliating", "acne", "antioxidant"],
+    "heroNarrowPoolLateMergeCutoffMultiplier": 2
+  },
+  "앰플": {
+    "summaryKo": "앰플: 건/지(D/O)·민감/저항(S/R)·톤·주름·탄력(P/N·W/T)을 함께 봅니다. 히어로는 시그니처 활성·고함량 후보를 우선합니다.",
+    "geminiHint": "HERO SELECTION FOR AMPOULE: Prioritize signature high-concentration actives; same family rules as serum — avoid three near-duplicate humectants as heroes.",
+    "primaryTags": ["brightening", "anti_aging", "firming", "exfoliating", "antioxidant", "acne"],
+    "secondaryTags": ["hydrating", "soothing", "barrier"],
+    "nameKeywordBoost": ["niacinamide", "ascorb", "retinol", "peptide", "acid", "arbutin", "tranexamic"],
+    "deprioritizeIfOnlyTags": [],
+    "heroNarrowPoolTopN": 20,
+    "heroNarrowPoolMergeLateAnyTag": ["anti_aging", "brightening", "firming", "exfoliating", "acne", "antioxidant"],
+    "heroNarrowPoolLateMergeCutoffMultiplier": 2
+  },
+  "크림": {
+    "summaryKo": "크림: 밀폐·지속 보습(D/O), 민감/저항(S/R), 톤·항산화(P/N), 주름·탄력(W/T)을 함께 봅니다. 실제 소비에서는 안티에이징·항산화 크림이 흔합니다. 히어로는 장벽·유분막·보습 지속과 연결된 성분을 우선하되, 기능성(브라이트닝·펩타이드 등)이 있으면 반영됩니다.",
+    "geminiHint": "HERO SELECTION FOR CREAM: Prioritize barrier, occlusion, lasting moisture — ceramides, fatty lipids, shea-type story, peptides for firming when relevant. Do not use only water-phase humectants as all three heroes if emollients/barrier actives rank high.",
+    "primaryTags": ["barrier", "hydrating", "soothing", "anti_aging", "firming"],
+    "secondaryTags": ["brightening", "antioxidant", "oil_control"],
+    "nameKeywordBoost": ["ceramide", "squalane", "shea", "butter", "cholesterol", "peptide", "panthenol", "hyaluron"],
+    "deprioritizeIfOnlyTags": [],
+    "heroNarrowPoolTopN": 20,
+    "heroNarrowPoolMergeLateAnyTag": ["barrier", "anti_aging", "firming", "brightening", "exfoliating", "acne"],
+    "heroNarrowPoolLateMergeCutoffMultiplier": 2
+  },
+  "로션": {
+    "summaryKo": "로션: 가벼운 유수분·유연(D/O)과 진정(S/R)이 중심입니다. 히어로는 가벼운 보습·피지 밸런스에 맞는 성분을 우선합니다.",
+    "geminiHint": "HERO SELECTION FOR LOTION: Lighter than cream — hydration + light emollients, oil control if relevant; avoid heavy night-cream-only stories unless formula supports.",
+    "primaryTags": ["hydrating", "barrier", "soothing", "oil_control"],
+    "secondaryTags": ["brightening", "anti_aging", "antioxidant", "exfoliating"],
+    "nameKeywordBoost": ["hyaluron", "niacinamide", "ceramide", "panthenol", "zinc"],
+    "deprioritizeIfOnlyTags": [],
+    "heroNarrowPoolTopN": 20,
+    "heroNarrowPoolMergeLateAnyTag": ["barrier", "anti_aging", "firming", "brightening", "exfoliating", "acne", "oil_control"],
+    "heroNarrowPoolLateMergeCutoffMultiplier": 2
+  },
+  "선크림": {
+    "summaryKo": "선크림: 광노화·색소(P/N)와 필터·제형 자극(S/R)이 중심입니다. 히어로는 UV 필터(유기·무기)·광안정·분산·필름 형성과 직접 연결된 성분을 우선하고, 글리세린·히알루론산 등 일반 보습만 세 개 대표로 세우지 마세요. 주의: SPF는 전체 배합·필터 조합으로 결정되므로 단일 성분만으로 ‘완벽 차단’을 암시하지 말고, 민감 피부에는 알코올·고자외선무기 필터 등 자극 가능 성분을 히어로로만 내세우지 않도록 균형 있게 고르세요.",
+    "geminiHint": "HERO SELECTION FOR SUNSCREEN (STRICT): 3 slots total — split like a pro merchandiser.\n\n(1) FIRST TWO SLOTS (mandatory when candidates exist): UV ENGINE — organic/inorganic filters, hybrid scatter/absorb (e.g. methylene bis-benzotriazolyl…), UVA-leaning filters (e.g. diethylamino hydroxybenzoyl hexyl benzoate), broad-spectrum triazines (e.g. bis-ethylhexyloxyphenol methoxyphenyl triazine). Include photostabilizers (e.g. octocrylene) only when they clearly support the filter story.\n\n(2) SPF / FILM BOOSTER (use one of the first two slots if only one filter is present, or prioritize as #2): ingredients that improve filter dispersion, spread, SPF efficiency, or white-cast control — e.g. butyloctyl salicylate as SPF booster/co-solvent (NOT 'barrier repair' story). Do NOT mislabel boosters as generic antioxidant/barrier heroes.\n\n(3) THIRD SLOT (optional support): ONE well-known functional active MAY be chosen if MED/HIGH concentration — e.g. niacinamide (tone/P), adenosine (wrinkle-functional) — to match 'sun care + skin benefit' retail copy. Never fill all three slots with humectants (glycerin, panthenol, hyaluronic acid) when UV-relevant INCI exist.\n\nFORMULATION AIDS: decyl glucoside = surfactant/emulsifier, not brightening; carbomer / poly C10-30 alkyl acrylate = thickener/rheology, not barrier actives — never as heroes.\n\nLong INCI names for modern filters are normal and DESIRED as heroes. CAUTIONS: no medical cures; sensitive skin may react to some filters/alcohol.",
+    "heroGeminiPromptExtra": "SUNSCREEN — OVERRIDES GENERIC RULES: At least 2 of 3 picks MUST be UV-mechanism (filters, hybrid filter, photostabilizer tied to filters, or SPF/spread booster such as butyloctyl salicylate). Do not call boosters 'barrier' or generic antioxidant. The remaining slot MAY be niacinamide or adenosine (or similar functional) if MED/HIGH. Do NOT pick panthenol, glycerin, or hyaluronic acid/sodium hyaluronate as heroes when two or more UV-relevant candidates exist. Long INCI names for UV filters are EXPECTED and GOOD. Skip generic consumer-recognition humectant bias when UV candidates exist. Prefer a LOW-position UV filter over a HIGH-position panthenol/glycerin/HA.",
+    "primaryTags": ["uv_protection", "antioxidant", "soothing", "barrier"],
+    "secondaryTags": ["hydrating", "brightening"],
+    "nameKeywordBoost": ["oxide", "dioxide", "triazine", "salicylate", "octocrylene", "avobenzone", "benzotriazol", "ethylhexyl", "homosalate", "titanium", "zinc", "uv", "spf", "silica", "film", "niacinamide", "adenosine"],
+    "deprioritizeIfOnlyTags": ["firming"],
+    "heroNarrowPoolTopN": 20,
+    "heroNarrowPoolMergeTags": ["uv_protection"],
+    "heroConcFloorByTag": {
+      "uv_protection": 1.25
+    },
+    "heroExtraBaseUnlessAnyTag": [
+      {
+        "unlessHasAnyOf": ["uv_protection"],
+        "nameSubstrings": ["adenosine"],
+        "addToBase": 1.35
+      }
+    ],
+    "heroPenalizeNameUnlessAnyTag": [
+      {
+        "unlessHasAnyOf": ["uv_protection"],
+        "nameSubstrings": [
+          "panthenol",
+          "allantoin",
+          "glycerin",
+          "glycerol",
+          "sodium hyaluronate",
+          "hyaluronic acid",
+          "hyaluronate",
+          "betaine",
+          "trehalose",
+          "water",
+          "aqua",
+          "butylene glycol",
+          "pentylene glycol",
+          "propylene glycol",
+          "dipropylene glycol",
+          "1,2-hexanediol",
+          "caprylyl glycol"
+        ],
+        "multiplyBaseBy": 0.06
+      }
+    ]
+  },
+  "아이크림": {
+    "summaryKo": "아이크림: 얇은 눈가에 진정·보습·탄력(W/T·S/R)이 중심입니다. 히어로는 자극 큰 고농도 각질보다 진정·탄력·부기 케어에 맞는 성분을 우선합니다.",
+    "geminiHint": "HERO SELECTION FOR EYE CREAM: Prioritize gentle hydration, soothing, firming peptides, caffeine-type stories if present; avoid strong exfoliating acids as heroes unless clearly formulated for eye area.",
+    "primaryTags": ["hydrating", "soothing", "firming", "anti_aging", "barrier"],
+    "secondaryTags": ["brightening", "antioxidant"],
+    "nameKeywordBoost": ["peptide", "caffeine", "ceramide", "hyaluron", "panthenol", "adenosine", "bakuchiol"],
+    "deprioritizeIfOnlyTags": ["exfoliating", "acne"],
+    "heroNarrowPoolTopN": 20,
+    "heroNarrowPoolMergeLateAnyTag": ["firming", "anti_aging", "brightening"],
+    "heroNarrowPoolLateMergeCutoffMultiplier": 2
+  },
+  "마스크": {
+    "summaryKo": "마스크: 짧은 시간 집중 공급·밀봉으로 수분·진정·톤(D/O·S/R·P)을 봅니다. 히어로는 집중 케어 스토리에 맞는 성분을 우선합니다.",
+    "geminiHint": "HERO SELECTION FOR MASK: Prioritize intensive hydration, soothing, brightening actives that justify a treatment mask; concentration bands still apply.",
+    "primaryTags": ["hydrating", "soothing", "brightening", "barrier", "anti_aging"],
+    "secondaryTags": ["exfoliating", "antioxidant", "oil_control"],
+    "nameKeywordBoost": ["hyaluron", "ceramide", "niacinamide", "centella", "collagen", "peptide"],
+    "deprioritizeIfOnlyTags": [],
+    "heroNarrowPoolTopN": 20,
+    "heroNarrowPoolMergeLateAnyTag": ["brightening", "anti_aging", "firming", "exfoliating", "antioxidant"],
+    "heroNarrowPoolLateMergeCutoffMultiplier": 2
+  },
+  "미스트": {
+    "summaryKo": "미스트: 즉시 수분·진정·냉감(D/O·S/R)이 중심입니다. 히어로는 가벼운 수분·진정 성분을 우선합니다.",
+    "geminiHint": "HERO SELECTION FOR MIST: Instant hydration and soothing; avoid heavy occlusive oils as primary heroes unless mist is oil-mist type.",
+    "primaryTags": ["hydrating", "soothing", "barrier"],
+    "secondaryTags": ["brightening", "antioxidant", "oil_control"],
+    "nameKeywordBoost": ["hyaluron", "rose", "thermal", "mineral", "panthenol", "allantoin"],
+    "deprioritizeIfOnlyTags": ["anti_aging", "firming"],
+    "heroNarrowPoolTopN": 18,
+    "heroNarrowPoolMergeLateAnyTag": ["brightening", "antioxidant"],
+    "heroNarrowPoolLateMergeCutoffMultiplier": 2
+  },
+  "오일": {
+    "summaryKo": "오일: 지용·용해·밀폐(D/O·장벽)가 중심입니다. 히어로는 식물/지용 오일·지방산 스토리를 우선하고 수용성 활성만 내세우지 않습니다.",
+    "geminiHint": "HERO SELECTION FOR FACIAL OIL: Prioritize carrier oils, squalane, fruit oils, barrier lipids; do not pick water-soluble actives as heroes.",
+    "primaryTags": ["barrier", "hydrating", "soothing"],
+    "secondaryTags": ["antioxidant", "brightening"],
+    "nameKeywordBoost": ["oil", "squalane", "jojoba", "argan", "rosa", "seed oil", "olive", "camellia", "marula"],
+    "deprioritizeIfOnlyTags": ["exfoliating", "acne"],
+    "heroNarrowPoolTopN": 18,
+    "heroNarrowPoolMergeLateAnyTag": ["barrier", "antioxidant"],
+    "heroNarrowPoolLateMergeCutoffMultiplier": 2
+  },
+  "필링": {
+    "summaryKo": "필링·스크럽: 각질·모공·피지(P/N·O)가 중심입니다. 히어로는 AHA/BHA/PHA·물리 각질 성분을 우선하고 보습만 대표로 두지 않습니다.",
+    "geminiHint": "HERO SELECTION FOR PEEL/SCRUB: Prioritize AHA/BHA/PHA, enzymes, scrub particles; do not make plain glycerin/hyaluronic the only heroes.",
+    "primaryTags": ["exfoliating", "acne", "oil_control", "brightening"],
+    "secondaryTags": ["soothing", "hydrating", "barrier"],
+    "nameKeywordBoost": ["salicylic", "glycolic", "lactic", "gluconolactone", "mandelic", "pha", "aha", "bha", "enzyme", "cellulose"],
+    "deprioritizeIfOnlyTags": ["firming"],
+    "heroNarrowPoolTopN": 20,
+    "heroNarrowPoolMergeLateAnyTag": ["exfoliating", "acne", "oil_control", "brightening"],
+    "heroNarrowPoolLateMergeCutoffMultiplier": 2
+  },
+  "기타": {
+    "summaryKo": "기타·미지정: Baumann 네 쌍을 모두 참고하고, 히어로는 INCI 상위·태그가 가장 뚜렷한 기능 축을 따릅니다.",
+    "geminiHint": "HERO SELECTION (GENERIC): Use concentration bands and the strongest plausible benefit_tags at higher positions; prefer consumer-recognizable actives when position is HIGH or MED.",
+    "primaryTags": ["hydrating", "soothing", "brightening", "anti_aging", "barrier", "exfoliating", "antioxidant", "firming", "oil_control", "acne"],
+    "secondaryTags": [],
+    "nameKeywordBoost": [],
+    "deprioritizeIfOnlyTags": [],
+    "heroNarrowPoolTopN": 18
+  }
+}

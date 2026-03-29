@@ -1,0 +1,192 @@
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+/** ingredient_library 행 (Supabase jsonb → 클라이언트) */
+export type IngredientLibraryRow = {
+  inci_key: string;
+  name_en: string | null;
+  benefit_tags: string[];
+  avoid_skin_types: string[];
+  /** Gemini 5축 0–10 (D,O,S,P,W) */
+  axis_scores: Record<string, number> | null;
+  synergy_with: string[];
+  conflict_with: string[];
+  concentration_note: string | null;
+  description_ko: string | null;
+  description_en: string | null;
+  description_ru: string | null;
+  source: string | null;
+};
+
+export function normalizeInciKey(name: string, nameLower?: string): string {
+  return (nameLower ?? name).trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/** 괄호 수식어 제거 key: "niacinamide (vitamin b3)" → "niacinamide" */
+function bareInciKey(key: string): string {
+  return key.replace(/\s*\([^)]*\)\s*$/, '').trim();
+}
+
+/** ingredients_json 한 줄 → ingredient_library 행 (정규키·bare 키 모두 시도) */
+export function lookupIngredientLibraryRow(
+  map: Map<string, IngredientLibraryRow>,
+  name: string,
+  nameLower: string,
+): IngredientLibraryRow | undefined {
+  const k = normalizeInciKey(name, nameLower);
+  return map.get(k) ?? map.get(bareInciKey(k));
+}
+
+function parseBenefitTags(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((t): t is string => typeof t === 'string');
+}
+
+function parseAxisScores(raw: unknown): Record<string, number> | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  const out: Record<string, number> = {};
+  for (const k of ['D', 'O', 'S', 'P', 'W']) {
+    const v = o[k];
+    let n: number | null = null;
+    if (typeof v === 'number' && !Number.isNaN(v)) n = v;
+    else if (typeof v === 'string' && v.trim() !== '') {
+      const x = Number(v);
+      if (!Number.isNaN(x)) n = x;
+    }
+    if (n !== null) out[k] = Math.max(0, Math.min(10, n));
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+function parseTextArray(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((t): t is string => typeof t === 'string' && t.trim().length > 0).map((t) => t.trim().toLowerCase());
+}
+
+function rowFromDb(r: Record<string, unknown>): IngredientLibraryRow {
+  return {
+    inci_key: String(r.inci_key ?? ''),
+    name_en: typeof r.name_en === 'string' ? r.name_en : null,
+    benefit_tags: parseBenefitTags(r.benefit_tags),
+    avoid_skin_types: parseBenefitTags(r.avoid_skin_types),
+    axis_scores: parseAxisScores(r.axis_scores),
+    synergy_with: parseTextArray(r.synergy_with),
+    conflict_with: parseTextArray(r.conflict_with),
+    concentration_note: typeof r.concentration_note === 'string' ? r.concentration_note : null,
+    description_ko: typeof r.description_ko === 'string' ? r.description_ko : null,
+    description_en: typeof r.description_en === 'string' ? r.description_en : null,
+    description_ru: typeof r.description_ru === 'string' ? r.description_ru : null,
+    source: typeof r.source === 'string' ? r.source : null,
+  };
+}
+
+/** sku_items.ingredients_json 배열을 읽어 라이브러리에 upsert (제품마다 같은 성분 재검색 감소) */
+export async function upsertIngredientLibraryFromJson(
+  client: SupabaseClient,
+  rawJson: unknown,
+): Promise<{ upserted: number; error?: string }> {
+  if (!Array.isArray(rawJson) || rawJson.length === 0) return { upserted: 0 };
+
+  const byKey = new Map<
+    string,
+    { inci_key: string; name_en: string; benefit_tags: string[]; source: string }
+  >();
+
+  for (const x of rawJson) {
+    if (!x || typeof x !== 'object') continue;
+    const o = x as Record<string, unknown>;
+    const name = typeof o.name === 'string' ? o.name : '';
+    if (!name.trim()) continue;
+    const name_lower = typeof o.name_lower === 'string' ? o.name_lower : name.toLowerCase();
+    const key = normalizeInciKey(name, name_lower);
+    if (!key) continue;
+    const tags = parseBenefitTags(o.benefit_tags);
+    const prev = byKey.get(key);
+    if (!prev || tags.length > prev.benefit_tags.length) {
+      byKey.set(key, { inci_key: key, name_en: name, benefit_tags: tags, source: 'sku_sync' });
+    }
+  }
+
+  const rows = [...byKey.values()];
+  if (rows.length === 0) return { upserted: 0 };
+
+  const keys = rows.map((r) => r.inci_key);
+  const existingMap = new Map<string, IngredientLibraryRow>();
+  const loadChunk = 120;
+  for (let i = 0; i < keys.length; i += loadChunk) {
+    const slice = keys.slice(i, i + loadChunk);
+    const { data } = await client.from('ingredient_library').select('*').in('inci_key', slice);
+    for (const raw of data ?? []) {
+      const row = rowFromDb(raw as Record<string, unknown>);
+      if (row.inci_key) existingMap.set(row.inci_key, row);
+    }
+  }
+
+  const chunkSize = 150;
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    const chunk = rows.slice(i, i + chunkSize).map((r) => {
+      const ex = existingMap.get(r.inci_key);
+      const tags = [...new Set([...(ex?.benefit_tags ?? []), ...r.benefit_tags])];
+      return {
+        inci_key: r.inci_key,
+        name_en: r.name_en || ex?.name_en || null,
+        benefit_tags: tags,
+        source: r.source,
+        description_ko: ex?.description_ko?.trim() ? ex.description_ko : null,
+        description_en: ex?.description_en?.trim() ? ex.description_en : null,
+        description_ru: ex?.description_ru?.trim() ? ex.description_ru : null,
+        avoid_skin_types: ex?.avoid_skin_types ?? [],
+        axis_scores:
+          ex?.axis_scores && Object.keys(ex.axis_scores).length > 0 ? ex.axis_scores : {},
+        synergy_with: ex?.synergy_with ?? [],
+        conflict_with: ex?.conflict_with ?? [],
+        concentration_note: ex?.concentration_note ?? null,
+      };
+    });
+    const { error } = await client.from('ingredient_library').upsert(chunk, { onConflict: 'inci_key' });
+    if (error) return { upserted: i, error: error.message };
+  }
+
+  return { upserted: rows.length };
+}
+
+export async function upsertIngredientLibraryFromSkuId(
+  client: SupabaseClient,
+  skuId: string,
+): Promise<{ upserted: number; error?: string }> {
+  const { data, error } = await client.from('sku_items').select('ingredients_json').eq('id', skuId).maybeSingle();
+  if (error) return { upserted: 0, error: error.message };
+  return upsertIngredientLibraryFromJson(client, data?.ingredients_json);
+}
+
+export async function fetchIngredientLibraryMap(
+  client: SupabaseClient,
+  keys: string[],
+): Promise<Map<string, IngredientLibraryRow>> {
+  const map = new Map<string, IngredientLibraryRow>();
+  const fullKeys = keys.map((k) => k.trim().toLowerCase()).filter(Boolean);
+  // 괄호 수식어 제거 key도 함께 조회 ("niacinamide (비타민b3)" → "niacinamide")
+  const bareKeys = fullKeys.map(bareInciKey).filter((b) => b.length > 0);
+  const norm = [...new Set([...fullKeys, ...bareKeys])];
+  if (norm.length === 0) return map;
+
+  const chunkSize = 100;
+  for (let i = 0; i < norm.length; i += chunkSize) {
+    const slice = norm.slice(i, i + chunkSize);
+    const { data, error } = await client.from('ingredient_library').select('*').in('inci_key', slice);
+    if (error) continue;
+    for (const raw of data ?? []) {
+      const row = rowFromDb(raw as Record<string, unknown>);
+      if (row.inci_key) map.set(row.inci_key, row);
+    }
+  }
+  // 원본 full key로도 조회 가능하게 bare key → full key aliasing
+  for (const fk of fullKeys) {
+    if (!map.has(fk)) {
+      const bk = bareInciKey(fk);
+      const existing = map.get(bk);
+      if (existing) map.set(fk, existing);
+    }
+  }
+  return map;
+}

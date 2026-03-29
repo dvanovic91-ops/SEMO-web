@@ -64,7 +64,9 @@ import { BoxHistory } from './pages/BoxHistory';
 import { InnerBeauty } from './pages/InnerBeauty';
 import { HairBeauty } from './pages/HairBeauty';
 import { ProductDetail } from './pages/ProductDetail';
+import { BoxComponentDetail } from './pages/BoxComponentDetail';
 import { SkinTest } from './pages/SkinTest';
+import { SkinTestErrorBoundary } from './components/SkinTestErrorBoundary';
 import { Profile } from './pages/Profile';
 import { ProfileEdit } from './pages/profile/ProfileEdit';
 import { ProfileOrders } from './pages/profile/ProfileOrders';
@@ -120,13 +122,21 @@ function AppLayout() {
               <Route path="/about" element={<About />} />
               <Route path="/journey" element={<Journey />} />
               <Route path="/promo" element={<Promo />} />
-              <Route path="/skin-test" element={<SkinTest />} />
+              <Route
+                path="/skin-test"
+                element={
+                  <SkinTestErrorBoundary>
+                    <SkinTest />
+                  </SkinTestErrorBoundary>
+                }
+              />
               <Route path="/shop" element={<Shop />} />
               <Route path="/shop/box-history" element={<BoxHistory />} />
               <Route path="/inner-beauty" element={<InnerBeauty />} />
               <Route path="/hair-beauty" element={<HairBeauty />} />
               <Route path="/recommendations" element={<Recommendations />} />
               <Route path="/recommendations/:skinType" element={<Recommendations />} />
+              <Route path="/product/:productId/component/:skuId" element={<BoxComponentDetail />} />
               <Route path="/product/:id" element={<ProductDetailWithKey />} />
               <Route path="/cart" element={<Cart />} />
               <Route path="/checkout" element={<Checkout />} />

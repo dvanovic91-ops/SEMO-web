@@ -16,7 +16,14 @@ import {
   type ProductIngredientBrief,
   type ProductIngredientBriefMap,
 } from '../lib/productIngredients';
-import { PRODUCT_DETAIL_WHITE_CARD_INNER } from '../lib/productDetailSectionClasses';
+import {
+  PRODUCT_DETAIL_SECTION_KICKER_BASE,
+  PRODUCT_DETAIL_SECTION_KICKER_SIZE,
+  PRODUCT_DETAIL_WHITE_CARD_INNER,
+} from '../lib/productDetailSectionClasses';
+import { getSkuCompositionDisplayParts } from '../lib/skuMarketingDescriptions';
+import { resolveSkuStorefrontName } from '../lib/skuStorefrontTitle';
+import { formatStorefrontDate } from '../lib/formatStorefrontDate';
 
 type Product = {
   id: string;
@@ -41,6 +48,8 @@ type Component = {
   id: string;
   sort_order: number;
   name: string | null;
+  brand?: string | null;
+  country_of_origin?: string | null;
   image_url: string | null;
   image_urls?: string[] | null;
   description: string | null;
@@ -48,6 +57,13 @@ type Component = {
   description_ru?: string | null;
   /** 상세 «Подробнее о составе» 블록 배치 */
   layout?: 'image_left' | 'image_right';
+  /** 박스 구성품 상세 `/product/:productId/component/:skuId` 링크용 */
+  sku_id?: string | null;
+  /** key_ingredients_desc.__claim__ — 구성 카드에서 본문 위에 강조 */
+  marketing_claim?: string | null;
+  marketing_claim_en?: string | null;
+  marketing_claim_ru?: string | null;
+  product_type?: string | null;
 };
 
 /**
@@ -130,11 +146,15 @@ export const ProductDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const { isLoggedIn, userId, canGrantPermission } = useAuth();
-  const { language, currency } = useI18n();
+  const { language, currency, country } = useI18n();
   const isEn = language === 'en';
   const tr = useCallback((en: string, ru: string) => (isEn ? en : ru), [isEn]);
   const { addItem } = useCart();
   const formatPrice = useCallback((price: number) => formatCurrencyAmount(price, currency), [currency]);
+  const formatReviewDate = useCallback(
+    (iso: string) => formatStorefrontDate(iso, { language, country, currency }),
+    [language, country, currency],
+  );
 
   const [product, setProduct] = useState<Product | null>(null);
   const [productMarketPrice, setProductMarketPrice] = useState<ProductMarketPrice | null>(null);
@@ -589,33 +609,45 @@ export const ProductDetail: React.FC = () => {
         try {
           const { data: compData, error: compErr } = await supabase
             .from('product_components')
-            .select('*, sku_items(display_name, description, description_en, description_ru, key_ingredients_desc, image_url)')
+            .select('*, sku_items(brand, country_of_origin, display_name, name, name_en, description, description_en, description_ru, key_ingredients_desc, image_url, product_type)')
             .eq('product_id', currentId);
           if (!compErr && compData && Array.isArray(compData)) {
             const rows = (compData as any[]).map((r) => {
               type SkuRow = {
+                brand?: string | null;
+                country_of_origin?: string | null;
                 display_name?: string | null;
+                name?: string | null;
+                name_en?: string | null;
                 description?: string | null;
                 description_en?: string | null;
                 description_ru?: string | null;
                 key_ingredients_desc?: Array<{ name: string; ko: string; en: string; ru: string }> | null;
                 image_url?: string | null;
+                product_type?: string | null;
               };
               const sku = r.sku_items as SkuRow | null;
               const hasSkuImage = !!sku?.image_url;
-
-              // key_ingredients_desc 에서 언어별 설명 포맷 (description 이 없을 때 fallback)
-              const heroes = sku?.key_ingredients_desc ?? [];
-              const fmtKo = heroes.length ? heroes.map((h) => `✨ ${h.name} — ${h.ko}`).join('\n') : null;
-              const fmtEn = heroes.length ? heroes.map((h) => `✨ ${h.name} — ${h.en}`).join('\n') : null;
-              const fmtRu = heroes.length ? heroes.map((h) => `✨ ${h.name} — ${h.ru}`).join('\n') : null;
+              const parts = getSkuCompositionDisplayParts(sku);
 
               return {
                 ...r,
-                name: sku?.display_name ?? r.name,
-                description:    sku?.description    ?? fmtKo ?? r.description ?? null,
-                description_en: sku?.description_en ?? fmtEn ?? null,
-                description_ru: sku?.description_ru ?? fmtRu ?? null,
+                brand: sku?.brand ?? null,
+                country_of_origin: sku?.country_of_origin ?? null,
+                name: resolveSkuStorefrontName({
+                  display_name: sku?.display_name,
+                  name_en: sku?.name_en,
+                  name: sku?.name,
+                  fallbackName: r.name,
+                  language,
+                }),
+                description: parts.ko.body ?? r.description ?? null,
+                description_en: parts.en.body ?? null,
+                description_ru: parts.ru.body ?? null,
+                marketing_claim: parts.ko.claim,
+                marketing_claim_en: parts.en.claim,
+                marketing_claim_ru: parts.ru.claim,
+                product_type: sku?.product_type ?? null,
                 image_url:  hasSkuImage ? sku!.image_url : r.image_url,
                 image_urls: hasSkuImage ? [sku!.image_url!] : (r.image_urls ?? []),
               } as Component & { created_at?: string };
@@ -754,7 +786,7 @@ export const ProductDetail: React.FC = () => {
         loadingTimeoutRef.current = null;
       }
     };
-  }, [id, userId]);
+  }, [id, userId, language]);
 
   useEffect(() => {
     if (!supabase || !id || !isUuid(id)) {
@@ -903,7 +935,11 @@ export const ProductDetail: React.FC = () => {
       }
       io = new IntersectionObserver(
         ([entry]) => {
-          setDesktopPriceSticky(!entry.isIntersecting);
+          const rect = entry.boundingClientRect;
+          // 뷰포트 *아래*(아직 스크롤 안 함)에만 있어도 isIntersecting 은 false →
+          // 그때 컴팩트 네비를 켜면 상단이 처음부터 장바구니 바로 바뀜.
+          // 블록 전체가 화면 *위*로 지나간 뒤에만 컴팩트.
+          setDesktopPriceSticky(rect.bottom < 1);
         },
         { root: null, threshold: 0, rootMargin: '0px' },
       );
@@ -1140,7 +1176,7 @@ export const ProductDetail: React.FC = () => {
 
   if (!product && (loadError || !id?.trim())) {
     return (
-      <main className="mx-auto max-w-3xl px-4 py-12">
+      <main className="mx-auto max-w-4xl px-4 py-12">
         {loadError && loadError !== 'timeout' && <p className="text-slate-600">{tr('Error', 'Ошибка')}: {loadError}</p>}
         {loadError === 'timeout' && <p className="text-slate-600">{language === 'en' ? 'Loading took too long.' : 'Загрузка заняла слишком много времени.'}</p>}
         {!id?.trim() && !loadError && <p className="text-slate-600">{language === 'en' ? 'Product not found.' : 'Товар не найден.'}</p>}
@@ -1159,7 +1195,7 @@ export const ProductDetail: React.FC = () => {
   }
 
   return (
-    <main className="relative mx-auto min-w-0 max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
+    <main className="relative mx-auto min-w-0 max-w-4xl px-4 py-8 sm:px-6 sm:py-12">
       {/* 모바일: 스크롤 시 상단 고정 — 이전가격·최종가격·В корзину */}
       {stickyAddBar && (
         <div
@@ -1364,14 +1400,17 @@ export const ProductDetail: React.FC = () => {
             </div>
           </div>
 
-          {/* 구성품 그리드 — ProductCompositionGrid와 동일 UX (토글 «ключевые ингредиенты») */}
-          <ProductCompositionGrid components={components} />
+          {/* 구성품 그리드 — 마케팅/설명만(✨ 키 성분 목록 제외), 구성품 상세에서 성분 확인 */}
+          <ProductCompositionGrid
+            components={components}
+            parentProductId={product?.id && isUuid(String(product.id)) ? String(product.id) : undefined}
+          />
         </header>
 
         {(ingredientBrief?.infographic_image_url || (product?.detail_description && /^https?:\/\//i.test(product.detail_description))) && (
           <section id="product-description" className="mt-6 overflow-hidden rounded-2xl bg-white shadow-[0_1px_10px_-6px_rgba(15,23,42,0.2)] ring-1 ring-slate-200/70">
             <div className={PRODUCT_DETAIL_WHITE_CARD_INNER}>
-              <p className="mb-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">{tr('More about ingredients', 'Подробнее о составе')}</p>
+              <p className={`mb-3 text-left ${PRODUCT_DETAIL_SECTION_KICKER_BASE} ${PRODUCT_DETAIL_SECTION_KICKER_SIZE}`}>{tr('More about box', 'Подробнее о наборе')}</p>
               <div className="overflow-hidden rounded-xl border border-slate-200/70 bg-white">
                 <img
                   src={ingredientBrief?.infographic_image_url || product?.detail_description || ''}
@@ -1402,7 +1441,7 @@ export const ProductDetail: React.FC = () => {
                     </span>
                     <span className="text-amber-500">{'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}</span>
                     <span className="text-[length:calc(0.75rem-1pt)] text-slate-400">
-                      {new Date(r.created_at).toLocaleDateString(isEn ? 'en-US' : 'ru-RU')}
+                      {formatReviewDate(r.created_at)}
                     </span>
                   </div>
                   {canDeleteReview(r) && (

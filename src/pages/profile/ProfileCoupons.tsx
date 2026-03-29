@@ -40,33 +40,46 @@ export const ProfileCoupons: React.FC = () => {
   }, [searchParams, isAdmin, userId]);
 
   const [coupons, setCoupons] = useState<CouponRow[]>([]);
+  const [selfieBalance, setSelfieBalance] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [promoCodeInput, setPromoCodeInput] = useState('');
   const [promoRedeemLoading, setPromoRedeemLoading] = useState(false);
   const [promoRedeemMessage, setPromoRedeemMessage] = useState<string | null>(null);
+  const [promoSectionOpen, setPromoSectionOpen] = useState(false);
   const currentUserIdRef = useRef<string | null>(null);
   currentUserIdRef.current = targetUserId;
 
   const refresh = useCallback(() => {
     if (!supabase || !targetUserId) {
       setCoupons([]);
+      setSelfieBalance(null);
       setLoading(false);
       return;
     }
     const requested = targetUserId;
     setLoading(true);
-    supabase
-      .from('membership_coupons')
-      .select('id, amount, expires_at, used_at, tier, quarter_label')
-      .eq('user_id', requested)
-      .order('expires_at', { ascending: true })
-      .then(({ data }) => {
+    Promise.all([
+      supabase
+        .from('membership_coupons')
+        .select('id, amount, expires_at, used_at, tier, quarter_label')
+        .eq('user_id', requested)
+        .order('expires_at', { ascending: true }),
+      supabase.from('selfie_coupon_balances').select('balance').eq('user_id', requested).maybeSingle(),
+    ])
+      .then(([cRes, sRes]) => {
         if (currentUserIdRef.current !== requested) return;
-        setCoupons((data as CouponRow[]) ?? []);
+        setCoupons((cRes.data as CouponRow[]) ?? []);
+        if (sRes.error) {
+          setSelfieBalance(0);
+          return;
+        }
+        const b = (sRes.data as { balance?: number } | null)?.balance;
+        setSelfieBalance(typeof b === 'number' ? Math.max(0, b) : 0);
       })
       .catch(() => {
         if (currentUserIdRef.current !== requested) return;
         setCoupons([]);
+        setSelfieBalance(0);
       })
       .finally(() => {
         if (currentUserIdRef.current === requested) setLoading(false);
@@ -76,6 +89,10 @@ export const ProfileCoupons: React.FC = () => {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (promoRedeemMessage) setPromoSectionOpen(true);
+  }, [promoRedeemMessage]);
 
   useEffect(() => {
     const onVisibility = () => {
@@ -136,90 +153,150 @@ export const ProfileCoupons: React.FC = () => {
           Viewing selected user coupons (admin).
         </p>
       )}
-      <header className="mb-8">
+      <header className="mb-6">
         <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">My coupons</h1>
         <p className="mt-2 text-sm text-slate-500">
           Quarterly tier coupons and special coupons from SEMO Box.
         </p>
       </header>
 
-      <section className="mb-8 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h2 className="text-sm font-semibold text-slate-900">Promo code</h2>
-        <p className="mt-1 text-xs text-slate-500">
-          Enter the code (letters and numbers). After activation, the amount appears in your coupon list.
-        </p>
-        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-stretch">
-          <input
-            type="text"
-            value={promoCodeInput}
-            onChange={(e) => setPromoCodeInput(e.target.value)}
-            placeholder="Example: SEMO-2026-XXXX"
-            autoComplete="off"
-            className="min-h-11 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
-          />
-          <button
-            type="button"
-            onClick={() => void handleRedeemPromoCode()}
-            disabled={promoRedeemLoading || !promoCodeInput.trim()}
-            className="min-h-11 shrink-0 rounded-xl bg-brand px-4 py-2 text-sm font-medium text-white transition hover:bg-brand/90 disabled:opacity-50"
+      <section className="mb-8 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <button
+          type="button"
+          id="promo-code-toggle"
+          aria-expanded={promoSectionOpen}
+          aria-controls="promo-code-panel"
+          onClick={() => setPromoSectionOpen((o) => !o)}
+          className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left transition hover:bg-slate-50/80 sm:py-4"
+        >
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-slate-900">
+              {language === 'en' ? 'Promo code' : 'Промокод'}
+            </h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              {language === 'en'
+                ? 'Have a code? Tap to enter — it adds to your list below.'
+                : 'Есть код? Нажмите, чтобы ввести — купон появится в списке ниже.'}
+            </p>
+          </div>
+          <svg
+            className={`h-5 w-5 shrink-0 text-slate-400 transition-transform duration-200 ${promoSectionOpen ? 'rotate-180' : ''}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+            aria-hidden
           >
-            {promoRedeemLoading ? '…' : 'Activate'}
-          </button>
-        </div>
-        {promoRedeemMessage && (
-          <p
-            className={`mt-2 text-sm ${promoRedeemMessage.includes('активирован') || promoRedeemMessage.includes('добавлен') ? 'text-emerald-700' : 'text-slate-600'}`}
-            role="status"
-          >
-            {promoRedeemMessage}
-          </p>
-        )}
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+        {promoSectionOpen ? (
+          <div id="promo-code-panel" role="region" aria-labelledby="promo-code-toggle" className="border-t border-slate-100 px-4 pb-4 pt-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
+              <input
+                type="text"
+                value={promoCodeInput}
+                onChange={(e) => setPromoCodeInput(e.target.value)}
+                placeholder={language === 'en' ? 'Example: SEMO-2026-XXXX' : 'Например: SEMO-2026-XXXX'}
+                autoComplete="off"
+                className="min-h-11 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+              />
+              <button
+                type="button"
+                onClick={() => void handleRedeemPromoCode()}
+                disabled={promoRedeemLoading || !promoCodeInput.trim()}
+                className="min-h-11 shrink-0 rounded-xl bg-brand px-4 py-2 text-sm font-medium text-white transition hover:bg-brand/90 disabled:opacity-50"
+              >
+                {promoRedeemLoading ? '…' : language === 'en' ? 'Activate' : 'Активировать'}
+              </button>
+            </div>
+            {promoRedeemMessage && (
+              <p
+                className={`mt-2 text-sm ${promoRedeemMessage.includes('активирован') || promoRedeemMessage.includes('добавлен') || promoRedeemMessage.includes('activated') || promoRedeemMessage.includes('added') ? 'text-emerald-700' : 'text-slate-600'}`}
+                role="status"
+              >
+                {promoRedeemMessage}
+              </p>
+            )}
+          </div>
+        ) : null}
       </section>
 
       {loading ? (
         <div className={SEMO_SECTION_LOADING_CLASS}>
           <SemoPageSpinner />
         </div>
-      ) : coupons.length === 0 ? (
-        <p className="text-sm text-slate-500">No coupons yet.</p>
+      ) : selfieBalance === null && coupons.length === 0 ? (
+        <p className="text-sm text-slate-500">
+          {language === 'en' ? 'No coupons to show.' : 'Нет купонов для отображения.'}
+        </p>
       ) : (
-        <ul className="space-y-3">
-          {coupons.map((c) => {
-            const now = new Date();
-            const expires = new Date(c.expires_at);
-            const isUsed = !!c.used_at;
-            const isExpired = !isUsed && expires.getTime() < now.getTime();
-            const statusText = isUsed
-              ? 'Used'
-              : isExpired
-                ? 'Expired'
-                : `Valid until ${expires.toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })}`;
-            return (
+        <>
+          <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            {language === 'en' ? 'Your coupons' : 'Ваши купоны'}
+          </p>
+          <ul className="space-y-3">
+            {selfieBalance !== null && (
               <li
-                key={c.id}
-                className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-4 py-3 text-sm"
+                className="flex items-center justify-between gap-3 rounded-xl border-2 border-brand/45 bg-white px-4 py-3 text-sm shadow-sm"
+                aria-label={language === 'en' ? 'Selfie analysis passes' : 'Проходы селфи-анализа'}
               >
                 <div className="min-w-0">
                   <p className="font-medium text-slate-800">
-                    {c.amount} ₽ · {couponTypeLabelRu(c)}
+                    {language === 'en' ? 'Selfie skin analysis' : 'Селфи-анализ кожи'}
                   </p>
                   <p className="text-xs text-slate-500">
-                    {c.tier === 'special' || (c.quarter_label ?? '').startsWith('special-')
-                      ? 'Special campaign · valid for 2 weeks from issue date'
-                      : 'Quarterly program · expiry shown in end date'}
+                    {language === 'en'
+                      ? 'Separate from ₽ discounts — one pass per detailed analysis.'
+                      : 'Отдельно от скидок на сумму — 1 проход на один развёрнутый анализ.'}
                   </p>
                 </div>
-                <span
-                  className={
-                    isUsed || isExpired ? 'shrink-0 text-xs text-slate-400' : 'shrink-0 text-xs font-medium text-emerald-600'
-                  }
-                >
-                  {statusText}
-                </span>
+                <div className="shrink-0 text-right">
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-brand">
+                    {language === 'en' ? 'Available' : 'Доступно'}
+                  </p>
+                  <p className="text-lg font-bold tabular-nums text-brand sm:text-xl">{selfieBalance}</p>
+                  <p className="text-[10px] text-slate-500">{language === 'en' ? 'passes' : 'шт.'}</p>
+                </div>
               </li>
-            );
-          })}
-        </ul>
+            )}
+            {coupons.map((c) => {
+              const now = new Date();
+              const expires = new Date(c.expires_at);
+              const isUsed = !!c.used_at;
+              const isExpired = !isUsed && expires.getTime() < now.getTime();
+              const statusText = isUsed
+                ? 'Used'
+                : isExpired
+                  ? 'Expired'
+                  : `Valid until ${expires.toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })}`;
+              return (
+                <li
+                  key={c.id}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-4 py-3 text-sm"
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium text-slate-800">
+                      {c.amount} ₽ · {couponTypeLabelRu(c)}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {c.tier === 'special' || (c.quarter_label ?? '').startsWith('special-')
+                        ? 'Special campaign · valid for 2 weeks from issue date'
+                        : 'Quarterly program · expiry shown in end date'}
+                    </p>
+                  </div>
+                  <span
+                    className={
+                      isUsed || isExpired ? 'shrink-0 text-xs text-slate-400' : 'shrink-0 text-xs font-medium text-emerald-600'
+                    }
+                  >
+                    {statusText}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </>
       )}
     </main>
   );

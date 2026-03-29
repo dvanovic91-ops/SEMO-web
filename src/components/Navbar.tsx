@@ -10,6 +10,7 @@ import { useSkinReminderBadge } from '../hooks/useSkinReminderBadge';
 import { notificationKindBadgeRu, resolveNotificationHref } from '../lib/notificationNavigation';
 import { SEMO_BOX_SUBMENU, isSemoBoxSubmenuPath } from '../lib/semoBoxSubmenu';
 import { formatCurrencyAmount } from '../lib/market';
+import { formatStorefrontDateTimeShort } from '../lib/formatStorefrontDate';
 import { t } from '../i18n/messages';
 const navLinkBase =
   'text-sm tracking-wide transition-colors border-b-2 border-transparent pb-1';
@@ -35,19 +36,6 @@ const NAV_LINKS: { to: string; label: string }[] = [
 
 function formatPrice(price: number, currency: 'RUB' | 'USD' | 'KZT' | 'UZS'): string {
   return formatCurrencyAmount(price, currency);
-}
-
-function formatNotificationDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString('ru-RU', {
-      day: 'numeric',
-      month: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  } catch {
-    return '';
-  }
 }
 
 /** 모바일 서브바 라벨 미세 위치 조정(vw) */
@@ -95,7 +83,7 @@ export const Navbar: React.FC = () => {
   const { items, total, totalCount, updateQuantity } = useCart();
   const { isLoggedIn, userId } = useAuth();
   const { count: skinReminderCount } = useSkinReminderBadge(userId, 'monthly');
-  const { language, currency, setLanguage, setCurrency } = useI18n();
+  const { language, currency, country, setLanguage, setCurrency } = useI18n();
   /** true: аккаунт привязан к Telegram — иконка в шапке #26A5E4; иначе тёмная */
   const [telegramLinkedNav, setTelegramLinkedNav] = useState<boolean | null>(null);
   const { items: notificationItems, unreadCount, markAllRead, markNotificationRead, deleteNotification } =
@@ -203,6 +191,8 @@ export const Navbar: React.FC = () => {
     void markAllRead();
   }, [markAllRead]);
 
+  const storefrontLocale = useMemo(() => ({ language, country, currency }), [language, country, currency]);
+
   const notificationRows = useMemo(
     () =>
       notificationItems.map((n: NotificationRow) => ({
@@ -210,12 +200,12 @@ export const Navbar: React.FC = () => {
         kind: n.kind,
         title: n.title,
         body: n.body ?? '',
-        date: formatNotificationDate(n.created_at),
+        date: formatStorefrontDateTimeShort(n.created_at, storefrontLocale),
         unread: !n.read_at,
         kindLabel: notificationKindBadgeRu(n.kind, n.metadata),
         href: resolveNotificationHref(n.kind, n.metadata),
       })),
-    [notificationItems],
+    [notificationItems, storefrontLocale],
   );
 
   const openNotificationTarget = useCallback(
@@ -705,6 +695,7 @@ export const Navbar: React.FC = () => {
                   <div className="absolute left-1/2 top-full z-50 mt-1 max-h-44 w-[5.6rem] -translate-x-1/2 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
                     {[
                       { code: 'RUB', flag: '🇷🇺', label: 'RUB' },
+                      { code: 'KZT', flag: '🇰🇿', label: 'KZT' },
                       { code: 'UZS', flag: '🇺🇿', label: 'UZS' },
                       { code: 'USD', flag: '🇺🇸', label: 'USD' },
                     ].map((c) => (
@@ -1299,6 +1290,7 @@ export const Navbar: React.FC = () => {
             <div className="grid grid-cols-2 gap-1">
                 {[
                   { code: 'RUB', flag: '🇷🇺' },
+                  { code: 'KZT', flag: '🇰🇿' },
                   { code: 'UZS', flag: '🇺🇿' },
                   { code: 'USD', flag: '🇺🇸' },
                 ].map((c) => (
@@ -1497,6 +1489,7 @@ export const Navbar: React.FC = () => {
                     <div className="absolute bottom-full left-0 z-50 mb-1 max-h-44 w-[5.6rem] overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
                       {[
                         { code: 'RUB', flag: '🇷🇺', label: 'RUB' },
+                        { code: 'KZT', flag: '🇰🇿', label: 'KZT' },
                         { code: 'UZS', flag: '🇺🇿', label: 'UZS' },
                         { code: 'USD', flag: '🇺🇸', label: 'USD' },
                       ].map((c) => (

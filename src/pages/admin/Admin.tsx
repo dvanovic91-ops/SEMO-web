@@ -41,12 +41,13 @@ import {
   upsertProductMarketPrices,
   type ProductMarketPriceRow,
 } from '../../lib/productMarketPrices';
+import { getSkinApiBaseUrl } from '../../lib/skinApiBaseUrl';
 
 /** 관리자 폼: 모바일 100% 폭, 터치 친화적 min-height · text-base로 iOS 입력 시 자동 확대 완화 */
 const inputClass =
   'w-full min-w-0 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-base text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand min-h-[44px] sm:min-h-0 sm:text-sm';
 const labelClass = 'mb-1 block text-sm font-medium text-slate-700';
-const SKIN_API_URL = (import.meta as unknown as { env: Record<string, string> }).env?.VITE_SKIN_API_URL ?? 'http://localhost:5001';
+const SKIN_API_URL = getSkinApiBaseUrl();
 
 /** 주문 품목 요약: 단가 최고인 품목 1개 + "외 N개" (최대 3개 표현) */
 function formatOrderItemsSummary(items: unknown): string {
@@ -418,6 +419,27 @@ type BoxMatchAiResult = {
   dermatologist_opinion?: string;
 };
 
+/** 슬롯 상품 구성 SKU 전체 → Flask /analyze-box-combo */
+type SkinMatchComboResult = {
+  success?: boolean;
+  cache_hit?: boolean;
+  ingredient_keys?: string[];
+  axis_scores?: Record<string, number>;
+  warnings?: string[];
+  synergies?: string[];
+  recommended_for?: string[];
+  gemini_summary?: string | null;
+  error?: string;
+};
+
+const SKIN_MATCH_COMBO_AXIS_KO: Record<string, string> = {
+  D: '건(D)',
+  O: '지(O)',
+  S: '민(S)',
+  P: '색(P)',
+  W: '주름(W)',
+};
+
 /** 프로모 배너 (상단 Promo 메뉴에 노출). Supabase 테이블 promos 사용 */
 type Promo = {
   id: string;
@@ -460,7 +482,7 @@ const ADMIN_TABS: { key: 'dashboard' | 'products' | 'skinMatch' | 'promo' | 'pro
   { key: 'dashboard', label: '대시보드' },
   { key: 'heroImage', label: '히어로 이미지' },
   { key: 'products', label: '상품관리' },
-  { key: 'inventory', label: '재고 관리' },
+  { key: 'inventory', label: '상품 & 재고 관리' },
   { key: 'skinMatch', label: '테스트 매칭' },
   { key: 'promo', label: '프로모' },
   { key: 'promoCodes', label: '프로모코드' },
@@ -670,6 +692,9 @@ export const Admin: React.FC = () => {
   /** 테스트 매칭 슬롯별 AI 분석 결과 */
   const [skinMatchAiBySlot, setSkinMatchAiBySlot] = useState<Record<number, BoxMatchAiResult | null>>({});
   const [skinMatchAiLoadingSlot, setSkinMatchAiLoadingSlot] = useState<number | null>(null);
+  /** 슬롯별 박스 성분 조합 분석 (/analyze-box-combo, 구성품 SKU 기준) */
+  const [skinMatchComboBySlot, setSkinMatchComboBySlot] = useState<Record<number, SkinMatchComboResult | null>>({});
+  const [skinMatchComboLoadingSlot, setSkinMatchComboLoadingSlot] = useState<number | null>(null);
   /** 이번 세션에서 사용자가 «비우기»로 비운 슬롯 — 슬롯 개수 변경 후 재로드해도 해당 슬롯은 비워 두고 타입은 미매칭 유지 */
   const userClearedSlotsRef = useRef<Set<number>>(new Set());
 
@@ -813,6 +838,8 @@ export const Admin: React.FC = () => {
     /** 사용 가능(미사용·미만료) / 전체 보유 쿠폰 수 */
     coupons_active: number;
     coupons_total: number;
+    /** skin_progress_snapshots 에 기록된 셀카 분석 이력 유무 */
+    has_selfie_analysis?: boolean;
     telegram_id: string | null;
     email_verified_at: string | null;
     created_at: string;
@@ -832,6 +859,9 @@ export const Admin: React.FC = () => {
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
   const [ordersFilterUserId, setOrdersFilterUserId] = useState<string | null>(null);
   const [specialCouponAmount, setSpecialCouponAmount] = useState<number>(100);
+  /** 특별 쿠폰 패널: 금액 할인 vs 셀카 분석 쿠폰 */
+  const [specialGrantKind, setSpecialGrantKind] = useState<'membership_rub' | 'selfie'>('membership_rub');
+  const [selfieBulkGrantCount, setSelfieBulkGrantCount] = useState(1);
   /** 회원 역할 변경 후 목록 다시 불러오기용 */
   const [membersRefreshTrigger, setMembersRefreshTrigger] = useState(0);
   const [updatingRoleUserId, setUpdatingRoleUserId] = useState<string | null>(null);
@@ -1012,6 +1042,19 @@ export const Admin: React.FC = () => {
           console.warn('[Admin] membership_coupons 집계 실패 (무시 가능):', e);
         }
 
+        const selfieDoneSet = new Set<string>();
+        try {
+          const { data: snapRows } = await supabase
+            .from('skin_progress_snapshots')
+            .select('user_id')
+            .in('user_id', userIds);
+          (snapRows as { user_id: string }[] | null)?.forEach((r) => {
+            if (r.user_id) selfieDoneSet.add(r.user_id);
+          });
+        } catch (e) {
+          console.warn('[Admin] skin_progress_snapshots 조회 실패 (테이블 없으면 무시):', e);
+        }
+
         const mapped: MemberRow[] = profilesSafe.map((p) => {
           const agg = orderAgg.get(p.id);
           const sumRub = ((agg?.sumCentsDelivered ?? 0) / 100) as number;
@@ -1028,6 +1071,7 @@ export const Admin: React.FC = () => {
             points: p.points ?? 0,
             coupons_active: cc.active,
             coupons_total: cc.total,
+            has_selfie_analysis: selfieDoneSet.has(p.id),
             telegram_id: p.telegram_id,
             email_verified_at: p.email_verified_at ?? null,
             created_at: p.created_at,
@@ -1606,6 +1650,7 @@ export const Admin: React.FC = () => {
     const slotCount = skinMatchSlots.length;
     setSkinMatchLoading(true);
     setSkinMatchAiBySlot({});
+    setSkinMatchComboBySlot({});
     fetchMapping()
       .then((dbMap) => {
         const bySlot: Record<number, string[]> = {};
@@ -1701,6 +1746,58 @@ export const Admin: React.FC = () => {
     },
     [products],
   );
+
+  /** 테스트 매칭: 슬롯에 연결된 상품의 구성품 SKU 전체로 성분 조합 분석 */
+  const handleSkinMatchComboAnalysis = useCallback(async (slotNum: number, slotInfo: Slot | undefined) => {
+    if (!supabase) {
+      window.alert('Supabase 클라이언트가 초기화되지 않았습니다.');
+      return;
+    }
+    if (!slotInfo?.product_id) {
+      window.alert('이 슬롯에 연결된 상품이 없습니다.');
+      return;
+    }
+    setSkinMatchComboLoadingSlot(slotNum);
+    try {
+      const { data: rows, error } = await supabase
+        .from('product_components')
+        .select('sku_id')
+        .eq('product_id', slotInfo.product_id)
+        .not('sku_id', 'is', null);
+      if (error) throw error;
+      const skuIds = [
+        ...new Set(
+          (rows ?? [])
+            .map((r: { sku_id?: string | null }) => r.sku_id)
+            .filter((id): id is string => typeof id === 'string' && id.length > 0),
+        ),
+      ];
+      if (skuIds.length === 0) {
+        window.alert(
+          '이 상품의 구성품에 연결된 SKU가 없습니다. 상품관리에서 박스 구성품마다 재고 SKU를 연결한 뒤 다시 시도하세요.',
+        );
+        return;
+      }
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 120_000);
+      const res = await fetch(`${SKIN_API_URL}/analyze-box-combo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sku_ids: skuIds }),
+        signal: ctrl.signal,
+      });
+      clearTimeout(timer);
+      const payload = (await res.json().catch(() => ({}))) as SkinMatchComboResult;
+      if (!res.ok || payload.success === false) {
+        throw new Error(payload.error ?? `조합 분석 실패 (${res.status})`);
+      }
+      setSkinMatchComboBySlot((prev) => ({ ...prev, [slotNum]: payload }));
+    } catch (e) {
+      window.alert(`성분 조합 분석 실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setSkinMatchComboLoadingSlot((prev) => (prev === slotNum ? null : prev));
+    }
+  }, []);
 
   // 히어로 이미지 탭: site_settings에서 JSON array 로드
   useEffect(() => {
@@ -2346,6 +2443,51 @@ export const Admin: React.FC = () => {
     }
   };
 
+  /** 선택 회원 일괄 — 셀카 분석 쿠폰 (특별 쿠폰 패널에서 호출) */
+  const handleGrantSelfieCouponsBulk = async () => {
+    if (!supabase || !canGrantPermission) return;
+    const d = Math.floor(Number(selfieBulkGrantCount));
+    if (!Number.isFinite(d) || d < 1 || d > 99) {
+      setMembersError(null);
+      setMembersInfoNotice('셀카 쿠폰 지급 장수는 1~99 정수로 설정하세요.');
+      return;
+    }
+    if (selectedMemberIds.length === 0) {
+      setMembersError('쿠폰을 지급할 회원을 먼저 선택하세요.');
+      return;
+    }
+    try {
+      setGrantingCoupons(true);
+      setMembersError(null);
+      const results = await Promise.all(
+        selectedMemberIds.map((uid) =>
+          supabase.rpc('admin_grant_selfie_coupons', { target_user_id: uid, delta: d }),
+        ),
+      );
+      const failed = results.find((r) => r.error);
+      if (failed?.error) {
+        console.error('[Admin] admin_grant_selfie_coupons:', failed.error);
+        const msg = failed.error.message ?? '';
+        setMembersError(
+          msg.includes('forbidden') || failed.error.code === '42501'
+            ? '셀카 쿠폰 지급은 DB에서 관리자(is_admin)로 표시된 계정만 가능합니다.'
+            : `셀카 쿠폰 지급 실패: ${msg}`,
+        );
+        return;
+      }
+      setMembersInfoNotice(
+        `선택 ${selectedMemberIds.length}명에게 셀카 분석 쿠폰 ${d}장씩 지급했습니다. (회원당 누적 잔액은 쿠폰 현황에서 확인)`,
+      );
+      setMembersRefreshTrigger((t) => t + 1);
+      setSaveSuccessAt(Date.now());
+    } catch (e) {
+      console.error('[Admin] 셀카 쿠폰 일괄 지급:', e);
+      setMembersError('셀카 쿠폰 지급 중 오류가 발생했습니다.');
+    } finally {
+      setGrantingCoupons(false);
+    }
+  };
+
   if (!initialized) return <AuthInitializingScreen />;
   if (!isLoggedIn) return <Navigate to="/login" replace />;
   if (!isAdmin) return <Navigate to="/" replace />;
@@ -2506,9 +2648,11 @@ export const Admin: React.FC = () => {
           is_customized: c.is_customized ?? false,
         };
       });
-      await supabase.from('product_components').delete().eq('product_id', productId);
+      const { error: delCompErr } = await supabase.from('product_components').delete().eq('product_id', productId);
+      if (delCompErr) throw delCompErr;
       if (compPayload.length > 0) {
-        await supabase.from('product_components').insert(compPayload);
+        const { error: insCompErr } = await supabase.from('product_components').insert(compPayload);
+        if (insCompErr) throw insCompErr;
       }
       const nextBriefsMap: ProductIngredientBriefMap = {
         ...ingredientBriefsMap,
@@ -2555,7 +2699,7 @@ export const Admin: React.FC = () => {
       }
       const { data: compData } = await supabase
         .from('product_components')
-        .select('id, product_id, sort_order, name, image_url, image_urls, description, layout')
+        .select('id, product_id, sort_order, name, image_url, image_urls, description, layout, sku_id, is_customized')
         .eq('product_id', productId);
       if (compData && Array.isArray(compData)) {
         const rows = (compData as (Omit<ProductComponent, 'image_urls'> & { image_urls?: string[] | null })[]).sort(
@@ -2567,6 +2711,8 @@ export const Admin: React.FC = () => {
             image_urls:
               r.image_urls && Array.isArray(r.image_urls) && r.image_urls.length > 0 ? r.image_urls : r.image_url ? [r.image_url] : [],
             layout: (r as { layout?: 'image_left' | 'image_right' }).layout ?? 'image_left',
+            sku_id: (r as { sku_id?: string | null }).sku_id ?? null,
+            is_customized: Boolean((r as { is_customized?: boolean | null }).is_customized),
           }))
         );
       }
@@ -2633,6 +2779,8 @@ export const Admin: React.FC = () => {
         image_urls: [],
         description: null,
         layout: 'image_left',
+        sku_id: null,
+        is_customized: false,
       },
     ]);
   };
@@ -3808,7 +3956,7 @@ export const Admin: React.FC = () => {
         </section>
       )}
 
-      {/* ── 재고 관리 탭 ── */}
+      {/* ── 상품 & 재고 관리 탭 ── */}
       {tab === 'inventory' && <InventoryTab />}
 
       {tab === 'products' && (
@@ -4882,7 +5030,8 @@ export const Admin: React.FC = () => {
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <h2 className="mb-2 text-sm font-semibold text-slate-900">테스트 결과–상품 매칭 (뷰티박스 전용)</h2>
             <p className="mb-4 text-xs text-slate-500">
-              <strong>피부 테스트</strong>와 <strong>«Рекомендуемые товары»</strong> 링크는 <strong>뷰티박스 슬롯만</strong> 사용합니다. 핏박스·헤어박스와 데이터가 섞이지 않습니다. 아래 슬롯은 상품관리 → <strong>뷰티박스</strong> 탭에서 저장한 순서와 동일합니다. 피부 타입을 드래그해 슬롯에 넣은 뒤 저장하세요.
+              <strong>피부 테스트</strong>와 <strong>«Рекомендуемые товары»</strong> 링크는 <strong>뷰티박스 슬롯만</strong> 사용합니다. 핏박스·헤어박스와 데이터가 섞이지 않습니다. 아래 슬롯은 상품관리 → <strong>뷰티박스</strong> 탭에서 저장한 순서와 동일합니다. 피부 타입을 드래그해 슬롯에 넣은 뒤 저장하세요.{' '}
+              <strong>성분 조합</strong>은 해당 슬롯 상품의 <strong>구성품에 연결된 SKU 전체</strong>를 한 박스로 보고 Flask <code className="rounded bg-slate-100 px-0.5">/analyze-box-combo</code> 결과를 띄웁니다 (전성분·캐시·Gemini).
             </p>
             {skinMatchLoading ? (
               <p className="py-8 text-center text-sm text-slate-500">불러오는 중…</p>
@@ -4975,7 +5124,20 @@ export const Admin: React.FC = () => {
                               {!isActive && ' (비활성)'}
                             </p>
                             {isActive && (
-                              <div className="flex items-center gap-1">
+                              <div className="flex flex-wrap items-center justify-end gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => void handleSkinMatchComboAnalysis(slotNum, slotInfo)}
+                                  disabled={skinMatchComboLoadingSlot === slotNum || !slotInfo?.product_id}
+                                  className="shrink-0 rounded px-2 py-0.5 text-[10px] font-medium text-violet-700 hover:bg-violet-50 disabled:opacity-50"
+                                  title={
+                                    !slotInfo?.product_id
+                                      ? '연결된 상품이 필요합니다'
+                                      : '구성품 SKU 전체 성분 조합 분석 (Flask)'
+                                  }
+                                >
+                                  {skinMatchComboLoadingSlot === slotNum ? '조합 분석…' : '성분 조합'}
+                                </button>
                                 <button
                                   type="button"
                                   onClick={() => void handleAnalyzeSkinMatchSlot(slotNum, slotInfo, assignedTypes)}
@@ -4999,6 +5161,7 @@ export const Admin: React.FC = () => {
                                       });
                                       setUnmatchedTypes((prev) => [...prev, ...types]);
                                       setSkinMatchAiBySlot((prev) => ({ ...prev, [slotNum]: null }));
+                                      setSkinMatchComboBySlot((prev) => ({ ...prev, [slotNum]: null }));
                                     }}
                                     className="shrink-0 rounded px-2 py-0.5 text-[10px] font-medium text-slate-500 hover:bg-slate-200 hover:text-slate-700"
                                   >
@@ -5138,6 +5301,94 @@ export const Admin: React.FC = () => {
                                 )}
                               {result.dermatologist_opinion && (
                                 <p className="text-xs text-slate-700">전문의 의견: {result.dermatologist_opinion}</p>
+                              )}
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
+
+                {Object.entries(skinMatchComboBySlot).some(([, v]) => !!v) && (
+                  <div className="mt-4 rounded-xl border border-violet-200 bg-violet-50/30 p-4">
+                    <div className="mb-3 flex items-center gap-2">
+                      <span className="text-base">🧪</span>
+                      <h3 className="text-sm font-semibold text-slate-800">성분 조합 분석 (슬롯 박스 SKU 전체)</h3>
+                    </div>
+                    <p className="mb-3 text-[11px] text-slate-600">
+                      상품 구성품에 연결된 각 SKU의 전성분을 합쳐 하드 룰·라이브러리·Gemini로 요약합니다. 피부 타입 매칭과는 별개입니다.
+                    </p>
+                    <div className="space-y-3">
+                      {Array.from({ length: skinMatchSlots.length }, (_, i) => i + 1)
+                        .filter((slotNum) => !!skinMatchComboBySlot[slotNum]?.success)
+                        .map((slotNum) => {
+                          const combo = skinMatchComboBySlot[slotNum]!;
+                          const slotInfo = skinMatchSlots[slotNum - 1];
+                          const productName = slotInfo?.product_id
+                            ? products.find((p) => p.id === slotInfo.product_id)?.name ?? slotInfo?.title
+                            : slotInfo?.title;
+                          return (
+                            <div key={`combo-${slotNum}`} className="rounded-lg border border-violet-200 bg-white/90 p-3 text-xs">
+                              <p className="mb-2 text-sm font-semibold text-slate-800">
+                                슬롯 {slotNum}
+                                {productName ? ` · ${productName}` : ''}
+                              </p>
+                              {combo.cache_hit && (
+                                <p className="mb-2 font-medium text-violet-700">캐시 히트 — 동일 성분 fingerprint는 재호출 없음</p>
+                              )}
+                              {combo.axis_scores && (
+                                <div className="mb-2">
+                                  <p className="mb-1 font-semibold text-slate-800">5축 (0–100)</p>
+                                  <ul className="flex flex-wrap gap-1">
+                                    {(['D', 'O', 'S', 'P', 'W'] as const).map((k) => {
+                                      const v = combo.axis_scores?.[k];
+                                      if (typeof v !== 'number') return null;
+                                      return (
+                                        <li
+                                          key={k}
+                                          className="rounded-md bg-slate-50 px-2 py-0.5 text-[11px] text-slate-700"
+                                        >
+                                          {SKIN_MATCH_COMBO_AXIS_KO[k] ?? k}{' '}
+                                          <span className="font-semibold tabular-nums">{v}</span>
+                                        </li>
+                                      );
+                                    })}
+                                  </ul>
+                                </div>
+                              )}
+                              {combo.recommended_for && combo.recommended_for.length > 0 && (
+                                <p className="mb-1 text-slate-700">
+                                  <span className="font-semibold">추천 코드:</span> {combo.recommended_for.join(', ')}
+                                </p>
+                              )}
+                              {combo.warnings && combo.warnings.length > 0 && (
+                                <ul className="mb-1 list-inside list-disc text-amber-900">
+                                  {combo.warnings.map((w, i) => (
+                                    <li key={`w-${slotNum}-${i}`}>{w}</li>
+                                  ))}
+                                </ul>
+                              )}
+                              {combo.synergies && combo.synergies.length > 0 && (
+                                <ul className="mb-1 list-inside list-disc text-slate-700">
+                                  {combo.synergies.slice(0, 8).map((s, i) => (
+                                    <li key={`s-${slotNum}-${i}`}>{s}</li>
+                                  ))}
+                                </ul>
+                              )}
+                              {combo.gemini_summary?.trim() && (
+                                <p className="whitespace-pre-wrap text-[11px] leading-relaxed text-slate-700">
+                                  {combo.gemini_summary}
+                                </p>
+                              )}
+                              {combo.ingredient_keys && combo.ingredient_keys.length > 0 && (
+                                <details className="mt-2 rounded border border-slate-100 bg-slate-50/80 p-2">
+                                  <summary className="cursor-pointer text-[11px] font-medium text-slate-600">
+                                    분석 성분 키 ({combo.ingredient_keys.length}개)
+                                  </summary>
+                                  <p className="mt-1 max-h-24 overflow-y-auto break-all text-[10px] text-slate-500">
+                                    {combo.ingredient_keys.join(', ')}
+                                  </p>
+                                </details>
                               )}
                             </div>
                           );
@@ -6327,7 +6578,7 @@ export const Admin: React.FC = () => {
             <div>
               <h2 className="text-sm font-semibold text-slate-900">가입회원 관리</h2>
               <p className="mt-1 text-[11px] text-slate-500">
-                관리자 명단과 일반 회원을 구분해 표시합니다. 등급·포인트·스킨 테스트·텔레그램·이메일 확인 여부를 볼 수 있습니다.
+                관리자 명단과 일반 회원을 구분해 표시합니다. 우측 상단에서 유형(금액 할인 / 셀카 분석)을 고른 뒤, 일반 회원·관리자 명단의 체크박스로 대상을 선택해 일괄 지급할 수 있습니다.
               </p>
             </div>
             {canGrantPermission && (
@@ -6340,27 +6591,58 @@ export const Admin: React.FC = () => {
               >
                 분기 쿠폰 지급
               </button>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <label className="flex items-center gap-1 text-[11px] text-slate-600">
-                  <span>특별 쿠폰 금액</span>
+                  <span className="whitespace-nowrap">유형</span>
                   <select
-                    value={specialCouponAmount}
-                    onChange={(e) => setSpecialCouponAmount(Number(e.target.value) || 100)}
-                    className="rounded-full border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700"
+                    value={specialGrantKind}
+                    onChange={(e) => setSpecialGrantKind(e.target.value as 'membership_rub' | 'selfie')}
+                    className="max-w-[10rem] rounded-full border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700"
                   >
-                    <option value={100}>100 ₽</option>
-                    <option value={300}>300 ₽</option>
-                    <option value={500}>500 ₽</option>
-                    <option value={1000}>1000 ₽</option>
+                    <option value="membership_rub">금액 할인 쿠폰</option>
+                    <option value="selfie">셀카 분석 쿠폰</option>
                   </select>
                 </label>
+                {specialGrantKind === 'membership_rub' ? (
+                  <label className="flex items-center gap-1 text-[11px] text-slate-600">
+                    <span className="whitespace-nowrap">금액</span>
+                    <select
+                      value={specialCouponAmount}
+                      onChange={(e) => setSpecialCouponAmount(Number(e.target.value) || 100)}
+                      className="rounded-full border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700"
+                    >
+                      <option value={100}>100 ₽</option>
+                      <option value={300}>300 ₽</option>
+                      <option value={500}>500 ₽</option>
+                      <option value={1000}>1000 ₽</option>
+                    </select>
+                  </label>
+                ) : (
+                  <label className="flex items-center gap-1 text-[11px] text-slate-600">
+                    <span className="whitespace-nowrap">장수(인당)</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={99}
+                      value={selfieBulkGrantCount}
+                      onChange={(e) => setSelfieBulkGrantCount(Math.min(99, Math.max(1, parseInt(e.target.value, 10) || 1)))}
+                      className="w-12 rounded-full border border-slate-300 bg-white px-2 py-1 text-center text-[11px] text-slate-700"
+                    />
+                  </label>
+                )}
                 <button
                   type="button"
-                  onClick={handleGrantMembershipCoupons}
+                  onClick={() =>
+                    void (specialGrantKind === 'selfie' ? handleGrantSelfieCouponsBulk() : handleGrantMembershipCoupons())
+                  }
                   disabled={grantingCoupons}
                   className="rounded-full bg-brand px-4 py-1.5 text-xs font-medium text-white hover:bg-brand/90 disabled:opacity-50"
                 >
-                  {grantingCoupons ? '특별 쿠폰 지급 중…' : '특별 쿠폰 지급'}
+                  {grantingCoupons
+                    ? '지급 중…'
+                    : specialGrantKind === 'selfie'
+                      ? '셀카 쿠폰 지급'
+                      : '특별 쿠폰 지급'}
                 </button>
               </div>
             </div>
@@ -6388,6 +6670,23 @@ export const Admin: React.FC = () => {
                   <table className="min-w-full text-xs">
                     <thead className="border-b border-slate-200 text-slate-600">
                       <tr>
+                        {canGrantPermission && (
+                          <th className="whitespace-nowrap px-2 py-1.5 text-center font-medium text-slate-700">
+                            <input
+                              type="checkbox"
+                              title="관리자 전원 선택(특별·셀카 쿠폰 일괄)"
+                              className="h-3 w-3 rounded border-slate-300 text-brand focus:ring-brand"
+                              checked={adminList.length > 0 && adminList.every((a) => selectedMemberIds.includes(a.id))}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedMemberIds((prev) => [...new Set([...prev, ...adminList.map((a) => a.id)])]);
+                                } else {
+                                  setSelectedMemberIds((prev) => prev.filter((id) => !adminList.some((a) => a.id === id)));
+                                }
+                              }}
+                            />
+                          </th>
+                        )}
                         <th className="whitespace-nowrap px-3 py-1.5 text-left font-medium">회원</th>
                         <th className="whitespace-nowrap px-3 py-1.5 text-left font-medium">역할</th>
                         {canGrantPermission && (
@@ -6398,6 +6697,20 @@ export const Admin: React.FC = () => {
                     <tbody>
                       {adminList.map((m) => (
                         <tr key={m.id} className="border-t border-slate-100">
+                          {canGrantPermission && (
+                            <td className="whitespace-nowrap px-2 py-2 text-center">
+                              <input
+                                type="checkbox"
+                                className="h-3 w-3 rounded border-slate-300 text-brand focus:ring-brand"
+                                checked={selectedMemberIds.includes(m.id)}
+                                onChange={(e) => {
+                                  setSelectedMemberIds((prev) =>
+                                    e.target.checked ? [...prev, m.id] : prev.filter((id) => id !== m.id),
+                                  );
+                                }}
+                              />
+                            </td>
+                          )}
                           <td className="whitespace-nowrap px-3 py-2">
                             <div className="flex flex-col">
                               <span className="font-medium text-slate-900">{m.name || '—'}</span>
@@ -6447,9 +6760,24 @@ export const Admin: React.FC = () => {
                             <p className="font-medium text-slate-900">{m.name || '—'}</p>
                             <p className="text-[11px] text-slate-500">{m.email || '—'}</p>
                           </div>
-                          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${m.is_admin ? 'bg-brand/20 text-brand' : 'bg-slate-200 text-slate-700'}`}>
-                            {m.is_admin ? '관리자' : '매니저'}
-                          </span>
+                          <div className="flex shrink-0 items-center gap-2">
+                            {canGrantPermission && (
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
+                                checked={selectedMemberIds.includes(m.id)}
+                                onChange={(e) => {
+                                  setSelectedMemberIds((prev) =>
+                                    e.target.checked ? [...prev, m.id] : prev.filter((id) => id !== m.id),
+                                  );
+                                }}
+                                title="특별·셀카 쿠폰 일괄 대상"
+                              />
+                            )}
+                            <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${m.is_admin ? 'bg-brand/20 text-brand' : 'bg-slate-200 text-slate-700'}`}>
+                              {m.is_admin ? '관리자' : '매니저'}
+                            </span>
+                          </div>
                         </div>
                         {canGrantPermission && (
                           <div className="mt-2">
@@ -6503,7 +6831,9 @@ export const Admin: React.FC = () => {
                     <ul className="space-y-1 text-[11px] text-slate-600">
                       <li>분기 쿠폰: 회원당 동일 분기(예: 2026Q1) 1장만 — 이미 있으면 재지급 시 자동 스킵</li>
                       <li className="pl-3">브론즈 100₽, 실버 200₽, 골드 300₽ · 만료 약 90일</li>
-                      <li>특별 쿠폰: 분기와 무관, tier=special, 만료 14일, 선택 회원 일괄</li>
+                      <li>특별 쿠폰: 분기와 무관, tier=special, 만료 14일 — 우측에서 「금액 할인」 선택 후 선택 회원 일괄</li>
+                      <li>셀카 분석 쿠폰: 정밀 셀카 1회당 1장 소모 — 우측에서 「셀카 분석」 선택·장수 입력 후 선택 회원(관리자 포함) 일괄 지급, 잔액은 쿠폰 현황에서 확인</li>
+                      <li>신규 가입 시 셀카 쿠폰 1장은 DB 트리거로 자동 지급(마이그레이션 적용 시)</li>
                       <li>향후 바우처 코드 활성화 검토</li>
                     </ul>
                   </div>
@@ -6623,19 +6953,12 @@ export const Admin: React.FC = () => {
                         {m.order_count}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 text-center text-slate-700">
-                        {m.has_skin_test ? (
-                          <div className="flex flex-col items-center gap-0.5 text-[11px]">
-                            <span className="text-slate-700">
-                              {m.skin_type ?? '-'}
-                            </span>
-                            {m.skin_completed_at && (
-                              <span className="text-slate-500">
-                                {new Date(m.skin_completed_at).toLocaleDateString('ru-RU')}
-                              </span>
-                            )}
-                          </div>
-                        ) : (
+                        {!m.has_skin_test ? (
                           '-'
+                        ) : m.has_selfie_analysis ? (
+                          <span className="text-[11px] font-medium text-slate-800">테스트/셀카 완료</span>
+                        ) : (
+                          <span className="text-[11px] text-slate-700">테스트 완료</span>
                         )}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 text-center text-slate-700">
@@ -6743,7 +7066,9 @@ export const Admin: React.FC = () => {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-xs text-slate-500">스킨 테스트</span>
-                      <span>{m.has_skin_test ? (m.skin_type ?? '완료') : '-'}</span>
+                      <span className="text-right text-xs font-medium">
+                        {!m.has_skin_test ? '-' : m.has_selfie_analysis ? '테스트/셀카 완료' : '테스트 완료'}
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-xs text-slate-500">텔레그램</span>

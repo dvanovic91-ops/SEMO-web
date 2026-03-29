@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   QUESTIONS,
@@ -20,9 +20,14 @@ import { ProductCompositionGrid, type ProductCompositionItem } from '../componen
 import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../components/SemoPageSpinner';
 import { getOrCreateVisitSessionId } from '../lib/clientSession';
 import { getRecommendedProductIdForSkinType } from '../lib/skinTypeSlotMapping';
+import { getSkuCompositionDisplayParts } from '../lib/skuMarketingDescriptions';
+import { resolveSkuStorefrontName } from '../lib/skuStorefrontTitle';
+import { getSkinApiBaseUrl } from '../lib/skinApiBaseUrl';
+import { SkinResultMetricsCharts } from '../components/SkinResultMetricsCharts';
 
 const MAX_TEST_COUNT = 2;
-const SKIN_API_URL = (import.meta as unknown as { env: Record<string, string> }).env?.VITE_SKIN_API_URL ?? 'http://localhost:5001';
+
+const SKIN_RESULT_ROW_STORAGE = 'semo_last_skin_result_id';
 
 /** products.image_urls → 테스트 결과 카드용 URL 목록 (상세와 동일 규칙 + jsonb 객체 형태 폴백) */
 function normalizePreviewImageUrls(row: { image_url?: string | null; image_urls?: unknown }): string[] {
@@ -83,6 +88,61 @@ type SelfieAnalyzeResponse = {
   };
 };
 
+/** analyze-text / analyze-text-with-selfie — 섹션 배열 또는 구형 문자열 */
+type AiAnalysisSection = { title: string; body: string };
+type AiAnalysisSections = { ko: AiAnalysisSection[]; ru: AiAnalysisSection[]; en: AiAnalysisSection[] };
+
+function parseAiAnalysisApiPayload(payload: {
+  success?: boolean;
+  ko?: unknown;
+  ru?: unknown;
+  en?: unknown;
+}): AiAnalysisSections | null {
+  if (!payload.success) return null;
+  const normLang = (v: unknown): AiAnalysisSection[] => {
+    if (Array.isArray(v)) {
+      const out: AiAnalysisSection[] = [];
+      for (const item of v) {
+        if (!item || typeof item !== 'object') continue;
+        const o = item as Record<string, unknown>;
+        const title = String(o.title ?? '').trim();
+        const body = String(o.body ?? '').trim();
+        if (title || body) out.push({ title, body });
+      }
+      return out;
+    }
+    if (typeof v === 'string' && v.trim()) return [{ title: '', body: v.trim() }];
+    return [];
+  };
+  const ko = normLang(payload.ko);
+  const ru = normLang(payload.ru);
+  const en = normLang(payload.en);
+  if (ko.length === 0 && ru.length === 0 && en.length === 0) return null;
+  return { ko, ru, en };
+}
+
+function pickDisplaySections(block: AiAnalysisSections, isEn: boolean): AiAnalysisSection[] {
+  const en = Array.isArray(block.en) ? block.en : [];
+  const ru = Array.isArray(block.ru) ? block.ru : [];
+  const ko = Array.isArray(block.ko) ? block.ko : [];
+  const primary = isEn ? en : ru;
+  const fallback = isEn ? ru : en;
+  const has = (s: AiAnalysisSection[]) => s.some((x) => x.body.trim() || x.title.trim());
+  if (has(primary)) return primary;
+  if (has(fallback)) return fallback;
+  return has(ko) ? ko : primary;
+}
+
+/** RU 설명 끝 이모지 제거 — desc가 비문자·정규식 오류여도 렌더가 죽지 않게 */
+function stripSkinDescTrailingEmojiRu(desc: unknown): string {
+  const s = String(desc ?? '');
+  try {
+    return s.replace(/\s*[\u2728\u{1F31F}\u{1F338}\u{1F4AB}\u{1F3C6}\u{1F33F}]+\s*$/gu, '').trim();
+  } catch {
+    return s.trim();
+  }
+}
+
 const QUESTIONS_EN = [
   'After cleansing and before applying products, does your skin feel tight?',
   'By midday, does your skin (especially T-zone) become shiny?',
@@ -117,7 +177,6 @@ const ANSWERS_EN: [string, string][] = [
 const PROFILE_STEPS_EN = [
   { key: 'age', label: 'Your age?', options: [['Under 20', 'age_1'], ['20-25', 'age_2'], ['26-30', 'age_3'], ['31-35', 'age_4'], ['36-40', 'age_5'], ['41-45', 'age_6'], ['45+', 'age_7']] as [string, string][] },
   { key: 'gender', label: 'Your gender?', options: [['Female', 'gen_f'], ['Male', 'gen_m']] as [string, string][] },
-  { key: 'city', label: 'Your city?', options: [['Moscow region', 'city_1'], ['Saint Petersburg region', 'city_2'], ['Novosibirsk', 'city_3'], ['Yekaterinburg', 'city_4'], ['Kazan', 'city_5'], ['Nizhny Novgorod', 'city_6'], ['Chelyabinsk', 'city_7'], ['Samara', 'city_8'], ['Other city', 'city_9']] as [string, string][] },
   { key: 'concern', label: 'Main skin concern?', options: [['Acne and breakouts', 'con_1'], ['Dryness and flaking', 'con_2'], ['Pigmentation and uneven tone', 'con_3'], ['Aging signs', 'con_4'], ['Excess oil shine', 'con_5']] as [string, string][] },
   { key: 'routine', label: 'How would you describe your skin routine?', options: [['Almost none', 'rut_1'], ['Basic routine only', 'rut_2'], ['Full routine', 'rut_3']] as [string, string][] },
   { key: 'source', label: 'How did you hear about us?', options: [['Instagram / Social media', 'src_ig'], ['Friend recommendation', 'src_friend'], ['Yandex search', 'src_yandex'], ['Marketplaces', 'src_market'], ['Other', 'src_other']] as [string, string][] },
@@ -129,8 +188,14 @@ function nextProfileStep(step: number): number {
 }
 
 export const SkinTest: React.FC = () => {
-  const { language, currency } = useI18n();
+  const { language, currency, country } = useI18n();
+  // 국가 → 지역 코드 매핑 (도시 질문 제거 후 국가로 기후 컨텍스트 결정)
+  const countryToRegion: Record<string, string> = {
+    RU: 'russia_other', KZ: 'almaty', UZ: 'tashkent', AE: 'dubai',
+  };
+  const regionCode = countryToRegion[country] ?? 'russia_other';
   const isEn = language === 'en';
+  const skinApiBase = getSkinApiBaseUrl();
   const { userId, userEmail } = useAuth();
   const activeQuestions = isEn ? QUESTIONS_EN : QUESTIONS.map((q) => q.text);
   const activeAnswers = isEn ? ANSWERS_EN : ANSWERS;
@@ -144,6 +209,54 @@ export const SkinTest: React.FC = () => {
     const c3 = type[2] === 'P' ? 'Pigmented' : 'Non-pigmented';
     const c4 = type[3] === 'W' ? 'Wrinkle-prone' : 'Tight/Firm';
     return `${c1} · ${c2} · ${c3} · ${c4}`;
+  };
+
+  /** 바우만 점수 기반 케어 주의사항 2~3줄 */
+  const skinCareNote = (skinType: string, sc: Record<1|2|3|4, number>, en: boolean): string => {
+    const isDry = skinType[0] === 'D';
+    const isSens = skinType[1] === 'S';
+    const isPigm = skinType[2] === 'P';
+    const isWrinkle = skinType[3] === 'W';
+    const sensScore = Math.abs(sc[2]);
+    const lines: string[] = [];
+
+    // 축 1: 수분/유분
+    if (isDry) {
+      lines.push(en
+        ? `Prone to moisture loss — avoid sulfate cleansers and alcohol-based toners.`
+        : `Склонна к потере влаги — откажитесь от сульфатных средств и спиртовых тоников.`);
+    } else {
+      lines.push(en
+        ? `Excess sebum production — skip heavy creams and comedogenic oils to prevent clogged pores.`
+        : `Склонна к жирному блеску — избегайте плотных кремов и комедогенных масел.`);
+    }
+
+    // 축 2: 민감도
+    if (isSens) {
+      lines.push(en
+        ? sensScore >= 6
+          ? `Highly reactive skin — acids and retinol may irritate; always patch-test before use.`
+          : `Moderately sensitive — go easy on AHA/BHA, retinol and fragrances; patch-test new products.`
+        : sensScore >= 6
+          ? `Высокочувствительная кожа — кислоты и ретинол могут раздражать, проводите патч-тест.`
+          : `Умеренно чувствительная — осторожно с AHA/BHA, ретинолом и отдушками.`);
+    }
+
+    // 축 3: 색소
+    if (isPigm) {
+      lines.push(en
+        ? `Pigmentation-prone — daily SPF 30+ is essential, even on cloudy days.`
+        : `Склонна к пигментации — ежедневный SPF 30+ обязателен, в том числе в пасмурную погоду.`);
+    }
+
+    // 축 4: 노화
+    if (isWrinkle) {
+      lines.push(en
+        ? `Signs of aging appear early — prioritise antioxidants (vitamin C, niacinamide) and peptides.`
+        : `Возрастные изменения проявляются раньше — в приоритете антиоксиданты и пептидные средства.`);
+    }
+
+    return lines.slice(0, 3).join(' ');
   };
 
   const englishConcernLabel = (label: string) => {
@@ -178,15 +291,22 @@ export const SkinTest: React.FC = () => {
   };
 
   const [searchParams] = useSearchParams();
+  const skinTypeQueryParam = searchParams.get('type')?.trim().toUpperCase() ?? '';
   const { addItem } = useCart();
   const isAdmin = !!userEmail && ADMIN_EMAILS.includes(userEmail);
   const noTestLimit = !!userEmail && UNLIMITED_TEST_EMAILS.includes(userEmail);
   const [stage, setStage] = useState<Stage>('intro');
   const [testCount, setTestCount] = useState<number | null>(null);
+  /** insert 직후 DB 재조회 타이밍 맞춤 */
+  const [resultSyncNonce, setResultSyncNonce] = useState(0);
   const [limitReached, setLimitReached] = useState(false);
   const [profileStep, setProfileStep] = useState(0);
   const [profileData, setProfileData] = useState<Record<string, string>>({});
   const [concernText, setConcernText] = useState('');
+  const [aiAnalysisText, setAiAnalysisText] = useState<AiAnalysisSections | null>(null);
+  const [aiAnalysisLoading, setAiAnalysisLoading] = useState(false);
+  const [selfieConsent, setSelfieConsent] = useState(false);
+  const [selfieOpen, setSelfieOpen] = useState(false);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<number[]>([]);
   const [result, setResult] = useState<{
@@ -206,10 +326,15 @@ export const SkinTest: React.FC = () => {
     /** 상품 ID 없음 / 조회 실패 등 — 무한 «Загрузка» 방지 */
     status?: 'ok' | 'no_slot' | 'fetch_failed';
   } | null>(null);
+  /** 셀피 직후 통합 문단 요청 시 최신 추천 상품 스냅샷 (클로저 stale 방지) */
+  const recommendedProductPreviewRef = useRef(recommendedProductPreview);
+  recommendedProductPreviewRef.current = recommendedProductPreview;
+  const [postSelfieUnifiedLoading, setPostSelfieUnifiedLoading] = useState(false);
   const [cartToast, setCartToast] = useState(false);
   const [prevResultSkinType, setPrevResultSkinType] = useState<string | null>(null);
   const [prevResultAt, setPrevResultAt] = useState<string | null>(null);
-  const [selfieCouponCount, setSelfieCouponCount] = useState(0);
+  /** null = 로컬스토리지에서 쿠폰 장수 읽기 전(깜빡임 방지). 0이면 셀카 분석 UI 자체 숨김 */
+  const [selfieCouponCount, setSelfieCouponCount] = useState<number | null>(null);
   const [selfieCouponNotice, setSelfieCouponNotice] = useState<string | null>(null);
   const [selfieFile, setSelfieFile] = useState<File | null>(null);
   const [selfiePreviewUrl, setSelfiePreviewUrl] = useState<string | null>(null);
@@ -217,18 +342,45 @@ export const SkinTest: React.FC = () => {
   const [selfieAnalyzeError, setSelfieAnalyzeError] = useState<string | null>(null);
   const [selfieAnalyzeResult, setSelfieAnalyzeResult] = useState<SelfieAnalyzeResponse | null>(null);
   const [selfieComparisonComment, setSelfieComparisonComment] = useState<string | null>(null);
+  const [selfieUploadMenuOpen, setSelfieUploadMenuOpen] = useState(false);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const selfieUploadWrapRef = useRef<HTMLDivElement>(null);
 
-  /** 프로필 «Посмотреть результат теста» → ?type=DSNW 등: 동일 결과지 UI */
+  const onSelfieFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0] ?? null;
+    setSelfieFile(f);
+    setSelfieAnalyzeError(null);
+    setSelfieAnalyzeResult(null);
+    setSelfieComparisonComment(null);
+    setSelfiePreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return f ? URL.createObjectURL(f) : null;
+    });
+    setSelfieUploadMenuOpen(false);
+    e.target.value = '';
+  };
+
+  /** 직전에 INSERT된 skin_test_results 행 id — AI 응답을 같은 행에 PATCH */
+  const pendingSkinTestResultRowIdRef = useRef<string | null>(null);
+  /** DB에서 결과/셀피 스냅샷 1회 로드 (같은 키 중복 방지) */
+  const persistedSkinLoadKeyRef = useRef<string>('');
+
+  /** 프로필 «Посмотреть результат теста» → ?type=DSNW 등: 동일 결과지 UI
+   *  의존성은 문자열만 사용 — RR7에서 searchParams(URLSearchParams) 참조가 매 렌더 바뀌면
+   *  effect가 매번 돌아 setResult가 무한 루프(최대 업데이트 깊이 / 빈 화면)를 일으킬 수 있음. */
   useLayoutEffect(() => {
-    const raw = searchParams.get('type')?.trim().toUpperCase();
+    const raw = skinTypeQueryParam;
     if (!raw || !SKIN_INFO[raw]) return;
+    pendingSkinTestResultRowIdRef.current = null;
+    persistedSkinLoadKeyRef.current = '';
     setResult({
       type: raw,
       info: SKIN_INFO[raw],
       scores: approximateScoresFromSkinTypeCode(raw),
     });
     setStage('result');
-  }, [searchParams]);
+  }, [skinTypeQueryParam]);
 
   /** 장바구니 토스트 */
   useEffect(() => {
@@ -286,42 +438,166 @@ export const SkinTest: React.FC = () => {
     };
   }, [userId]);
 
-  /** 회원가입/로그인 사용자: 정밀 셀카 분석 쿠폰(로컬 1장) 1회 지급 */
+  /** 회원: 저장된 테스트 행에서 셀피 수치·AI 문구·정확한 바우만 점수 복원 (새로고침·프로필 링크) */
   useEffect(() => {
-    if (!userId || typeof window === 'undefined') {
-      setSelfieCouponCount(0);
+    if (stage !== 'result' || !result || !userId || !supabase) return;
+    const loadKey = `${userId}:${result.type}:${resultSyncNonce}`;
+    if (persistedSkinLoadKeyRef.current === loadKey) return;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+      const sid =
+        typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(SKIN_RESULT_ROW_STORAGE) : null;
+      const uuidOk =
+        sid &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sid);
+
+      type RowT = {
+        id: string;
+        skin_type: string | null;
+        selfie_analysis: unknown;
+        ai_analysis: unknown;
+        baumann_scores: unknown;
+      };
+      let row: RowT | null = null;
+
+      if (uuidOk) {
+        const { data } = await supabase
+          .from('skin_test_results')
+          .select('id, skin_type, selfie_analysis, ai_analysis, baumann_scores')
+          .eq('user_id', userId)
+          .eq('id', sid as string)
+          .maybeSingle();
+        if (cancelled) return;
+        const d = data as RowT | null;
+        if (d && String(d.skin_type || '').toUpperCase() === result.type) row = d;
+      }
+      if (!row) {
+        const { data } = await supabase
+          .from('skin_test_results')
+          .select('id, skin_type, selfie_analysis, ai_analysis, baumann_scores')
+          .eq('user_id', userId)
+          .eq('skin_type', result.type)
+          .order('completed_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (cancelled) return;
+        row = (data as RowT | null) ?? null;
+      }
+
+      if (cancelled) return;
+      if (!row) {
+        persistedSkinLoadKeyRef.current = loadKey;
+        return;
+      }
+
+      pendingSkinTestResultRowIdRef.current = row.id;
+
+      const bs = row.baumann_scores as Record<string, unknown> | null;
+      if (bs && typeof bs === 'object') {
+        setResult((prev) => {
+          if (!prev || prev.type !== result.type) return prev;
+          return {
+            ...prev,
+            scores: {
+              1: Number(bs['1'] ?? prev.scores[1]),
+              2: Number(bs['2'] ?? prev.scores[2]),
+              3: Number(bs['3'] ?? prev.scores[3]),
+              4: Number(bs['4'] ?? prev.scores[4]),
+            },
+          };
+        });
+      }
+
+      const sa = row.selfie_analysis as {
+        skin_metrics?: SelfieAnalyzeResponse['skin_metrics'];
+        gemini_analysis?: SelfieAnalyzeResponse['gemini_analysis'];
+      } | null;
+      if (sa?.skin_metrics && typeof sa.skin_metrics === 'object') {
+        setSelfieAnalyzeResult({
+          skin_metrics: sa.skin_metrics,
+          gemini_analysis: sa.gemini_analysis,
+        });
+      }
+
+      if (row.ai_analysis && typeof row.ai_analysis === 'object') {
+        const a = row.ai_analysis as Record<string, unknown>;
+        const parsed = parseAiAnalysisApiPayload({
+          success: true,
+          ko: a.ko,
+          ru: a.ru,
+          en: a.en,
+        });
+        if (parsed) setAiAnalysisText(parsed);
+      }
+
+      persistedSkinLoadKeyRef.current = loadKey;
+      } catch (e) {
+        console.error('[SkinTest] persisted skin row load:', e);
+        persistedSkinLoadKeyRef.current = loadKey;
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [stage, result?.type, resultSyncNonce, userId]);
+
+  /** 쿠폰 0이 되면 열린 셀카 패널 닫기 */
+  useEffect(() => {
+    if (selfieCouponCount === 0) setSelfieOpen(false);
+  }, [selfieCouponCount]);
+
+  useEffect(() => {
+    if (!selfieOpen) setSelfieUploadMenuOpen(false);
+  }, [selfieOpen]);
+
+  /** 회원: 셀카 분석 쿠폰 잔액(Supabase selfie_coupon_balances) */
+  useEffect(() => {
+    if (!userId || !supabase) {
+      setSelfieCouponCount(null);
       setSelfieCouponNotice(null);
       return;
     }
-    try {
-      const awardedKey = `semo_selfie_coupon_awarded:${userId}`;
-      const remainKey = `semo_selfie_coupon_remaining:${userId}`;
-      const awarded = localStorage.getItem(awardedKey) === '1';
-      if (!awarded) {
-        localStorage.setItem(awardedKey, '1');
-        localStorage.setItem(remainKey, '1');
-        setSelfieCouponCount(1);
-        setSelfieCouponNotice(
-          isEn
-            ? 'Welcome coupon issued: 1 detailed selfie analysis.'
-            : 'Приветственный купон выдан: 1 детальный селфи-анализ.',
-        );
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase
+        .from('selfie_coupon_balances')
+        .select('balance')
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (cancelled) return;
+      if (error) {
+        console.warn('[SkinTest] selfie_coupon_balances:', error);
+        setSelfieCouponCount(0);
+        setSelfieCouponNotice(null);
         return;
       }
-      const n = parseInt(localStorage.getItem(remainKey) ?? '0', 10);
-      setSelfieCouponCount(Number.isFinite(n) ? Math.max(0, n) : 0);
+      const b = (data as { balance?: number } | null)?.balance;
+      setSelfieCouponCount(typeof b === 'number' ? Math.max(0, b) : 0);
       setSelfieCouponNotice(null);
-    } catch {
-      setSelfieCouponCount(0);
-      setSelfieCouponNotice(null);
-    }
-  }, [userId, isEn]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, supabase]);
 
   useEffect(() => {
     return () => {
       if (selfiePreviewUrl) URL.revokeObjectURL(selfiePreviewUrl);
     };
   }, [selfiePreviewUrl]);
+
+  useEffect(() => {
+    if (!selfieUploadMenuOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      const el = selfieUploadWrapRef.current;
+      if (el && !el.contains(e.target as Node)) setSelfieUploadMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [selfieUploadMenuOpen]);
 
   useEffect(() => {
     if (!result?.type || !supabase) {
@@ -401,32 +677,64 @@ export const SkinTest: React.FC = () => {
         const thumb1 = ordered[0] ?? null;
         const thumb2 = ordered[1] ?? null;
 
-        let composition: ProductCompositionItem[] = [];
-        try {
-          const { data: compRows } = await supabase
-            .from('product_components')
-            .select('id, sort_order, name, image_url, image_urls, description, is_customized, sku_items(display_name, description, image_url, key_ingredients)')
-            .eq('product_id', productId);
-          if (Array.isArray(compRows)) {
-            composition = (compRows as any[])
-              .slice()
-              .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-              .map((c: any) => {
-                const sku = c.sku_items as { display_name?: string | null; description?: string | null; image_url?: string | null; key_ingredients?: string | null } | null;
-                // sku_id가 연결된 경우 SKU 데이터 우선 사용
-                const hasSkuImage = !!sku?.image_url;
-                return {
-                  id: c.id,
-                  name: (sku?.display_name) ? sku.display_name : c.name,
-                  image_url: hasSkuImage ? sku.image_url : c.image_url,
-                  image_urls: hasSkuImage ? [sku!.image_url!] : (c.image_urls ?? null),
-                  description: (sku?.description) ? sku.description : (c.description || null),
-                };
-              });
+        /** ProductDetail과 동일: `.order()` 없이 조회 후 sort_order 정렬 (PostgREST/스키마 차이로 order 400 나는 경우 방지) */
+        const compositionSelectAttempts = [
+          '*, sku_items(brand, country_of_origin, display_name, name, name_en, description, description_en, description_ru, key_ingredients_desc, image_url, product_type)',
+          '*, sku_items(brand, display_name, name, name_en, description, description_en, description_ru, key_ingredients_desc, image_url, product_type)',
+          '*, sku_items(brand, display_name, name, name_en, image_url, product_type)',
+          'id, sort_order, sku_id, name, image_url, image_urls, description, description_ru, description_en, is_customized',
+        ];
+
+        let compRows: Record<string, unknown>[] = [];
+        for (const sel of compositionSelectAttempts) {
+          const { data, error } = await supabase.from('product_components').select(sel).eq('product_id', productId);
+          if (!error && Array.isArray(data)) {
+            compRows = [...(data as Record<string, unknown>[])].sort(
+              (a, b) => (Number(a.sort_order) || 0) - (Number(b.sort_order) || 0),
+            );
+            break;
           }
-        } catch {
-          composition = [];
         }
+
+        const composition: ProductCompositionItem[] = compRows.map((c) => {
+          const sku = c.sku_items as {
+            brand?: string | null;
+            country_of_origin?: string | null;
+            display_name?: string | null;
+            name?: string | null;
+            name_en?: string | null;
+            description?: string | null;
+            description_ru?: string | null;
+            description_en?: string | null;
+            image_url?: string | null;
+            key_ingredients_desc?: Array<{ name: string; ko: string; en: string; ru: string }> | null;
+            product_type?: string | null;
+          } | null;
+          const hasSkuImage = !!sku?.image_url;
+          const parts = getSkuCompositionDisplayParts(sku);
+          return {
+            id: String(c.id),
+            sku_id: typeof c.sku_id === 'string' ? c.sku_id : null,
+            brand: sku?.brand ?? null,
+            country_of_origin: sku?.country_of_origin ?? null,
+            name: resolveSkuStorefrontName({
+              display_name: sku?.display_name,
+              name_en: sku?.name_en,
+              name: sku?.name,
+              fallbackName: (c.name as string | null) ?? null,
+              language,
+            }),
+            image_url: hasSkuImage ? sku!.image_url! : (c.image_url as string | null) ?? null,
+            image_urls: hasSkuImage ? [sku!.image_url!] : (c.image_urls as string[] | null) ?? null,
+            description: parts.ko.body ?? (c.description as string | null) ?? null,
+            description_ru: parts.ru.body ?? (c.description_ru as string | null) ?? null,
+            description_en: parts.en.body ?? (c.description_en as string | null) ?? null,
+            marketing_claim: parts.ko.claim,
+            marketing_claim_ru: parts.ru.claim,
+            marketing_claim_en: parts.en.claim,
+            product_type: sku?.product_type ?? null,
+          };
+        });
 
         if (!cancelled) {
           setRecommendedProductPreview({
@@ -447,7 +755,86 @@ export const SkinTest: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [result?.type]);
+  }, [result?.type, language]);
+
+  /** 테스트 직후에만 AI 분석 호출. 프로필 «이전 결과»(?type=)로 열면 매번 Generating 하지 않고 정적 설명 사용 */
+  useEffect(() => {
+    if (!result?.type) {
+      setAiAnalysisText(null);
+      setAiAnalysisLoading(false);
+      return;
+    }
+    if (skinTypeQueryParam && skinTypeQueryParam === result.type) {
+      setAiAnalysisLoading(false);
+      /* aiAnalysisText·셀피 수치는 DB 로드 effect가 채움 — 여기서 지우면 복원이 사라짐 */
+      return;
+    }
+    let cancelled = false;
+    setAiAnalysisLoading(true);
+    setAiAnalysisText(null);
+    (async () => {
+      try {
+        const preview = recommendedProductPreview;
+        const recName =
+          preview?.status === 'ok' && preview.name?.trim() ? preview.name.trim() : '';
+        const compHint =
+          preview?.status === 'ok' && Array.isArray(preview.composition)
+            ? preview.composition
+                .slice(0, 5)
+                .map((c) => c.product_type ?? c.name)
+                .filter((v): v is string => !!v && String(v).trim().length > 0)
+                .join(', ')
+            : '';
+        const res = await fetch(`${skinApiBase}/analyze-text`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            skin_type: result.type,
+            concern_text: concernText || '',
+            country,
+            age_code: profileData.age ?? 'age_3',
+            baumann_scores: result.scores,
+            ...(recName ? { recommended_product_name: recName } : {}),
+            ...(compHint ? { composition_product_types: compHint } : {}),
+          }),
+        });
+        const payload = await res.json() as { success?: boolean; ko?: unknown; ru?: unknown; en?: unknown };
+        const parsed = parseAiAnalysisApiPayload(payload);
+        if (!cancelled && parsed) {
+          setAiAnalysisText(parsed);
+          const rowId = pendingSkinTestResultRowIdRef.current;
+          if (supabase && userId && rowId) {
+            void supabase
+              .from('skin_test_results')
+              .update({
+                ai_analysis: {
+                  en: parsed.en,
+                  ru: parsed.ru,
+                  ko: parsed.ko,
+                },
+              })
+              .eq('id', rowId)
+              .eq('user_id', userId);
+          }
+        }
+      } catch {
+        // 실패해도 하드코딩 텍스트로 폴백
+      } finally {
+        if (!cancelled) setAiAnalysisLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 직후 생성 + 추천 상품 로드 후 한 번 더 보강
+  }, [
+    result?.type,
+    skinTypeQueryParam,
+    userId,
+    recommendedProductPreview?.status,
+    recommendedProductPreview?.name,
+    recommendedProductPreview?.composition,
+  ]);
 
   const canAddRecommendedToCart =
     recommendedProductPreview?.status === 'ok' && !!recommendedProductPreview.productId;
@@ -478,18 +865,19 @@ export const SkinTest: React.FC = () => {
   const handleProfileSelect = (key: string, value: string) => {
     const next = { ...profileData, [key]: value };
     setProfileData(next);
-    if (profileStep + 1 >= PROFILE_STEPS.length) {
-      // 마지막 프로필 단계 → 피부 고민 텍스트 입력 단계로
-      setStage('concern');
+    if (profileStep + 1 >= activeProfileSteps.length) {
+      // 마지막 프로필 단계 → 바로 테스트로 (피부 고민은 테스트 후에)
+      setStage('test');
+      setQuestionIndex(0);
+      setAnswers([]);
     } else {
       setProfileStep(nextProfileStep(profileStep));
     }
   };
 
   const handleConcernNext = () => {
-    setStage('test');
-    setQuestionIndex(0);
-    setAnswers([]);
+    // 피부 고민 입력 완료 → 최종 결과 계산으로
+    handleFinalSubmit();
   };
 
   const handleProfilePrev = () => {
@@ -533,43 +921,93 @@ export const SkinTest: React.FC = () => {
   };
 
   const handleFinalSubmit = () => {
-    if (answers.length !== QUESTIONS.length) return;
-    const { type, scores } = calcSkinType(answers);
-    const info = SKIN_INFO[type] ?? {
-      name: type,
-      desc: isEn ? 'Test result saved.' : 'Результат теста сохранён.',
-      concerns: [] as string[],
-      avoid: '',
-    };
-    setResult({ type, info, scores });
-    setSelfieAnalyzeError(null);
-    setSelfieAnalyzeResult(null);
-    setSelfieComparisonComment(null);
-    if (selfiePreviewUrl) {
-      URL.revokeObjectURL(selfiePreviewUrl);
-      setSelfiePreviewUrl(null);
-    }
-    setSelfieFile(null);
-    if (userId) {
-      if (supabase) {
-        supabase.from('skin_test_results').insert({ user_id: userId, skin_type: type, concern_text: concernText || null }).then(() => {
-          setTestCount((c) => {
-            const next = c === null ? 1 : c + 1;
-            if (next >= MAX_TEST_COUNT) setLimitReached(true);
-            return next;
-          });
-        });
+    try {
+      if (answers.length !== QUESTIONS.length) {
+        console.warn('[SkinTest] handleFinalSubmit: 답변 수 불일치', answers.length, '/', QUESTIONS.length);
+        return;
       }
-    } else {
-      try {
-        const sid = getOrCreateVisitSessionId();
-        localStorage.setItem(`semo_anon_result:${sid}`, JSON.stringify({ skin_type: type }));
-        localStorage.setItem(`semo_anon_test_done:${sid}`, '1');
-      } catch {
-        // ignore
+      const { type, scores } = calcSkinType(answers);
+      const info = SKIN_INFO[type] ?? {
+        name: type,
+        desc: isEn ? 'Test result saved.' : 'Результат теста сохранён.',
+        concerns: [] as string[],
+        avoid: '',
+      };
+      setResult({ type, info, scores });
+      persistedSkinLoadKeyRef.current = '';
+      setSelfieAnalyzeError(null);
+      setSelfieAnalyzeResult(null);
+      setSelfieComparisonComment(null);
+      if (selfiePreviewUrl) {
+        URL.revokeObjectURL(selfiePreviewUrl);
+        setSelfiePreviewUrl(null);
       }
+      setSelfieFile(null);
+      if (userId) {
+        if (supabase) {
+          pendingSkinTestResultRowIdRef.current = null;
+          const baumann_scores = {
+            '1': scores[1],
+            '2': scores[2],
+            '3': scores[3],
+            '4': scores[4],
+          };
+          void supabase
+            .from('skin_test_results')
+            .insert({
+              user_id: userId,
+              skin_type: type,
+              concern_text: concernText || null,
+              baumann_scores,
+            })
+            .select('id')
+            .single()
+            .then(({ data, error }) => {
+              if (error) {
+                console.error('[SkinTest] skin_test_results insert 실패:', error);
+                return;
+              }
+              if (data?.id) {
+                pendingSkinTestResultRowIdRef.current = data.id;
+                try {
+                  sessionStorage.setItem(SKIN_RESULT_ROW_STORAGE, data.id);
+                } catch {
+                  /* ignore */
+                }
+                setResultSyncNonce((n) => n + 1);
+              }
+              setTestCount((c) => {
+                const next = c === null ? 1 : c + 1;
+                if (next >= MAX_TEST_COUNT) setLimitReached(true);
+                return next;
+              });
+            });
+        }
+      } else {
+        try {
+          const sid = getOrCreateVisitSessionId();
+          localStorage.setItem(`semo_anon_result:${sid}`, JSON.stringify({ skin_type: type }));
+          localStorage.setItem(`semo_anon_test_done:${sid}`, '1');
+        } catch {
+          // ignore
+        }
+      }
+      setStage('result');
+    } catch (err) {
+      console.error('[SkinTest] handleFinalSubmit 오류:', err);
+      // 결과 계산 실패 시 fallback — 흰 화면 방지
+      setResult({
+        type: 'DRNT',
+        info: SKIN_INFO['DRNT'] ?? {
+          name: 'DRNT',
+          desc: isEn ? 'Test result saved.' : 'Результат теста сохранён.',
+          concerns: [],
+          avoid: '',
+        },
+        scores: { 1: 0, 2: 0, 3: 0, 4: 0 },
+      });
+      setStage('result');
     }
-    setStage('result');
   };
 
   const cityToRegionCode: Record<string, string> = {
@@ -590,7 +1028,7 @@ export const SkinTest: React.FC = () => {
       return;
     }
     if (!result) return;
-    if (selfieCouponCount <= 0) {
+    if (selfieCouponCount == null || selfieCouponCount <= 0) {
       setSelfieAnalyzeError(isEn ? 'No selfie-analysis coupon left.' : 'Купон на селфи-анализ закончился.');
       return;
     }
@@ -605,15 +1043,103 @@ export const SkinTest: React.FC = () => {
       fd.append('image', selfieFile);
       fd.append('bauman_type', result.type);
       fd.append('bauman_scores', JSON.stringify(result.scores));
-      fd.append('region', cityToRegionCode[profileData.city ?? 'city_1'] ?? 'moscow');
+      fd.append('region', regionCode);
       fd.append('age_code', profileData.age ?? 'age_3');
       fd.append('user_id', userId);
       fd.append('skin_concern', concernText || '');
-      const res = await fetch(`${SKIN_API_URL}/analyze`, { method: 'POST', body: fd });
-      const payload = (await res.json()) as SelfieAnalyzeResponse;
+      let res: Response;
+      try {
+        res = await fetch(`${skinApiBase}/analyze`, { method: 'POST', body: fd });
+      } catch {
+        throw new Error(
+          isEn
+            ? `Cannot reach the analysis server. Dev: run Flask on 5001 and use same-origin proxy (${skinApiBase}). Prod: set VITE_SKIN_API_URL or reverse-proxy /skin-api to the API.`
+            : `Не удалось связаться с сервером анализа. Dev: Flask на 5001 и прокси ${skinApiBase}. Prod: VITE_SKIN_API_URL или reverse-proxy /skin-api.`,
+        );
+      }
+      const rawText = await res.text();
+      let payload: SelfieAnalyzeResponse;
+      try {
+        payload = rawText ? (JSON.parse(rawText) as SelfieAnalyzeResponse) : ({} as SelfieAnalyzeResponse);
+      } catch {
+        throw new Error(
+          isEn
+            ? `Analysis server returned non-JSON (HTTP ${res.status}). Is the skin API running? Base: ${skinApiBase}`
+            : `Сервер анализа вернул не JSON (HTTP ${res.status}). База: ${skinApiBase}`,
+        );
+      }
       if (!res.ok || payload.error) throw new Error(payload.message || (isEn ? 'Selfie analysis failed.' : 'Селфи-анализ не выполнен.'));
       if (payload.retake_required) throw new Error(payload.message_ru || (isEn ? 'Please retake selfie.' : 'Нужно переснять селфи.'));
       setSelfieAnalyzeResult(payload);
+
+      const selfiePersist = {
+        analyzed_at: new Date().toISOString(),
+        skin_metrics: payload.skin_metrics ?? {},
+        gemini_analysis: payload.gemini_analysis ?? null,
+      };
+      const rowIdSelfie = pendingSkinTestResultRowIdRef.current;
+      if (supabase && userId && rowIdSelfie) {
+        void supabase
+          .from('skin_test_results')
+          .update({ selfie_analysis: selfiePersist })
+          .eq('id', rowIdSelfie)
+          .eq('user_id', userId);
+      }
+
+      /* 설문 문단을 셀피 수치·코멘트와 한 흐름으로 재생성 (실패 시 기존 aiAnalysisText 유지). ?type= 프로필 진입 후 셀피도 동일 */
+      setPostSelfieUnifiedLoading(true);
+      try {
+        const pv = recommendedProductPreviewRef.current;
+        const recName = pv?.status === 'ok' && pv.name?.trim() ? pv.name.trim() : '';
+        const compHint =
+          pv?.status === 'ok' && Array.isArray(pv.composition)
+            ? pv.composition
+                .slice(0, 5)
+                .map((c) => c.product_type ?? c.name)
+                .filter((v): v is string => !!v && String(v).trim().length > 0)
+                .join(', ')
+            : '';
+        const uniRes = await fetch(`${skinApiBase}/analyze-text-with-selfie`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            skin_type: result.type,
+            concern_text: concernText || '',
+            country,
+            age_code: profileData.age ?? 'age_3',
+            baumann_scores: result.scores,
+            skin_metrics: payload.skin_metrics ?? {},
+            gemini_selfie_en: payload.gemini_analysis?.en?.analysis ?? '',
+            gemini_selfie_ru: payload.gemini_analysis?.ru?.analysis ?? '',
+            gemini_selfie_ko: payload.gemini_analysis?.ko?.analysis ?? '',
+            ...(recName ? { recommended_product_name: recName } : {}),
+            ...(compHint ? { composition_product_types: compHint } : {}),
+          }),
+        });
+        const uni = (await uniRes.json()) as { success?: boolean; ko?: unknown; ru?: unknown; en?: unknown };
+        const uniParsed = parseAiAnalysisApiPayload(uni);
+        if (uniParsed) {
+          setAiAnalysisText(uniParsed);
+          const rowId = pendingSkinTestResultRowIdRef.current;
+          if (supabase && userId && rowId) {
+            void supabase
+              .from('skin_test_results')
+              .update({
+                ai_analysis: {
+                  en: uniParsed.en,
+                  ru: uniParsed.ru,
+                  ko: uniParsed.ko,
+                },
+              })
+              .eq('id', rowId)
+              .eq('user_id', userId);
+          }
+        }
+      } catch (uErr) {
+        console.warn('[SkinTest] analyze-text-with-selfie:', uErr);
+      } finally {
+        setPostSelfieUnifiedLoading(false);
+      }
 
       const m = payload.skin_metrics ?? {};
       const currentComposite = Math.round(
@@ -640,7 +1166,7 @@ export const SkinTest: React.FC = () => {
             selfie_score: currentComposite,
             adjusted_score: Math.round((baseScore + currentComposite) / 2),
             summary: summaryText || (isEn ? 'Selfie analysis completed.' : 'Селфи-анализ выполнен.'),
-            concerns: info.concerns ?? [],
+            concerns: Array.isArray(result.info.concerns) ? result.info.concerns : [],
             recommendations,
             selfie_url: null,
           });
@@ -653,8 +1179,11 @@ export const SkinTest: React.FC = () => {
       let prevComposite: number | null = null;
       try {
         const raw = localStorage.getItem(histKey);
-        const arr = raw ? (JSON.parse(raw) as { at: string; score: number }[]) : [];
-        if (Array.isArray(arr) && arr.length > 0) prevComposite = Number(arr[arr.length - 1].score);
+        const arr = raw ? (JSON.parse(raw) as { at: string; score?: number }[]) : [];
+        if (Array.isArray(arr) && arr.length > 0) {
+          const n = Number(arr[arr.length - 1]?.score);
+          if (Number.isFinite(n)) prevComposite = n;
+        }
         const next = Array.isArray(arr) ? [...arr, { at: new Date().toISOString(), score: currentComposite }] : [{ at: new Date().toISOString(), score: currentComposite }];
         localStorage.setItem(histKey, JSON.stringify(next.slice(-12)));
       } catch {
@@ -685,14 +1214,18 @@ export const SkinTest: React.FC = () => {
         setSelfieComparisonComment(null);
       }
 
-      try {
-        const remainKey = `semo_selfie_coupon_remaining:${userId}`;
-        const current = parseInt(localStorage.getItem(remainKey) ?? '0', 10);
-        const next = Math.max(0, (Number.isFinite(current) ? current : 0) - 1);
-        localStorage.setItem(remainKey, String(next));
-        setSelfieCouponCount(next);
-      } catch {
-        setSelfieCouponCount((c) => Math.max(0, c - 1));
+      if (supabase) {
+        const { data: consumeData, error: consumeErr } = await supabase.rpc('consume_selfie_coupon');
+        if (consumeErr) {
+          console.warn('[SkinTest] consume_selfie_coupon:', consumeErr);
+        } else {
+          const pack = consumeData as { ok?: boolean; balance?: number } | null;
+          if (pack?.ok === true && typeof pack.balance === 'number') {
+            setSelfieCouponCount(pack.balance);
+          } else {
+            setSelfieCouponCount(typeof pack?.balance === 'number' ? pack.balance : 0);
+          }
+        }
       }
     } catch (e) {
       setSelfieAnalyzeError(e instanceof Error ? e.message : String(e));
@@ -776,30 +1309,73 @@ export const SkinTest: React.FC = () => {
       );
     }
     return (
-      <main className="mx-auto w-full bg-white px-4 py-5 sm:px-6 sm:py-10 md:py-14">
-        <div className="mx-auto flex w-full max-w-4xl flex-col items-center space-y-5 px-1 text-center sm:space-y-6 sm:px-2">
+      <main className="mx-auto w-full bg-white px-4 py-10 sm:px-6 sm:py-16 md:py-20">
+        <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-8 px-1 text-center sm:gap-10 sm:px-2">
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl md:text-4xl">
             {isEn ? 'Skin type test' : 'Тест типа кожи'}
           </h1>
-          <p className="text-sm italic leading-snug text-slate-600 break-words sm:text-base sm:leading-relaxed md:text-lg">
-            {isEn
-              ? '"Even expensive skincare is useless if it does not match your skin. Take the test to avoid wasting money and get an expert care plan."'
-              : '«Даже дорогой уход бесполезен, если он не подходит вашей коже. Пройдите тест, чтобы не тратить лишнего и получить экспертный план ухода!»'}
+
+          <p className="text-sm italic leading-relaxed text-slate-600 sm:text-base md:text-lg">
+            {isEn ? (
+              <>"Even expensive skincare is useless if it does not match your skin.<br />Take the test to avoid wasting money and get an expert care plan."</>
+            ) : (
+              '«Даже дорогой уход бесполезен, если он не подходит вашей коже. Пройдите тест, чтобы не тратить лишнего и получить экспертный план ухода!»'
+            )}
           </p>
-          <p className="text-xs leading-snug text-slate-400 break-words sm:text-sm sm:leading-relaxed">
+
+          {/* 회원/비회원 기능 차이 안내 */}
+          <div className="w-full max-w-lg rounded-2xl border border-slate-100 bg-slate-50 px-5 py-4 text-left sm:px-6">
+            <div className="flex items-start gap-3">
+              <div className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-300" />
+              <div>
+                <p className="text-sm font-medium text-slate-700">
+                  {isEn ? 'Without account' : 'Без аккаунта'}
+                </p>
+                <p className="mt-0.5 text-xs leading-relaxed text-slate-500">
+                  {isEn
+                    ? 'Q&A skin type test only'
+                    : 'Только тест-опросник для определения типа кожи'}
+                </p>
+              </div>
+            </div>
+            <div className="mt-3 flex items-start gap-3 border-t border-slate-100 pt-3">
+              <div className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand" />
+              <div>
+                <p className="text-sm font-medium text-brand">
+                  {isEn ? 'With account (free)' : 'С аккаунтом (бесплатно)'}
+                </p>
+                <p className="mt-0.5 text-xs leading-relaxed text-slate-500">
+                  {isEn
+                    ? 'Q&A test + AI-powered detailed skin analysis using your selfie photo'
+                    : 'Тест-опросник + детальный AI-анализ кожи на основе фотографии'}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex w-full flex-col items-center gap-3">
+            <button
+              type="button"
+              onClick={handleAgree}
+              className="w-full max-w-xs rounded-full border border-brand bg-white py-3 text-sm font-medium text-brand transition hover:bg-brand hover:text-white sm:py-3.5"
+            >
+              {isEn ? 'Agree and start' : 'Согласен(а) и начать'}
+            </button>
+            {!userId && (
+              <Link
+                to="/login"
+                className="text-xs text-slate-400 hover:text-brand hover:underline"
+              >
+                {isEn ? 'Sign up for full analysis →' : 'Зарегистрироваться для полного анализа →'}
+              </Link>
+            )}
+          </div>
+
+          <p className="-mt-4 text-xs leading-relaxed text-slate-400 sm:-mt-5 sm:whitespace-nowrap">
             {isEn
               ? 'This is your expert guide for daily skincare. For specific medical conditions, please consult a doctor in addition to this test.'
               : 'Это ваш экспертный гид для ежедневного ухода. Для диагностики специфических заболеваний рекомендуем дополнить тест консультацией врача.'}
           </p>
-          <div className="flex w-full flex-col items-center">
-            <button
-              type="button"
-              onClick={handleAgree}
-              className="w-full max-w-xs rounded-full border border-brand bg-white py-3 text-sm font-medium text-brand transition hover:bg-brand hover:text-white sm:py-3.5 md:py-4"
-            >
-              {isEn ? 'Agree and start' : 'Согласен(а) и начать'}
-            </button>
-          </div>
         </div>
       </main>
     );
@@ -853,7 +1429,7 @@ export const SkinTest: React.FC = () => {
       <main className="flex flex-col bg-white px-4 py-4 pb-20 sm:py-6 md:pb-0 md:py-12 md:px-6">
         <div className="mx-auto flex w-full max-w-4xl flex-col text-center">
           <p className="mb-6 text-sm font-semibold tracking-wide text-brand sm:mb-7 sm:text-base">
-            {isEn ? 'A few questions before test' : 'Несколько вопросов перед тестом'}
+            {isEn ? 'One last step' : 'Последний шаг'}
           </p>
           <p className="text-sm font-light leading-snug tracking-wide text-slate-800 sm:text-base sm:leading-relaxed">
             {isEn
@@ -880,7 +1456,7 @@ export const SkinTest: React.FC = () => {
               onClick={handleConcernNext}
               className="w-full max-w-xl rounded-full bg-brand py-3 text-sm font-semibold text-white hover:bg-brand/90 active:bg-brand/80 sm:py-3.5"
             >
-              {isEn ? 'Next →' : 'Далее →'}
+              {isEn ? 'Get my result →' : 'Получить результат →'}
             </button>
             <button
               type="button"
@@ -890,9 +1466,6 @@ export const SkinTest: React.FC = () => {
               {isEn ? 'Skip' : 'Пропустить'}
             </button>
           </div>
-          <p className="mt-4 tabular-nums text-sm text-slate-500 sm:mt-5">
-            {PROFILE_STEPS.length + 1}/{PROFILE_STEPS.length + 1}
-          </p>
         </div>
       </main>
     );
@@ -919,11 +1492,12 @@ export const SkinTest: React.FC = () => {
           {/* 답 항목 — 질문과 간격 넓힘 */}
           <div className="mt-6 flex flex-col items-center gap-2.5 sm:mt-8 sm:gap-3">
             {(() => {
+              const q = QUESTIONS[questionIndex];
               const showSelection = isLastQuestion && answers.length === QUESTIONS.length;
               const currentScore = showSelection ? answers[answers.length - 1] : undefined;
               const selectedKey =
                 currentScore !== undefined
-                  ? ANSWERS.find(([, vk]) => (q.reversed ? -SCORE_MAP[vk] : SCORE_MAP[vk]) === currentScore)?.[1] ?? null
+                  ? ANSWERS.find(([, vk]) => (q?.reversed ? -SCORE_MAP[vk] : SCORE_MAP[vk]) === currentScore)?.[1] ?? null
                   : null;
               return activeAnswers.map(([label, valueKey]) => (
                 <button
@@ -946,11 +1520,16 @@ export const SkinTest: React.FC = () => {
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  handleFinalSubmit();
+                  // 로그인: 피부 고민 입력 단계 / 비로그인: 바로 결과
+                  if (userId) {
+                    setStage('concern');
+                  } else {
+                    handleFinalSubmit();
+                  }
                 }}
                 className="mt-4 w-full max-w-xl rounded-full bg-brand py-3 text-sm font-semibold text-white hover:bg-brand/90 active:bg-brand/80 sm:mt-5 sm:py-3.5"
               >
-                {isEn ? 'Finish test' : 'Завершить тест'}
+                {isEn ? 'Next →' : 'Далее →'}
               </button>
             )}
             {/* 1/20 — 답 항목 밑 */}
@@ -987,6 +1566,9 @@ export const SkinTest: React.FC = () => {
   // ─── 결과: SKIN_INFO 기반 럭셔리 결과 화면 (화이트 & 오렌지) ───
   if (stage === 'result' && result) {
     const { type, info, scores } = result;
+    const aiDisplaySections = aiAnalysisText
+      ? pickDisplaySections(aiAnalysisText, isEn).filter((sec) => sec.title.trim() || sec.body.trim())
+      : [];
     return (
       <main className="min-h-screen bg-white px-4 py-8 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-4xl">
@@ -998,17 +1580,322 @@ export const SkinTest: React.FC = () => {
             <h1 className="mt-4 text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
               {isEn ? `Your skin type: ${type}` : `Ваш тип кожи: ${type}`}
             </h1>
-            <p className="mt-2 text-sm text-slate-500">{isEn ? englishTypeName(type) : info.name}</p>
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              <p className="text-sm text-slate-500">
+                {isEn ? englishTypeName(type) : info.name}
+              </p>
+              <div className="flex flex-col items-end gap-1.5">
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+                  {isEn ? 'Care focus' : 'Фокус ухода'}
+                </p>
+                <div className="flex flex-wrap justify-end gap-1.5">
+                  {(Array.isArray(info.concerns) ? info.concerns : []).map((c) => (
+                    <span
+                      key={c}
+                      className="rounded-full border border-brand/30 bg-brand-soft/30 px-3 py-1 text-xs text-slate-700"
+                    >
+                      {isEn ? englishConcernLabel(c) : c}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
 
-          {/* 설명 — 타입 부제목과 간격 절반(mt-10→mt-5), 블록 패딩 절반(py-6→py-3) */}
+          <SkinResultMetricsCharts scores={scores} skinMetrics={selfieAnalyzeResult?.skin_metrics ?? null} isEn={isEn} />
+
+          {/* 설명 — AI 텍스트 우선, 없으면 하드코딩 폴백 */}
           <div className="mt-5 py-3">
-            <p className="text-base leading-relaxed text-slate-700 sm:text-lg">
-              {isEn
-                ? englishResultDesc(type)
-                : info.desc.replace(/\s*[\u2728\u{1F31F}\u{1F338}\u{1F4AB}\u{1F3C6}\u{1F33F}]+\s*$/gu, '').trim()}
+            {postSelfieUnifiedLoading ? (
+              <p className="animate-pulse text-sm text-slate-400">
+                {isEn
+                  ? 'Merging your photo signals into your analysis…'
+                  : 'Объединяем данные селфи с анализом…'}
+              </p>
+            ) : aiAnalysisLoading ? (
+              <p className="animate-pulse text-sm text-slate-400">
+                {isEn ? 'Generating personalised analysis…' : 'Генерируем персональный анализ…'}
+              </p>
+            ) : aiAnalysisText && aiDisplaySections.length > 0 ? (
+              <div className="space-y-5">
+                {aiDisplaySections.map((sec, idx) => (
+                  <section
+                    key={`ai-sec-${idx}-${String(sec.title ?? '').slice(0, 12)}`}
+                    className="border-b border-slate-100 pb-4 last:border-b-0 last:pb-0"
+                  >
+                    {sec.title ? (
+                      <h3 className="text-sm font-semibold tracking-wide text-brand">{sec.title}</h3>
+                    ) : null}
+                    <p
+                      className={`text-sm leading-relaxed text-slate-700 sm:text-base ${sec.title ? 'mt-2' : ''}`}
+                    >
+                      {sec.body}
+                    </p>
+                  </section>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm leading-relaxed text-slate-700 sm:text-base">
+                {isEn ? englishResultDesc(type) : stripSkinDescTrailingEmojiRu(info.desc)}
+              </p>
+            )}
+            {/* 케어 주의사항 */}
+            <p className="mt-3 text-sm leading-relaxed text-slate-500">
+              {skinCareNote(type, scores, isEn)}
             </p>
           </div>
+
+          {/* ── 셀카: 쿠폰 1장 이상일 때만 노출 (잔여 0이면 안내만) ── */}
+          {userId && selfieCouponCount !== null && (
+            <div className="mt-3">
+              {selfieCouponCount <= 0 ? (
+                <p className="rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-xs text-slate-600">
+                  {isEn
+                    ? 'You have no selfie analysis coupons left. Coupons are issued on sign-up (once per account on this device) or through promotions.'
+                    : 'У вас не осталось купонов на селфи-анализ. Купон выдаётся при регистрации (один раз на аккаунт на этом устройстве) или в акциях.'}
+                </p>
+              ) : !selfieOpen ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-xs text-slate-400">
+                    {isEn
+                      ? `Selfie deep-scan · ${selfieCouponCount} coupon${selfieCouponCount > 1 ? 's' : ''} left`
+                      : `Детальный анализ по селфи · купонов: ${selfieCouponCount}`}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setSelfieOpen(true)}
+                    className="text-xs font-medium text-brand hover:underline"
+                  >
+                    {isEn ? 'Upload photo →' : 'Загрузить фото →'}
+                  </button>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-brand/20 bg-brand-soft/25 px-4 py-5 sm:px-5">
+                  <div className="mb-4 flex items-center justify-between">
+                    <p className="text-sm font-medium tracking-wide text-brand">
+                      {isEn ? 'Skin deep-scan' : 'Детальный анализ кожи'}
+                    </p>
+                    <button type="button" onClick={() => setSelfieOpen(false)} className="text-xs text-slate-400 hover:text-slate-600">✕</button>
+                  </div>
+
+                  <p className="text-sm leading-relaxed text-slate-700">
+                    {isEn
+                      ? 'Semo AI will measure redness, pigmentation, texture and oiliness with exact scores.'
+                      : 'Semo AI измерит покраснение, пигментацию, текстуру и жирность с точными показателями.'}
+                  </p>
+
+                  {selfieCouponNotice && (
+                    <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">{selfieCouponNotice}</p>
+                  )}
+                  <p className="mt-1.5 text-xs text-slate-500">
+                    {isEn
+                      ? 'Upon registration, you receive a coupon for a detailed selfie-based skin analysis.'
+                      : 'При регистрации вы получаете купон на детальный анализ кожи на основе селфи.'}
+                  </p>
+
+                  {/* 좋은 예 + (선택) 내 사진 미리보기 + 체크리스트 — 미리보기는 가이드와 동일 폭 */}
+                  <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-stretch sm:gap-5">
+                    <div className="flex shrink-0 flex-row gap-3 sm:gap-4">
+                      <div className="w-36 shrink-0 sm:w-44">
+                        <div className="relative aspect-[4/3] overflow-hidden rounded-xl">
+                          <img
+                            src="/selfie-guide-example.png"
+                            alt={isEn ? 'Good selfie example' : 'Пример хорошего селфи'}
+                            className="h-full w-full object-cover object-center"
+                          />
+                          <div
+                            className="absolute left-0 right-0 backdrop-blur-md"
+                            style={{ top: '32%', height: '13%', background: 'rgba(30,20,15,0.55)' }}
+                          />
+                        </div>
+                        <p className="mt-2 text-center text-[10px] font-semibold text-emerald-600">
+                          {isEn ? '✓ Good example' : '✓ Хороший пример'}
+                        </p>
+                        <p className="mt-0.5 text-center text-[9px] leading-snug text-slate-400">
+                          {isEn ? 'AI-generated sample image' : 'Пример сгенерирован ИИ'}
+                        </p>
+                      </div>
+                      {selfiePreviewUrl ? (
+                        <div className="w-36 shrink-0 sm:w-44">
+                          <div className="relative aspect-[4/3] overflow-hidden rounded-xl border border-brand/25 ring-1 ring-brand/10">
+                            <img src={selfiePreviewUrl} alt="" className="h-full w-full object-cover object-center" />
+                          </div>
+                          <p className="mt-2 text-center text-[10px] font-semibold text-slate-600">
+                            {isEn ? 'Your photo' : 'Ваше фото'}
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="hidden w-px shrink-0 self-stretch bg-brand/10 sm:block" />
+                    <ul className="flex min-w-0 flex-1 flex-col justify-center space-y-2 text-xs leading-relaxed text-slate-600">
+                      {(isEn ? [
+                        '✅ Bright room, no window behind you',
+                        '✅ 15–30 min after cleansing, before skincare',
+                        '✅ 30–50 cm away, eye level',
+                        '✅ No makeup, no serum or moisturiser',
+                        '✅ Hair back, glasses off',
+                        '❌ No filters or beauty mode',
+                      ] : [
+                        '✅ Яркая комната, окно не за спиной',
+                        '✅ Через 15–30 мин после умывания, до косметики',
+                        '✅ 30–50 см, на уровне глаз',
+                        '✅ Без макияжа, сыворотки и крема',
+                        '✅ Волосы убраны, очки сняты',
+                        '❌ Без фильтров и режима красоты',
+                      ]).map((tip, i) => <li key={i}>{tip}</li>)}
+                    </ul>
+                  </div>
+
+                  {/* 동의 체크박스 */}
+                  <label className="mt-4 flex cursor-pointer items-start gap-2.5 border-t border-brand/10 pt-4">
+                    <input
+                      type="checkbox"
+                      checked={selfieConsent}
+                      onChange={(e) => setSelfieConsent(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-brand focus:ring-brand"
+                    />
+                    <span className="text-xs leading-relaxed text-slate-500 sm:whitespace-nowrap">
+                      {isEn
+                        ? 'I consent to my photo being processed for skin analysis only. Not shared with third parties and deleted after analysis.'
+                        : 'Я согласен(на) на обработку фото для анализа кожи. Не передаётся третьим лицам и удаляется после анализа.'}
+                    </span>
+                  </label>
+
+                  {/* 갤러리/카메라용 숨김 input — 데스크톱 라벨은 htmlFor로 갤러리만 연결 */}
+                  <input
+                    id="semo-skin-selfie-gallery"
+                    ref={galleryInputRef}
+                    type="file"
+                    accept="image/*"
+                    disabled={!selfieConsent}
+                    onChange={onSelfieFilePicked}
+                    className="hidden"
+                    aria-hidden
+                  />
+                  <input
+                    ref={cameraInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="user"
+                    disabled={!selfieConsent}
+                    onChange={onSelfieFilePicked}
+                    className="hidden"
+                    aria-hidden
+                  />
+
+                  {/* 업로드 + 분석 — 한 줄 (모바일: 업로드 탭 시 갤러리/셀카 선택) */}
+                  <div className="mt-3 flex flex-row gap-2 sm:gap-3">
+                    <div ref={selfieUploadWrapRef} className="relative min-w-0 flex-1">
+                      <label
+                        htmlFor="semo-skin-selfie-gallery"
+                        className={`hidden min-h-[44px] w-full cursor-pointer items-center justify-center rounded-full border px-2 py-2.5 text-center text-xs font-medium leading-tight transition sm:text-sm md:flex ${
+                          selfieConsent
+                            ? 'border-brand bg-white text-brand hover:bg-brand/5'
+                            : 'pointer-events-none cursor-not-allowed border-slate-200 text-slate-300'
+                        }`}
+                      >
+                        {isEn ? 'Upload photo' : 'Загрузить фото'}
+                      </label>
+
+                      <button
+                        type="button"
+                        disabled={!selfieConsent}
+                        onClick={() => selfieConsent && setSelfieUploadMenuOpen((o) => !o)}
+                        className={`flex min-h-[44px] w-full items-center justify-center rounded-full border px-2 py-2.5 text-center text-xs font-medium leading-tight transition sm:text-sm md:hidden ${
+                          selfieConsent
+                            ? 'border-brand bg-white text-brand hover:bg-brand/5'
+                            : 'cursor-not-allowed border-slate-200 text-slate-300'
+                        }`}
+                      >
+                        {isEn ? 'Upload photo' : 'Загрузить фото'}
+                      </button>
+
+                      {selfieUploadMenuOpen ? (
+                        <div
+                          className="absolute left-0 right-0 top-full z-20 mt-1 flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg md:hidden"
+                          role="menu"
+                        >
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="px-3 py-2.5 text-left text-xs font-medium text-slate-800 hover:bg-slate-50"
+                            onClick={() => galleryInputRef.current?.click()}
+                          >
+                            {isEn ? 'Choose from gallery' : 'Выбрать из галереи'}
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="px-3 py-2.5 text-left text-xs font-medium text-slate-800 hover:bg-slate-50"
+                            onClick={() => cameraInputRef.current?.click()}
+                          >
+                            {isEn ? 'Take selfie' : 'Сфотографироваться'}
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => void handleSelfieAnalyze()}
+                      disabled={
+                        selfieAnalyzing ||
+                        selfieCouponCount == null ||
+                        selfieCouponCount <= 0 ||
+                        !selfieFile ||
+                        !selfieConsent
+                      }
+                      className="min-h-[44px] min-w-0 flex-1 rounded-full border border-brand bg-brand px-2 py-2.5 text-center text-xs font-semibold text-white transition hover:bg-brand/90 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 sm:text-sm"
+                    >
+                      {selfieAnalyzing
+                        ? isEn
+                          ? 'Analysing…'
+                          : 'Анализируем…'
+                        : isEn
+                          ? 'Analyse'
+                          : 'Анализ'}
+                    </button>
+                  </div>
+
+                  {selfieAnalyzeError && <p className="mt-2 text-xs text-red-500">{selfieAnalyzeError}</p>}
+
+                  {selfieAnalyzeResult?.skin_metrics && (
+                    <div className="mt-4 border-t border-brand/10 pt-4">
+                      <p className="mb-2 text-sm font-medium tracking-wide text-brand">
+                        {isEn ? 'Semo AI metrics' : 'Semo AI метрики'}
+                      </p>
+                      <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-slate-600">
+                        <span>{isEn ? 'Redness' : 'Покраснение'} — {selfieAnalyzeResult.skin_metrics.redness_index ?? 0}/100</span>
+                        <span>{isEn ? 'Pigmentation' : 'Пигментация'} — {selfieAnalyzeResult.skin_metrics.pigment_unevenness ?? 0}/100</span>
+                        <span>{isEn ? 'Texture' : 'Текстура'} — {selfieAnalyzeResult.skin_metrics.texture_roughness ?? 0}/100</span>
+                        <span>{isEn ? 'Oiliness' : 'Жирность'} — {selfieAnalyzeResult.skin_metrics.oiliness_index ?? 0}/100</span>
+                      </div>
+                      <p className="mt-2 text-[11px] leading-snug text-slate-500">
+                        {isEn
+                          ? 'These numbers come from your photo (image signals), not a medical diagnosis. Higher means that feature looks stronger in the picture—e.g. more redness, uneven pigment, rougher texture, or oilier shine. 100 often means the model hit its upper cap for that signal; use them together with your Baumann type below, not alone.'
+                          : 'Это оценки по фото (сигналы изображения), не медицинский диагноз. Чем выше значение, тем сильнее визуально выражен признак (покраснение, неровный пигмент, текстура, блеск). 100 часто означает верхнюю границу модели; опирайтесь на них вместе с типом Baumann ниже.'}
+                      </p>
+                    </div>
+                  )}
+
+                  {selfieAnalyzeResult?.gemini_analysis && (
+                    <div className="mt-4 border-t border-brand/10 pt-4">
+                      <p className="mb-1.5 text-sm font-medium tracking-wide text-brand">
+                        {isEn ? '🧬 AI deep analysis' : '🧬 AI-анализ'}
+                      </p>
+                      <p className="text-sm leading-relaxed text-slate-700">
+                        {isEn ? selfieAnalyzeResult.gemini_analysis.en?.analysis : selfieAnalyzeResult.gemini_analysis.ru?.analysis}
+                      </p>
+                    </div>
+                  )}
+
+                  {selfieComparisonComment && (
+                    <p className="mt-3 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700">{selfieComparisonComment}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Персональный выбор SEMO — 설명 직후, 설명과 간격 절반 수준(mt-4) */}
           {/* 모바일에서 구성 설명 폭 확보: 안쪽 여백 축소 */}
@@ -1074,126 +1961,39 @@ export const SkinTest: React.FC = () => {
                 className="mt-5"
                 components={recommendedProductPreview.composition}
                 tighterMobileComposeTitle
+                parentProductId={recommendedProductPreview.productId}
               />
             )}
           </div>
 
-          {/* Баллы — 제품 추천 블록 아래 */}
-          <p className="mt-6 text-sm text-slate-600">
-            {isEn
-              ? `Scores: Moist. ${scores[1] >= 0 ? `+${scores[1]}` : scores[1]} · Sens. ${scores[2] >= 0 ? `+${scores[2]}` : scores[2]} · Pigm. ${scores[3] >= 0 ? `+${scores[3]}` : scores[3]} · Aging ${scores[4] >= 0 ? `+${scores[4]}` : scores[4]}`
-              : `Баллы: Увл. ${scores[1] >= 0 ? `+${scores[1]}` : scores[1]} · Чувств. ${scores[2] >= 0 ? `+${scores[2]}` : scores[2]} · Пигм. ${scores[3] >= 0 ? `+${scores[3]}` : scores[3]} · Возраст. ${scores[4] >= 0 ? `+${scores[4]}` : scores[4]}`}
-          </p>
 
-          {/* Фокус ухода */}
-          <div className="mt-6">
-            <p className="text-sm font-medium tracking-wide text-slate-600">
-              {isEn ? 'Care focus' : 'Фокус ухода'}
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {info.concerns.map((c) => (
-                <span
-                  key={c}
-                  className="rounded-full border border-brand/30 bg-brand-soft/30 px-4 py-1.5 text-sm text-slate-800"
-                >
-                  {isEn ? englishConcernLabel(c) : c}
-                </span>
-              ))}
-            </div>
-          </div>
+          {/* CTA 섹션 */}
+          <div className="mt-10 flex flex-col items-center gap-4">
 
-          {/* CTA: 모바일·데스크톱 모두 가로 2칸(한 줄) */}
-          <div className="mt-10 flex flex-col items-center gap-3">
+            {/* ── 비로그인: 회원가입 유도 배너 ── */}
             {!userId && (
-              <p className="max-w-md text-center text-sm text-slate-600">
-                {isEn ? 'Save result in your profile and take the test again after registration.' : 'Сохраните результат в личном кабинете и пройдите тест ещё раз после регистрации.'}
-              </p>
-            )}
-            {!userId && (
-              <p className="max-w-md text-center text-xs text-slate-500">
-                {isEn
-                  ? 'Guest mode: basic test only (1 time). Detailed selfie analysis is available after sign-up.'
-                  : 'Гостевой режим: только базовый тест (1 раз). Детальный селфи-анализ доступен после регистрации.'}
-              </p>
-            )}
-            {userId && (
-              <p className="max-w-md text-center text-xs text-slate-500">
-                {isEn
-                  ? `Detailed selfie analysis coupon: ${selfieCouponCount} available`
-                  : `Купон на детальный селфи-анализ: доступно ${selfieCouponCount}`}
-              </p>
-            )}
-            {userId && selfieCouponNotice && (
-              <p className="max-w-md text-center text-xs font-medium text-emerald-700">{selfieCouponNotice}</p>
-            )}
-            {userId && (
-              <div className="w-full max-w-2xl rounded-xl border border-slate-200 bg-white p-4 text-left">
-                <p className="text-sm font-semibold text-slate-800">
-                  {isEn ? 'Detailed selfie analysis (coupon)' : 'Детальный селфи-анализ (по купону)'}
-                </p>
-                <p className="mt-1 text-xs text-slate-500">
+              <div className="w-full max-w-2xl rounded-2xl border border-brand/20 bg-gradient-to-br from-brand-soft/30 to-orange-50 p-5 text-center">
+                <p className="text-base font-semibold text-slate-800">
                   {isEn
-                    ? 'Comparison comment appears only after selfie analysis.'
-                    : 'Сравнительный комментарий показывается только после селфи-анализа.'}
+                    ? '✨ Want a deeper analysis?'
+                    : '✨ Хотите более точный анализ?'}
                 </p>
-                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0] ?? null;
-                      setSelfieFile(f);
-                      setSelfieAnalyzeError(null);
-                      setSelfieAnalyzeResult(null);
-                      setSelfieComparisonComment(null);
-                      if (selfiePreviewUrl) URL.revokeObjectURL(selfiePreviewUrl);
-                      if (f) setSelfiePreviewUrl(URL.createObjectURL(f));
-                      else setSelfiePreviewUrl(null);
-                    }}
-                    className="min-h-11 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => void handleSelfieAnalyze()}
-                    disabled={selfieAnalyzing || selfieCouponCount <= 0 || !selfieFile}
-                    className="min-h-11 rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand/90 disabled:opacity-50"
-                  >
-                    {selfieAnalyzing
-                      ? (isEn ? 'Analyzing...' : 'Анализ...')
-                      : (isEn ? 'Use coupon & analyze' : 'Использовать купон и анализировать')}
-                  </button>
-                </div>
-                {selfiePreviewUrl && (
-                  <div className="mt-3 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
-                    <img src={selfiePreviewUrl} alt="selfie preview" className="h-44 w-full object-cover" />
-                  </div>
-                )}
-                {selfieAnalyzeError && <p className="mt-2 text-xs text-red-600">{selfieAnalyzeError}</p>}
-                {selfieAnalyzeResult?.skin_metrics && (
-                  <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
-                    <p className="font-semibold">{isEn ? 'Selfie KPI' : 'Селфи KPI'}</p>
-                    <p className="mt-1">
-                      {isEn ? 'Redness' : 'Покраснение'} {selfieAnalyzeResult.skin_metrics.redness_index ?? 0} /{' '}
-                      {isEn ? 'Pigment' : 'Пигментация'} {selfieAnalyzeResult.skin_metrics.pigment_unevenness ?? 0} /{' '}
-                      {isEn ? 'Texture' : 'Текстура'} {selfieAnalyzeResult.skin_metrics.texture_roughness ?? 0} /{' '}
-                      {isEn ? 'Oiliness' : 'Жирность'} {selfieAnalyzeResult.skin_metrics.oiliness_index ?? 0}
-                    </p>
-                  </div>
-                )}
-                {selfieAnalyzeResult?.gemini_analysis && (
-                  <p className="mt-2 text-xs text-slate-700">
-                    {isEn
-                      ? selfieAnalyzeResult.gemini_analysis.en?.analysis
-                      : selfieAnalyzeResult.gemini_analysis.ru?.analysis}
-                  </p>
-                )}
-                {selfieComparisonComment && (
-                  <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
-                    {selfieComparisonComment}
-                  </div>
-                )}
+                <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                  {isEn
+                    ? 'Sign up and upload your selfie to get a detailed AI skin analysis with Semo AI metrics, personalised product reasons, and progress tracking.'
+                    : 'Зарегистрируйтесь и загрузите селфи — получите детальный AI-анализ с Semo AI метриками, персональными рекомендациями и отслеживанием прогресса.'}
+                </p>
+                <Link
+                  to="/login"
+                  className="mt-4 inline-flex items-center justify-center rounded-full bg-brand px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-brand/90"
+                >
+                  {isEn ? 'Sign up free →' : 'Зарегистрироваться бесплатно →'}
+                </Link>
               </div>
             )}
+
+
+            {/* 상품 보기 / 장바구니 버튼 */}
             <div className="mx-auto flex w-full max-w-md flex-row items-stretch justify-center gap-2 sm:max-w-lg sm:gap-3">
               <Link
                 to={getRecommendationPath(result.type)}
@@ -1213,14 +2013,6 @@ export const SkinTest: React.FC = () => {
                 </button>
               )}
             </div>
-            {!userId && (
-              <Link
-                to="/login"
-                className="w-full max-w-[240px] rounded-full bg-slate-800 py-2.5 text-center text-sm font-semibold text-white transition hover:bg-slate-700"
-              >
-                {isEn ? 'Register now! Only 10 seconds!' : 'Зарегистрироваться! Всего 10 секунд!'}
-              </Link>
-            )}
           </div>
 
           {cartToast && (
@@ -1236,5 +2028,33 @@ export const SkinTest: React.FC = () => {
     );
   }
 
-  return null;
+  if (stage === 'result' && !result) {
+    return (
+      <main className="mx-auto min-h-[40dvh] max-w-lg bg-white px-4 py-12 text-center">
+        <p className="text-slate-700">결과 데이터가 없습니다. 테스트를 처음부터 다시 열어 주세요.</p>
+        <button
+          type="button"
+          className="mt-6 rounded-full bg-brand px-5 py-2 text-sm font-medium text-white"
+          onClick={() => {
+            window.location.href = '/skin-test';
+          }}
+        >
+          스킨 테스트 다시 열기
+        </button>
+      </main>
+    );
+  }
+
+  return (
+    <main className="mx-auto min-h-[40dvh] max-w-lg bg-white px-4 py-12 text-center">
+      <p className="text-slate-700">화면을 표시할 수 없습니다.</p>
+      <button
+        type="button"
+        className="mt-4 rounded-full border border-brand px-5 py-2 text-sm font-medium text-brand"
+        onClick={() => window.location.reload()}
+      >
+        새로고침
+      </button>
+    </main>
+  );
 };

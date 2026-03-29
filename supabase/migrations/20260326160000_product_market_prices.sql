@@ -11,23 +11,27 @@ CREATE TABLE IF NOT EXISTS product_market_prices (
 -- RLS 활성화
 ALTER TABLE product_market_prices ENABLE ROW LEVEL SECURITY;
 
--- 누구나 읽기 가능 (쇼핑몰 가격 표시)
+-- 누구나 읽기 가능 (쇼핑몰 가격 표시) — 이미 있으면 재생성
+DROP POLICY IF EXISTS "product_market_prices: public read" ON product_market_prices;
 CREATE POLICY "product_market_prices: public read"
   ON product_market_prices FOR SELECT USING (true);
 
 -- 관리자만 쓰기
+DROP POLICY IF EXISTS "product_market_prices: admin insert" ON product_market_prices;
 CREATE POLICY "product_market_prices: admin insert"
   ON product_market_prices FOR INSERT
   WITH CHECK (
     EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND is_admin = true)
   );
 
+DROP POLICY IF EXISTS "product_market_prices: admin update" ON product_market_prices;
 CREATE POLICY "product_market_prices: admin update"
   ON product_market_prices FOR UPDATE
   USING (
     EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND is_admin = true)
   );
 
+DROP POLICY IF EXISTS "product_market_prices: admin delete" ON product_market_prices;
 CREATE POLICY "product_market_prices: admin delete"
   ON product_market_prices FOR DELETE
   USING (

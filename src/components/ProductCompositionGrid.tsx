@@ -1,11 +1,20 @@
-import React, { useState } from 'react';
-import { PRODUCT_DETAIL_WHITE_CARD_INNER } from '../lib/productDetailSectionClasses';
+import React from 'react';
+import { Link } from 'react-router-dom';
+import {
+  PRODUCT_DETAIL_SECTION_KICKER_BASE,
+  PRODUCT_DETAIL_SECTION_KICKER_SIZE,
+  PRODUCT_DETAIL_WHITE_CARD_INNER,
+} from '../lib/productDetailSectionClasses';
+import { formatProductTypeForLanguage } from '../lib/productTypeStoreLabels';
+import { formatStorefrontLineTitle } from '../lib/skuStorefrontTitle';
 import { useI18n } from '../context/I18nContext';
 
 /** 상세·피부테스트 결과에서 동일하게 쓰는 구성품 한 줄 */
 export type ProductCompositionItem = {
   id: string;
   name: string | null;
+  /** 펼침 카드 대제목 — 브랜드만 표시 */
+  brand?: string | null;
   image_url: string | null;
   image_urls?: string[] | null;
   /** 한국어 설명 (관리탭·기본 fallback) */
@@ -14,6 +23,14 @@ export type ProductCompositionItem = {
   description_en?: string | null;
   /** 러시아어 설명 — language==='ru' 일 때 우선 사용 */
   description_ru?: string | null;
+  /** 스토어 구성품 상세로 이동할 때 사용 */
+  sku_id?: string | null;
+  /** key_ingredients_desc.__claim__ — 핵심 마케팅 한 줄 */
+  marketing_claim?: string | null;
+  marketing_claim_en?: string | null;
+  marketing_claim_ru?: string | null;
+  /** sku_items.product_type — 썸네일 위 소형 유형 라벨 */
+  product_type?: string | null;
 };
 
 function getComponentImageUrls(comp: ProductCompositionItem): string[] {
@@ -27,148 +44,95 @@ type Props = {
   className?: string;
   /** true일 때만 «Состав набора» 제목을 모바일에서 1pt 작게 (데스크톱은 text-xs 유지) */
   tighterMobileComposeTitle?: boolean;
+  /** 설정 시 구성품 타일이 `/product/:id/component/:skuId` 로 연결됨 */
+  parentProductId?: string;
 };
 
-/**
- * «Состав набора» + 키 인그리디언트 토글 — ProductDetail·SkinTest 동일 UX.
- * 모바일: «Ключевые ингредиенты» + 펼침/접힘 화살표(한 줄) · sm+: 기존 «Смотреть/Скрыть…» 문구.
- */
-/** 언어에 맞는 description 반환 — en/ru/ko 순으로 fallback */
-function getLocalizedDesc(comp: ProductCompositionItem, language: string): string | null {
-  if (language === 'en' && comp.description_en) return comp.description_en;
-  if (language === 'ru' && comp.description_ru) return comp.description_ru;
-  return comp.description ?? null;
+/** 유형 라벨 — 썸네일 아래 (컴팩트 그리드용). 이미지–텍스트 간격 ≈ 기본 대비 +10% */
+function ProductTypeLabel({ label }: { label: string }) {
+  return (
+    <span className="mt-[0.4125rem] block max-w-full text-center text-[0.7rem] font-medium leading-tight tracking-tight text-slate-500 line-clamp-2 sm:mt-[0.55rem] sm:text-[0.8125rem] md:mt-[0.4125rem] md:text-[0.75rem]">
+      {label}
+    </span>
+  );
 }
 
-export function ProductCompositionGrid({ components, className, tighterMobileComposeTitle = false }: Props) {
+/**
+ * «Состав набора» — 유형 라벨 + 썸네일만. md 이상 한 행 6칸 그리드.
+ */
+export function ProductCompositionGrid({
+  components,
+  className,
+  tighterMobileComposeTitle = false,
+  parentProductId,
+}: Props) {
   const { language } = useI18n();
   const isEn = language === 'en';
-  const [ingredientPanelOpen, setIngredientPanelOpen] = useState(false);
 
   if (components.length === 0) return null;
 
   const outer = className ?? 'mt-6';
-  const shown = components.slice(0, 8);
-  const n = shown.length;
-  /** 6: sm+ 한 줄(6열) · 7: 4+3 · 8: md까지 4+4, lg+ 한 줄 8열 */
-  const compactGridClass =
-    n <= 6
-      ? 'grid grid-cols-3 gap-2.5 sm:grid-cols-6 sm:gap-3'
-      : n === 7
-        ? 'grid grid-cols-4 gap-2.5 sm:gap-3'
-        : 'grid grid-cols-4 gap-2.5 sm:gap-3 lg:grid-cols-8 lg:gap-2';
+  const rows = components.slice(0, 8);
+  const titleClass = `min-w-0 text-left ${PRODUCT_DETAIL_SECTION_KICKER_BASE} ${
+    tighterMobileComposeTitle ? 'text-[0.6875rem] sm:text-[0.7rem]' : PRODUCT_DETAIL_SECTION_KICKER_SIZE
+  }`;
+
+  const focusRing =
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:ring-offset-2';
 
   return (
     <div
-      className={`${outer} overflow-hidden rounded-2xl bg-white shadow-[0_1px_10px_-6px_rgba(15,23,42,0.2)] ring-1 ring-slate-200/70`}
+      className={`${outer} overflow-hidden rounded-2xl bg-white shadow-[0_2px_16px_-8px_rgba(15,23,42,0.12)] ring-1 ring-slate-200/60`}
     >
       <div className={`bg-white ${PRODUCT_DETAIL_WHITE_CARD_INNER}`}>
-        <div className="relative mb-6">
-          <p
-            className={`text-left font-medium uppercase tracking-wider text-slate-500 ${
-              tighterMobileComposeTitle ? 'text-[calc(0.75rem-1pt)] sm:text-xs' : 'text-xs'
-            }`}
-          >
-            {isEn ? 'Box composition' : 'Состав набора'}
-          </p>
-          <button
-            type="button"
-            onClick={() => setIngredientPanelOpen((v) => !v)}
-            aria-expanded={ingredientPanelOpen}
-            className="absolute right-0 top-1/2 flex -translate-y-1/2 items-center justify-center gap-1 rounded-full border border-slate-300 bg-white px-2.5 py-1.5 text-[11px] font-medium leading-none text-slate-500 transition hover:border-slate-400 hover:text-slate-600 max-sm:max-w-[min(100%,14rem)] max-sm:min-h-[2.5rem] max-sm:px-3 max-sm:py-2 max-sm:whitespace-nowrap sm:w-[17rem] sm:min-h-0 sm:px-3 sm:py-1.5 sm:text-xs sm:leading-snug sm:whitespace-nowrap"
-          >
-            {/* 모바일: «Ключевые ингредиенты» + 펼침/접힘 화살표만 (한 줄) */}
-            <span className="inline-flex items-center gap-1 sm:hidden">
-              <span>{isEn ? 'Key ingredients' : 'Ключевые ингредиенты'}</span>
-              {ingredientPanelOpen ? (
-                <svg className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
-                </svg>
-              ) : (
-                <svg className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                </svg>
-              )}
-            </span>
-            {/* 태블릿+: 기존 문구 유지 */}
-            <span className="hidden text-center sm:inline">
-              {ingredientPanelOpen
-                ? isEn
-                  ? 'Hide key ingredients'
-                  : 'Скрыть ключевые ингредиенты'
-                : isEn
-                  ? 'View key ingredients'
-                  : 'Смотреть ключевые ингредиенты'}
-            </span>
-          </button>
+        <div className="mb-3 sm:mb-4">
+          <p className={titleClass}>{isEn ? 'Box composition' : 'Состав набора'}</p>
         </div>
 
-        {!ingredientPanelOpen ? (
-          <div className={compactGridClass}>
-            {shown.map((comp) => {
-              const imgs = getComponentImageUrls(comp);
-              const firstImg = imgs[0];
-              return (
-                <div key={comp.id} className="flex flex-col items-center">
-                  <div className="aspect-square w-full overflow-hidden rounded-xl bg-slate-50">
-                    {firstImg ? (
-                      <img src={firstImg} alt={comp.name ?? ''} className="h-full w-full object-cover" />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center text-slate-300 text-xs">—</div>
-                    )}
-                  </div>
-                  {comp.name && (
-                    <p className="mt-1.5 line-clamp-2 text-center text-[calc(11px-1pt)] font-medium text-slate-700 sm:text-xs">
-                      {comp.name}
-                    </p>
+        <ul className="m-0 grid list-none grid-cols-3 gap-2 p-0 sm:grid-cols-4 sm:gap-2.5 md:grid-cols-6 md:gap-2 lg:gap-2.5">
+          {rows.map((comp) => {
+            const imgs = getComponentImageUrls(comp);
+            const firstImg = imgs[0];
+            const typeLabelRow = formatProductTypeForLanguage(comp.product_type, language);
+            const skuId = comp.sku_id?.trim();
+            const brandLine = (comp.brand ?? '').trim() ? formatStorefrontLineTitle((comp.brand ?? '').trim()) : null;
+            const productTitle = (comp.name ?? '').trim() ? formatStorefrontLineTitle((comp.name ?? '').trim()) : null;
+            const imgAlt = [brandLine, productTitle].filter(Boolean).join(' — ') || (isEn ? 'Component' : 'Компонент');
+            const tileInner = (
+              <div className="flex min-w-0 flex-col items-center">
+                <div className="aspect-square w-full min-w-0 overflow-hidden rounded-lg bg-white ring-1 ring-slate-200/60 shadow-sm sm:rounded-xl md:rounded-lg">
+                  {firstImg ? (
+                    <img src={firstImg} alt={imgAlt} className="h-full w-full object-cover" loading="lazy" />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-[10px] text-slate-300 sm:text-xs">—</div>
                   )}
                 </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="space-y-2.5">
-              {components.slice(0, 8).map((comp) => {
-                const imgs = getComponentImageUrls(comp);
-                const firstImg = imgs[0];
-                const localizedDesc = getLocalizedDesc(comp, language);
-                const fallbackText = localizedDesc?.trim()
-                  ? localizedDesc
-                  : isEn
-                    ? 'Description will be added soon.'
-                    : 'Описание появится позже.';
-                const isLongFallback = fallbackText.length > 90;
-                const useTopAlign = isLongFallback;
-                return (
-                  <div
-                    key={`row-${comp.id}`}
-                    className="grid grid-cols-[102px_1fr] items-start gap-3 sm:grid-cols-[128px_1fr] md:grid-cols-[176px_1fr]"
+                {typeLabelRow ? (
+                  <ProductTypeLabel label={typeLabelRow} />
+                ) : (
+                  <div className="mt-[0.4125rem] h-4 shrink-0 sm:mt-[0.55rem] md:h-3.5" />
+                )}
+              </div>
+            );
+            if (parentProductId && skuId) {
+              return (
+                <li key={`tile-${comp.id}`} className="min-w-0 p-0">
+                  <Link
+                    to={`/product/${parentProductId}/component/${skuId}`}
+                    className={`block rounded-lg p-0.5 transition hover:opacity-90 sm:p-1 md:p-0.5 ${focusRing}`}
                   >
-                    <div className="aspect-square overflow-hidden rounded-xl bg-slate-50">
-                      {firstImg ? (
-                        <img src={firstImg} alt={comp.name ?? ''} className="h-full w-full object-cover" />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center text-slate-300 text-xs">—</div>
-                      )}
-                    </div>
-                    {/* 모바일: 박스(테두리) 없음 · 제목/설명: 모바일 +1vw · sm+ 데스크톱 +2vw */}
-                    <article className="grid h-full min-h-[6.25rem] grid-rows-[auto_1fr] translate-x-[1vw] p-0 sm:min-h-[7rem] md:min-h-[6.75rem] md:translate-x-[2vw]">
-                      <p className="text-[calc(13px-1pt)] font-semibold text-slate-900 sm:text-sm">
-                        {comp.name ?? (isEn ? 'Component' : 'Компонент')}
-                      </p>
-                      <div className={`mt-3 flex ${useTopAlign ? 'items-start' : 'items-center'}`}>
-                        <p className="whitespace-pre-line text-[calc(0.75rem-1pt)] leading-relaxed text-slate-500 sm:text-xs">
-                          {fallbackText}
-                        </p>
-                      </div>
-                    </article>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
+                    {tileInner}
+                  </Link>
+                </li>
+              );
+            }
+            return (
+              <li key={`tile-${comp.id}`} className="min-w-0 p-0">
+                {tileInner}
+              </li>
+            );
+          })}
+        </ul>
       </div>
     </div>
   );

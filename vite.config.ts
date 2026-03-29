@@ -9,6 +9,15 @@ import react from '@vitejs/plugin-react-swc';
  */
 const disableHmr = process.env.NO_HMR === '1' || process.env.VITE_NO_HMR === '1';
 
+/** 브라우저는 항상 동일 출처 `/skin-api/*` 로 요청 → CORS·HTTPS→HTTP 차단 회피 (백엔드는 127.0.0.1:5001) */
+const skinApiProxy = {
+  '/skin-api': {
+    target: 'http://127.0.0.1:5001',
+    changeOrigin: true,
+    rewrite: (path: string) => path.replace(/^\/skin-api/, '') || '/',
+  },
+} as const;
+
 export default defineConfig({
   plugins: [react()],
   server: {
@@ -17,6 +26,7 @@ export default defineConfig({
     host: true,
     strictPort: true,
     allowedHosts: true,
+    proxy: skinApiProxy,
     ...(disableHmr ? { hmr: false as const } : {}),
   },
   // npm run share(빌드+미리보기) 시 ngrok으로 iPhone 등에서 접속 허용
@@ -24,5 +34,6 @@ export default defineConfig({
     port: 4173,
     allowedHosts: true,
     host: true,
+    proxy: skinApiProxy,
   },
 });

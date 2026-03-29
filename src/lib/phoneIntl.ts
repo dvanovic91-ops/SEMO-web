@@ -1,30 +1,9 @@
+import { PHONE_DIAL_BY_ISO } from './phoneCountryDialCodes';
+
 export type PhoneCountry = string;
 
-const DIAL_CODE_MAP: Record<string, string> = {
-  RU: '+7',
-  KZ: '+7',
-  AE: '+971',
-  US: '+1',
-  KR: '+82',
-  JP: '+81',
-  CN: '+86',
-  DE: '+49',
-  FR: '+33',
-  GB: '+44',
-  IT: '+39',
-  ES: '+34',
-  TR: '+90',
-  IN: '+91',
-  ID: '+62',
-  TH: '+66',
-  VN: '+84',
-  SA: '+966',
-  QA: '+974',
-  KW: '+965',
-  OM: '+968',
-  BH: '+973',
-  UZ: '+998',
-};
+/** 스토어 전화 국가 선택 목록에서 제외 (ISO 3166-1 alpha-2) */
+const EXCLUDED_PHONE_REGION_CODES = new Set<string>(['KP']);
 
 function buildAllCountryOptions() {
   let display: Intl.DisplayNames | null = null;
@@ -33,21 +12,23 @@ function buildAllCountryOptions() {
   } catch {
     display = null;
   }
-  let regions: string[] = Object.keys(DIAL_CODE_MAP);
+  /** `supportedValuesOf` 없는 환경에서도 전체 번호부가 나오도록 ISO 목록은 항상 전체 매핑 기준 */
+  let regions: string[] = Object.keys(PHONE_DIAL_BY_ISO);
   try {
     if ((Intl as any).supportedValuesOf) {
       const list = (Intl as any).supportedValuesOf('region') as string[];
       if (Array.isArray(list) && list.length > 0) regions = list;
     }
   } catch {
-    regions = Object.keys(DIAL_CODE_MAP);
+    regions = Object.keys(PHONE_DIAL_BY_ISO);
   }
   return regions
     .map((code) => ({
       code,
-      dial: DIAL_CODE_MAP[code] ?? '',
-      label: (display?.of(code) ?? code),
+      dial: PHONE_DIAL_BY_ISO[code] ?? '',
+      label: display?.of(code) ?? code,
     }))
+    .filter((o) => o.dial !== '' && !EXCLUDED_PHONE_REGION_CODES.has(o.code))
     .sort((a, b) => a.label.localeCompare(b.label));
 }
 

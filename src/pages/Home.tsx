@@ -4,9 +4,11 @@ import { supabase } from '../lib/supabase';
 import { useI18n } from '../context/I18nContext';
 import type { AppCurrency } from '../context/I18nContext';
 import { formatCurrencyAmount } from '../lib/market';
+import { formatStorefrontDate } from '../lib/formatStorefrontDate';
 import { loadProductMarketPrices } from '../lib/productMarketPrices';
 import {
   CATALOG_ROOM_SLOTS_TABLE,
+  CATALOG_SLOT_ROW_PERSIST,
   CATALOG_SLOT_VISIBLE_BY_ROOM_KEY,
   clampCatalogVisibleCount,
   parseCatalogVisibleByRoom,
@@ -720,8 +722,9 @@ function ProductShowcase() {
         const slots: SlotRow[] = [];
         for (const r of ROOMS) {
           const arr = (byRoom.get(r) ?? []).slice().sort((a, b) => a.slot_index - b.slot_index);
-          const fallbackVisible = Math.min(5, Math.max(1, arr.length));
-          const n = clampCatalogVisibleCount(visMap[r] ?? fallbackVisible, fallbackVisible);
+          const fallbackCap = Math.min(CATALOG_SLOT_ROW_PERSIST, Math.max(1, arr.length));
+          const catalogVisible = clampCatalogVisibleCount(visMap[r] ?? fallbackCap, fallbackCap);
+          const n = Math.min(arr.length, catalogVisible);
           for (const row of arr.slice(0, n)) {
             slots.push({
               slot_index: row.slot_index,
@@ -765,11 +768,7 @@ function ProductShowcase() {
           const cat = slot.groupKey;
           if (!grouped[cat]) grouped[cat] = [];
           const prod = slot.product_id ? priceMap[slot.product_id] : null;
-          // 카테고리 불일치 상품은 제외 (뷰티 슬롯에 헤어 상품 등 방지)
-          if (prod?.category) {
-            const nc = String(prod.category).trim().toLowerCase().replace(/[-\s]/g, '_');
-            if (nc && nc !== cat && nc !== 'null' && nc !== 'undefined') continue;
-          }
+          // 슬롯의 catalog_room 이 진실 소스 — products.category 문자열과 다르더라도 노출 (구버전 불일치 필터로 일부 칸이 사라지던 문제 제거)
           // 상품에 연결된 경우 대표 이미지는 상품 기준 우선 — 슬롯 image_url이 남아 있으면 관리자가 상품만 갱신해도 메인에 안 보이는 문제(헤어 등) 방지
           const imgUrls =
             prod && Array.isArray(prod.image_urls) && prod.image_urls.length > 0
@@ -911,7 +910,7 @@ function ProductShowcase() {
 }
 
 function HomeReviews() {
-  const { language } = useI18n();
+  const { language, country, currency } = useI18n();
   const { ref: sectionRef, visible } = useScrollFadeIn(0.1);
   const [reviews, setReviews] = useState<HomeReviewItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -1031,7 +1030,7 @@ function HomeReviews() {
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <p className="truncate text-sm font-semibold text-slate-800">{r.author_name ?? (language === 'en' ? 'SEMO customer' : 'Покупатель SEMO')}</p>
                   <p className="shrink-0 text-[11px] text-slate-400">
-                    {new Date(r.created_at).toLocaleDateString('ru-RU')}
+                    {formatStorefrontDate(r.created_at, { language, country, currency })}
                   </p>
                 </div>
                 <p className="mb-2 line-clamp-1 text-xs font-medium text-brand">{r.product_name ?? 'SEMO Box'}</p>
