@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { supabase, setRememberMe } from '../lib/supabase';
@@ -6,6 +6,7 @@ import { isValidEmailFormat } from '../lib/emailValidation';
 import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../components/SemoPageSpinner';
 import { LegalDocLinksRu } from '../components/LegalDocLinksRu';
 import { useI18n } from '../context/I18nContext';
+import { isTelegramMiniApp } from '../lib/telegramAuth';
 
 const inputClass =
   'w-full min-h-[44px] rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-base text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand sm:min-h-0';
@@ -37,6 +38,7 @@ export const Login: React.FC = () => {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginLoading, setLoginLoading] = useState(false);
 
+  const isMiniApp = useMemo(() => (typeof window !== 'undefined' ? isTelegramMiniApp() : false), []);
 
   if (!initialized) {
     return (
@@ -48,6 +50,7 @@ export const Login: React.FC = () => {
   if (isLoggedIn) return <Navigate to="/" replace />;
 
   const handleGoogleLogin = async () => {
+    if (isMiniApp) return;
     if (!supabase) return;
     setRememberMe(rememberMe);
     setOauthLoading('google');
@@ -63,6 +66,7 @@ export const Login: React.FC = () => {
   };
 
   const handleYandexLogin = () => {
+    if (isMiniApp) return;
     const clientId = import.meta.env.VITE_YANDEX_CLIENT_ID || '488f7e3680314946b02f39be0c4368f8';
     const redirectUri = `${window.location.origin}/auth/yandex/callback`;
     setRememberMe(rememberMe);
@@ -130,6 +134,24 @@ export const Login: React.FC = () => {
           {tt.title}
         </h1>
       </header>
+
+      {isMiniApp && (
+        <div
+          className="mb-6 rounded-xl border border-sky-200 bg-sky-50/90 px-4 py-3 text-left text-sm text-slate-800"
+          role="status"
+        >
+          <p className="font-medium">
+            {language === 'en'
+              ? 'Opened inside Telegram'
+              : 'Открыто внутри Telegram'}
+          </p>
+          <p className="mt-1 text-slate-600">
+            {language === 'en'
+              ? 'Google blocks sign-in from this embedded view. Use email and password, or open the site in Safari/Chrome for Google.'
+              : 'Google и Яндекс не открывают вход из встроенного окна Telegram (политика безопасности). Войдите по email и паролю или откройте сайт в обычном браузере. Если аккаунт уже привязан к Telegram — вход выполняется автоматически при открытии мини-приложения.'}
+          </p>
+        </div>
+      )}
 
       {/* 아이디/비밀번호 + Login 버튼 — 엔터 시 제출 */}
       <form
@@ -218,7 +240,8 @@ export const Login: React.FC = () => {
           <button
             type="button"
             onClick={handleGoogleLogin}
-            disabled={oauthLoading !== null}
+            disabled={oauthLoading !== null || isMiniApp}
+            title={isMiniApp ? (language === 'en' ? 'Not available in Telegram Mini App' : 'Недоступно в мини-приложении Telegram') : undefined}
             aria-label="Войти через Google"
             className="flex h-12 w-12 items-center justify-center rounded-full border border-slate-200 bg-white transition hover:border-slate-300 disabled:opacity-60 sm:h-14 sm:w-14"
           >
@@ -236,7 +259,8 @@ export const Login: React.FC = () => {
           <button
             type="button"
             onClick={handleYandexLogin}
-            disabled={oauthLoading !== null}
+            disabled={oauthLoading !== null || isMiniApp}
+            title={isMiniApp ? (language === 'en' ? 'Not available in Telegram Mini App' : 'Недоступно в мини-приложении Telegram') : undefined}
             aria-label="Войти через Yandex"
             className="flex h-12 w-12 items-center justify-center rounded-full border border-slate-200 bg-white transition hover:border-slate-300 disabled:opacity-60 sm:h-14 sm:w-14"
           >

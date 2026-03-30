@@ -52,7 +52,7 @@ export const ProfileCoupons: React.FC = () => {
   const refresh = useCallback(() => {
     if (!supabase || !targetUserId) {
       setCoupons([]);
-      setSelfieBalance(null);
+      setSelfieBalance(0);
       setLoading(false);
       return;
     }
@@ -69,12 +69,13 @@ export const ProfileCoupons: React.FC = () => {
       .then(([cRes, sRes]) => {
         if (currentUserIdRef.current !== requested) return;
         setCoupons((cRes.data as CouponRow[]) ?? []);
-        if (sRes.error) {
-          setSelfieBalance(0);
-          return;
+        // 행 없음·PGRST116·기타 오류 모두 0으로 통일 — 셀피 카드는 항상 숫자로 표시
+        let bal = 0;
+        if (!sRes.error && sRes.data != null) {
+          const raw = (sRes.data as { balance?: number | null }).balance;
+          if (typeof raw === 'number' && !Number.isNaN(raw)) bal = Math.max(0, raw);
         }
-        const b = (sRes.data as { balance?: number } | null)?.balance;
-        setSelfieBalance(typeof b === 'number' ? Math.max(0, b) : 0);
+        setSelfieBalance(bal);
       })
       .catch(() => {
         if (currentUserIdRef.current !== requested) return;
@@ -226,40 +227,42 @@ export const ProfileCoupons: React.FC = () => {
         <div className={SEMO_SECTION_LOADING_CLASS}>
           <SemoPageSpinner />
         </div>
-      ) : selfieBalance === null && coupons.length === 0 ? (
-        <p className="text-sm text-slate-500">
-          {language === 'en' ? 'No coupons to show.' : 'Нет купонов для отображения.'}
-        </p>
       ) : (
         <>
           <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
             {language === 'en' ? 'Your coupons' : 'Ваши купоны'}
           </p>
           <ul className="space-y-3">
-            {selfieBalance !== null && (
-              <li
-                className="flex items-center justify-between gap-3 rounded-xl border-2 border-brand/45 bg-white px-4 py-3 text-sm shadow-sm"
-                aria-label={language === 'en' ? 'Selfie analysis passes' : 'Проходы селфи-анализа'}
-              >
-                <div className="min-w-0">
-                  <p className="font-medium text-slate-800">
-                    {language === 'en' ? 'Selfie skin analysis' : 'Селфи-анализ кожи'}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    {language === 'en'
-                      ? 'Separate from ₽ discounts — one pass per detailed analysis.'
-                      : 'Отдельно от скидок на сумму — 1 проход на один развёрнутый анализ.'}
-                  </p>
-                </div>
-                <div className="shrink-0 text-right">
-                  <p className="text-[10px] font-medium uppercase tracking-wide text-brand">
-                    {language === 'en' ? 'Available' : 'Доступно'}
-                  </p>
-                  <p className="text-lg font-bold tabular-nums text-brand sm:text-xl">{selfieBalance}</p>
-                  <p className="text-[10px] text-slate-500">{language === 'en' ? 'passes' : 'шт.'}</p>
-                </div>
-              </li>
-            )}
+            <li
+              className="flex items-center justify-between gap-3 rounded-xl border-2 border-brand/45 bg-white px-4 py-3 text-sm shadow-sm"
+              aria-label={language === 'en' ? 'Selfie analysis passes' : 'Проходы селфи-анализа'}
+            >
+              <div className="min-w-0">
+                <p className="font-medium text-slate-800">
+                  {language === 'en' ? 'Selfie skin analysis' : 'Селфи-анализ кожи'}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {language === 'en'
+                    ? 'Separate from ₽ discounts — one pass per detailed analysis. Use on the skin test result page.'
+                    : 'Отдельно от скидок на сумму — 1 проход на развёрнутый анализ. Используйте на странице результата теста.'}
+                </p>
+                <p className="mt-2">
+                  <Link
+                    to="/skin-test"
+                    className="text-xs font-medium text-brand underline decoration-brand/40 underline-offset-2 hover:opacity-90"
+                  >
+                    {language === 'en' ? 'Open skin test →' : 'Перейти к тесту кожи →'}
+                  </Link>
+                </p>
+              </div>
+              <div className="shrink-0 text-right">
+                <p className="text-[10px] font-medium uppercase tracking-wide text-brand">
+                  {language === 'en' ? 'Available' : 'Доступно'}
+                </p>
+                <p className="text-lg font-bold tabular-nums text-brand sm:text-xl">{selfieBalance ?? 0}</p>
+                <p className="text-[10px] text-slate-500">{language === 'en' ? 'passes' : 'шт.'}</p>
+              </div>
+            </li>
             {coupons.map((c) => {
               const now = new Date();
               const expires = new Date(c.expires_at);
@@ -296,6 +299,13 @@ export const ProfileCoupons: React.FC = () => {
               );
             })}
           </ul>
+          {coupons.length === 0 && (selfieBalance ?? 0) === 0 ? (
+            <p className="mt-4 text-sm text-slate-500">
+              {language === 'en'
+                ? 'No ₽ discount coupons yet. Selfie passes above may still apply after sign-up.'
+                : 'Пока нет купонов на сумму в ₽. Проходы селфи выше начисляются после регистрации.'}
+            </p>
+          ) : null}
         </>
       )}
     </main>

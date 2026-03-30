@@ -85,6 +85,8 @@ export const ProfileTestResultDetail: React.FC = () => {
   }
 
   const t = result.skin_type?.trim();
-  const to = t ? `/skin-test?type=${encodeURIComponent(t.toUpperCase())}` : '/skin-test';
+  const to = t
+    ? `/skin-test?type=${encodeURIComponent(t.toUpperCase())}&id=${encodeURIComponent(result.id)}`
+    : '/skin-test';
   return <Navigate to={to} replace />;
 };

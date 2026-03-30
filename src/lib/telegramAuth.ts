@@ -161,7 +161,13 @@ export async function loginWithMiniApp(
   if (!initData) return { ok: false, error: 'no_initData' };
 
   try {
-    window.Telegram?.WebApp?.ready();
+    const w = window.Telegram?.WebApp;
+    w?.ready();
+    try {
+      w?.expand();
+    } catch {
+      /* */
+    }
 
     const result = await authenticateWithEdgeFunction(supabaseClient, 'miniapp', initData);
     if (!result.ok) {

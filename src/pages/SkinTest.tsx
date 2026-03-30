@@ -24,10 +24,16 @@ import { getSkuCompositionDisplayParts } from '../lib/skuMarketingDescriptions';
 import { resolveSkuStorefrontName } from '../lib/skuStorefrontTitle';
 import { getSkinApiBaseUrl } from '../lib/skinApiBaseUrl';
 import { SkinResultMetricsCharts } from '../components/SkinResultMetricsCharts';
+import { buildConcernMetricFocusForApi } from '../lib/concernMetricHighlight';
+import { selfieAnalysisToClientState } from '../lib/skinTestSelfie';
 
 const MAX_TEST_COUNT = 2;
 
 const SKIN_RESULT_ROW_STORAGE = 'semo_last_skin_result_id';
+
+/** URL `?id=` / sessionStorage — skin_test_results PK */
+const SKIN_TEST_RESULT_ROW_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** products.image_urls → 테스트 결과 카드용 URL 목록 (상세와 동일 규칙 + jsonb 객체 형태 폴백) */
 function normalizePreviewImageUrls(row: { image_url?: string | null; image_urls?: unknown }): string[] {
@@ -292,6 +298,8 @@ export const SkinTest: React.FC = () => {
 
   const [searchParams] = useSearchParams();
   const skinTypeQueryParam = searchParams.get('type')?.trim().toUpperCase() ?? '';
+  const resultRowIdQueryParam = searchParams.get('id')?.trim() ?? '';
+  const resultRowIdFromQueryOk = SKIN_TEST_RESULT_ROW_UUID_RE.test(resultRowIdQueryParam);
   const { addItem } = useCart();
   const isAdmin = !!userEmail && ADMIN_EMAILS.includes(userEmail);
   const noTestLimit = !!userEmail && UNLIMITED_TEST_EMAILS.includes(userEmail);
@@ -363,24 +371,43 @@ export const SkinTest: React.FC = () => {
 
   /** 직전에 INSERT된 skin_test_results 행 id — AI 응답을 같은 행에 PATCH */
   const pendingSkinTestResultRowIdRef = useRef<string | null>(null);
+  /** insert 완료 전에 셀피 분석이 끝난 경우 — 같은 행에 나중에 PATCH */
+  const pendingSelfiePersistRef = useRef<Record<string, unknown> | null>(null);
   /** DB에서 결과/셀피 스냅샷 1회 로드 (같은 키 중복 방지) */
   const persistedSkinLoadKeyRef = useRef<string>('');
 
-  /** 프로필 «Посмотреть результат теста» → ?type=DSNW 등: 동일 결과지 UI
-   *  의존성은 문자열만 사용 — RR7에서 searchParams(URLSearchParams) 참조가 매 렌더 바뀌면
-   *  effect가 매번 돌아 setResult가 무한 루프(최대 업데이트 깊이 / 빈 화면)를 일으킬 수 있음. */
+  /** 프로필 «Посмотреть результат теста» → ?type=DSNW[&id=uuid]: 동일 결과지 UI
+   *  id가 있으면 해당 skin_test_results 행(셀피·점수) 로드에 쓰도록 sessionStorage·pending ref 설정.
+   *  id 없이 type만 있으면 sessionStorage 제거 → 동일 타입 최신 행 로드.
+   *  의존성은 문자열만 사용 (RR7 URLSearchParams 참조 불안정 방지). */
   useLayoutEffect(() => {
     const raw = skinTypeQueryParam;
     if (!raw || !SKIN_INFO[raw]) return;
-    pendingSkinTestResultRowIdRef.current = null;
     persistedSkinLoadKeyRef.current = '';
+    pendingSkinTestResultRowIdRef.current = null;
+
+    if (resultRowIdFromQueryOk) {
+      try {
+        sessionStorage.setItem(SKIN_RESULT_ROW_STORAGE, resultRowIdQueryParam);
+      } catch {
+        /* ignore */
+      }
+      pendingSkinTestResultRowIdRef.current = resultRowIdQueryParam;
+    } else {
+      try {
+        sessionStorage.removeItem(SKIN_RESULT_ROW_STORAGE);
+      } catch {
+        /* ignore */
+      }
+    }
+
     setResult({
       type: raw,
       info: SKIN_INFO[raw],
       scores: approximateScoresFromSkinTypeCode(raw),
     });
     setStage('result');
-  }, [skinTypeQueryParam]);
+  }, [skinTypeQueryParam, resultRowIdQueryParam, resultRowIdFromQueryOk]);
 
   /** 장바구니 토스트 */
   useEffect(() => {
@@ -441,21 +468,22 @@ export const SkinTest: React.FC = () => {
   /** 회원: 저장된 테스트 행에서 셀피 수치·AI 문구·정확한 바우만 점수 복원 (새로고침·프로필 링크) */
   useEffect(() => {
     if (stage !== 'result' || !result || !userId || !supabase) return;
-    const loadKey = `${userId}:${result.type}:${resultSyncNonce}`;
+    const sid =
+      typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(SKIN_RESULT_ROW_STORAGE) : null;
+    const rowIdForKey =
+      resultRowIdFromQueryOk && resultRowIdQueryParam ? resultRowIdQueryParam : sid ?? '';
+    const loadKey = `${userId}:${result.type}:${resultSyncNonce}:${rowIdForKey}`;
     if (persistedSkinLoadKeyRef.current === loadKey) return;
     let cancelled = false;
 
     void (async () => {
       try {
-      const sid =
-        typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(SKIN_RESULT_ROW_STORAGE) : null;
-      const uuidOk =
-        sid &&
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sid);
+      const uuidOk = !!sid && SKIN_TEST_RESULT_ROW_UUID_RE.test(sid);
 
       type RowT = {
         id: string;
         skin_type: string | null;
+        concern_text?: string | null;
         selfie_analysis: unknown;
         ai_analysis: unknown;
         baumann_scores: unknown;
@@ -465,20 +493,20 @@ export const SkinTest: React.FC = () => {
       if (uuidOk) {
         const { data } = await supabase
           .from('skin_test_results')
-          .select('id, skin_type, selfie_analysis, ai_analysis, baumann_scores')
+          .select('id, skin_type, concern_text, selfie_analysis, ai_analysis, baumann_scores')
           .eq('user_id', userId)
           .eq('id', sid as string)
           .maybeSingle();
         if (cancelled) return;
         const d = data as RowT | null;
-        if (d && String(d.skin_type || '').toUpperCase() === result.type) row = d;
+        if (d && String(d.skin_type || '').trim().toUpperCase() === result.type) row = d;
       }
       if (!row) {
         const { data } = await supabase
           .from('skin_test_results')
-          .select('id, skin_type, selfie_analysis, ai_analysis, baumann_scores')
+          .select('id, skin_type, concern_text, selfie_analysis, ai_analysis, baumann_scores')
           .eq('user_id', userId)
-          .eq('skin_type', result.type)
+          .ilike('skin_type', result.type)
           .order('completed_at', { ascending: false })
           .limit(1)
           .maybeSingle();
@@ -494,35 +522,58 @@ export const SkinTest: React.FC = () => {
 
       pendingSkinTestResultRowIdRef.current = row.id;
 
-      const bs = row.baumann_scores as Record<string, unknown> | null;
-      if (bs && typeof bs === 'object') {
+      const ct = row.concern_text;
+      if (typeof ct === 'string' && ct.trim()) setConcernText(ct.trim());
+
+      let bsRaw: unknown = row.baumann_scores;
+      if (typeof bsRaw === 'string') {
+        try {
+          bsRaw = JSON.parse(bsRaw) as unknown;
+        } catch {
+          bsRaw = null;
+        }
+      }
+      const bs = bsRaw && typeof bsRaw === 'object' ? (bsRaw as Record<string, unknown>) : null;
+      if (bs) {
+        const n = (k: string) => {
+          const v = bs[k] ?? bs[String(k)];
+          const x = typeof v === 'number' ? v : Number(v);
+          return Number.isFinite(x) ? x : undefined;
+        };
         setResult((prev) => {
           if (!prev || prev.type !== result.type) return prev;
           return {
             ...prev,
             scores: {
-              1: Number(bs['1'] ?? prev.scores[1]),
-              2: Number(bs['2'] ?? prev.scores[2]),
-              3: Number(bs['3'] ?? prev.scores[3]),
-              4: Number(bs['4'] ?? prev.scores[4]),
+              1: n('1') ?? prev.scores[1],
+              2: n('2') ?? prev.scores[2],
+              3: n('3') ?? prev.scores[3],
+              4: n('4') ?? prev.scores[4],
             },
           };
         });
       }
 
-      const sa = row.selfie_analysis as {
-        skin_metrics?: SelfieAnalyzeResponse['skin_metrics'];
-        gemini_analysis?: SelfieAnalyzeResponse['gemini_analysis'];
-      } | null;
-      if (sa?.skin_metrics && typeof sa.skin_metrics === 'object') {
+      const selfieState = selfieAnalysisToClientState(row.selfie_analysis);
+      if (selfieState) {
         setSelfieAnalyzeResult({
-          skin_metrics: sa.skin_metrics,
-          gemini_analysis: sa.gemini_analysis,
+          skin_metrics: selfieState.skin_metrics as SelfieAnalyzeResponse['skin_metrics'],
+          gemini_analysis: selfieState.gemini_analysis as SelfieAnalyzeResponse['gemini_analysis'],
         });
+      } else {
+        setSelfieAnalyzeResult(null);
       }
 
-      if (row.ai_analysis && typeof row.ai_analysis === 'object') {
-        const a = row.ai_analysis as Record<string, unknown>;
+      let aiRaw: unknown = row.ai_analysis;
+      if (typeof aiRaw === 'string') {
+        try {
+          aiRaw = JSON.parse(aiRaw) as unknown;
+        } catch {
+          aiRaw = null;
+        }
+      }
+      if (aiRaw && typeof aiRaw === 'object' && !Array.isArray(aiRaw)) {
+        const a = aiRaw as Record<string, unknown>;
         const parsed = parseAiAnalysisApiPayload({
           success: true,
           ko: a.ko,
@@ -530,6 +581,9 @@ export const SkinTest: React.FC = () => {
           en: a.en,
         });
         if (parsed) setAiAnalysisText(parsed);
+        else setAiAnalysisText(null);
+      } else {
+        setAiAnalysisText(null);
       }
 
       persistedSkinLoadKeyRef.current = loadKey;
@@ -542,7 +596,7 @@ export const SkinTest: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [stage, result?.type, resultSyncNonce, userId]);
+  }, [stage, result?.type, resultSyncNonce, userId, resultRowIdQueryParam, resultRowIdFromQueryOk]);
 
   /** 쿠폰 0이 되면 열린 셀카 패널 닫기 */
   useEffect(() => {
@@ -785,6 +839,7 @@ export const SkinTest: React.FC = () => {
                 .filter((v): v is string => !!v && String(v).trim().length > 0)
                 .join(', ')
             : '';
+        const concernMetricFocus = buildConcernMetricFocusForApi(profileData.concern, concernText || '');
         const res = await fetch(`${skinApiBase}/analyze-text`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -796,6 +851,7 @@ export const SkinTest: React.FC = () => {
             baumann_scores: result.scores,
             ...(recName ? { recommended_product_name: recName } : {}),
             ...(compHint ? { composition_product_types: compHint } : {}),
+            ...(concernMetricFocus ? { concern_metric_focus: concernMetricFocus } : {}),
           }),
         });
         const payload = await res.json() as { success?: boolean; ko?: unknown; ru?: unknown; en?: unknown };
@@ -831,6 +887,8 @@ export const SkinTest: React.FC = () => {
     result?.type,
     skinTypeQueryParam,
     userId,
+    concernText,
+    profileData.concern,
     recommendedProductPreview?.status,
     recommendedProductPreview?.name,
     recommendedProductPreview?.composition,
@@ -946,6 +1004,11 @@ export const SkinTest: React.FC = () => {
       if (userId) {
         if (supabase) {
           pendingSkinTestResultRowIdRef.current = null;
+          try {
+            sessionStorage.removeItem(SKIN_RESULT_ROW_STORAGE);
+          } catch {
+            /* ignore */
+          }
           const baumann_scores = {
             '1': scores[1],
             '2': scores[2],
@@ -973,6 +1036,18 @@ export const SkinTest: React.FC = () => {
                   sessionStorage.setItem(SKIN_RESULT_ROW_STORAGE, data.id);
                 } catch {
                   /* ignore */
+                }
+                const queued = pendingSelfiePersistRef.current;
+                if (queued) {
+                  pendingSelfiePersistRef.current = null;
+                  void supabase
+                    .from('skin_test_results')
+                    .update({ selfie_analysis: queued })
+                    .eq('id', data.id)
+                    .eq('user_id', userId)
+                    .then(({ error: upErr }) => {
+                      if (upErr) console.error('[SkinTest] queued selfie_analysis flush:', upErr);
+                    });
                 }
                 setResultSyncNonce((n) => n + 1);
               }
@@ -1077,13 +1152,44 @@ export const SkinTest: React.FC = () => {
         skin_metrics: payload.skin_metrics ?? {},
         gemini_analysis: payload.gemini_analysis ?? null,
       };
-      const rowIdSelfie = pendingSkinTestResultRowIdRef.current;
+
+      const resolveRowIdForSelfie = async (): Promise<string | null> => {
+        if (pendingSkinTestResultRowIdRef.current) return pendingSkinTestResultRowIdRef.current;
+        try {
+          const sid = sessionStorage.getItem(SKIN_RESULT_ROW_STORAGE);
+          if (sid && SKIN_TEST_RESULT_ROW_UUID_RE.test(sid)) {
+            pendingSkinTestResultRowIdRef.current = sid;
+            return sid;
+          }
+        } catch {
+          /* ignore */
+        }
+        for (let i = 0; i < 50; i++) {
+          await new Promise((r) => setTimeout(r, 100));
+          if (pendingSkinTestResultRowIdRef.current) return pendingSkinTestResultRowIdRef.current;
+          try {
+            const sid = sessionStorage.getItem(SKIN_RESULT_ROW_STORAGE);
+            if (sid && SKIN_TEST_RESULT_ROW_UUID_RE.test(sid)) {
+              pendingSkinTestResultRowIdRef.current = sid;
+              return sid;
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+        return null;
+      };
+
+      const rowIdSelfie = await resolveRowIdForSelfie();
       if (supabase && userId && rowIdSelfie) {
-        void supabase
+        const { error: selfieUpErr } = await supabase
           .from('skin_test_results')
           .update({ selfie_analysis: selfiePersist })
           .eq('id', rowIdSelfie)
           .eq('user_id', userId);
+        if (selfieUpErr) console.error('[SkinTest] selfie_analysis update:', selfieUpErr);
+      } else if (supabase && userId) {
+        pendingSelfiePersistRef.current = selfiePersist;
       }
 
       /* 설문 문단을 셀피 수치·코멘트와 한 흐름으로 재생성 (실패 시 기존 aiAnalysisText 유지). ?type= 프로필 진입 후 셀피도 동일 */
@@ -1099,6 +1205,7 @@ export const SkinTest: React.FC = () => {
                 .filter((v): v is string => !!v && String(v).trim().length > 0)
                 .join(', ')
             : '';
+        const concernMetricFocusSelfie = buildConcernMetricFocusForApi(profileData.concern, concernText || '');
         const uniRes = await fetch(`${skinApiBase}/analyze-text-with-selfie`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1114,6 +1221,7 @@ export const SkinTest: React.FC = () => {
             gemini_selfie_ko: payload.gemini_analysis?.ko?.analysis ?? '',
             ...(recName ? { recommended_product_name: recName } : {}),
             ...(compHint ? { composition_product_types: compHint } : {}),
+            ...(concernMetricFocusSelfie ? { concern_metric_focus: concernMetricFocusSelfie } : {}),
           }),
         });
         const uni = (await uniRes.json()) as { success?: boolean; ko?: unknown; ru?: unknown; en?: unknown };
@@ -1580,19 +1688,20 @@ export const SkinTest: React.FC = () => {
             <h1 className="mt-4 text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
               {isEn ? `Your skin type: ${type}` : `Ваш тип кожи: ${type}`}
             </h1>
-            <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-              <p className="text-sm text-slate-500">
+            <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-x-6 sm:gap-y-2">
+              <p className="min-w-0 flex-1 text-sm text-slate-500">
                 {isEn ? englishTypeName(type) : info.name}
               </p>
-              <div className="flex flex-col items-end gap-1.5">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+              <div className="flex w-full min-w-0 flex-col items-stretch gap-1.5 sm:w-auto sm:shrink-0 sm:items-end sm:pl-2">
+                <p className="text-[9px] font-semibold uppercase tracking-widest text-slate-400 sm:text-right sm:text-[10px]">
                   {isEn ? 'Care focus' : 'Фокус ухода'}
                 </p>
-                <div className="flex flex-wrap justify-end gap-1.5">
+                {/* 한 줄 고정 — 좁은 화면은 가로 스크롤 */}
+                <div className="flex w-full flex-nowrap justify-start gap-1.5 overflow-x-auto pb-0.5 [-webkit-overflow-scrolling:touch] sm:w-auto sm:max-w-[min(100vw-2rem,42rem)] sm:justify-end">
                   {(Array.isArray(info.concerns) ? info.concerns : []).map((c) => (
                     <span
                       key={c}
-                      className="rounded-full border border-brand/30 bg-brand-soft/30 px-3 py-1 text-xs text-slate-700"
+                      className="shrink-0 whitespace-nowrap rounded-full border border-brand/30 bg-brand-soft/30 px-2 py-0.5 text-[10px] leading-snug text-slate-700 sm:px-2.5 sm:py-1 sm:text-[11px]"
                     >
                       {isEn ? englishConcernLabel(c) : c}
                     </span>
@@ -1602,7 +1711,13 @@ export const SkinTest: React.FC = () => {
             </div>
           </div>
 
-          <SkinResultMetricsCharts scores={scores} skinMetrics={selfieAnalyzeResult?.skin_metrics ?? null} isEn={isEn} />
+          <SkinResultMetricsCharts
+            scores={scores}
+            skinMetrics={selfieAnalyzeResult?.skin_metrics ?? null}
+            isEn={isEn}
+            concernProfileCode={profileData.concern}
+            concernFreeText={concernText}
+          />
 
           {/* 설명 — AI 텍스트 우선, 없으면 하드코딩 폴백 */}
           <div className="mt-5 py-3">

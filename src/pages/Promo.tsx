@@ -12,21 +12,57 @@ type PromoItem = {
   is_archived?: boolean | null;
 };
 
-/** ru-RU: день/месяц/год (цифры) */
-function formatPromoDateRu(iso: string | null | undefined): string | null {
+/** ru-RU: день.месяц.год */
+function formatPromoDateFullRu(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
   return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'numeric', year: 'numeric' });
 }
 
-/** Период: начало — конец (если одна дата — многоточие с той стороны) */
-function formatPromoPeriodRu(startAt: string | null | undefined, endAt: string | null | undefined): string {
-  const s = formatPromoDateRu(startAt ?? null);
-  const e = formatPromoDateRu(endAt ?? null);
-  if (s && e) return `${s} — ${e}`;
-  if (s && !e) return `${s} — …`;
-  if (!s && e) return `… — ${e}`;
+/** ru-RU: день.месяц (без года — для пары в одном году) */
+function formatPromoDateShortRu(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'numeric' });
+}
+
+function sameCalendarDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+/**
+ * Акция: начало и конец кратко (не только «до …»).
+ * — обе даты, один год: `12.03 — 30.06.2026`
+ * — разные годы: полные даты
+ * — только конец: `до 30.06.2026`
+ * — только начало: `с 12.03.2026`
+ */
+function formatPromoPeriodCompactRu(startAt: string | null | undefined, endAt: string | null | undefined): string {
+  const parse = (iso: string | null | undefined) => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
+  const ds = parse(startAt);
+  const de = parse(endAt);
+  if (!ds && !de) return 'Без срока';
+  if (!ds && de) return `до ${formatPromoDateFullRu(endAt)}`;
+  if (ds && !de) return `с ${formatPromoDateFullRu(startAt)}`;
+  if (ds && de) {
+    if (sameCalendarDay(ds, de)) return formatPromoDateFullRu(startAt) ?? '';
+    const sy = ds.getFullYear();
+    const ey = de.getFullYear();
+    if (sy === ey) {
+      const a = formatPromoDateShortRu(startAt);
+      const b = formatPromoDateFullRu(endAt);
+      if (a && b) return `${a} — ${b}`;
+    }
+    const fullS = formatPromoDateFullRu(startAt);
+    const fullE = formatPromoDateFullRu(endAt);
+    if (fullS && fullE) return `${fullS} — ${fullE}`;
+  }
   return 'Без срока';
 }
 
@@ -40,7 +76,7 @@ function PromoCard({
   /** 아카이브 탭: 살짝 톤 다운 */
   archiveTab?: boolean;
 }) {
-  const periodLine = formatPromoPeriodRu(p.start_at, p.end_at);
+  const periodLine = formatPromoPeriodCompactRu(p.start_at, p.end_at);
   return (
     <article className={`flex flex-col ${archiveTab ? 'opacity-90' : ''} ${className}`}>
       <h2 className="mb-1 px-1 pt-1 text-center text-sm font-semibold text-slate-900 sm:text-base">{p.title}</h2>
@@ -94,7 +130,7 @@ export const Promo: React.FC = () => {
       if (full.error) console.warn('[Promo]', full.error.message);
       const min = await supabase
         .from('promos')
-        .select('id, title, image_url, end_at, sort_order')
+        .select('id, title, image_url, start_at, end_at, sort_order')
         .order('sort_order', { ascending: true });
       if (cancelled) return;
       setPromos(

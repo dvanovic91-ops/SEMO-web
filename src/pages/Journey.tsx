@@ -137,16 +137,16 @@ export const Journey: React.FC = () => {
         })}
       </section>
 
-      <div className="mt-20 flex flex-col items-center justify-center gap-3 pb-12 sm:flex-row sm:gap-4">
+      <div className="mx-auto mt-20 flex w-full max-w-xl flex-col gap-3 pb-12 sm:flex-row sm:gap-4">
         <Link
           to="/skin-test"
-          className="w-full rounded-full bg-brand px-8 py-3 text-center text-sm font-semibold text-white transition hover:bg-brand/90 sm:w-auto"
+          className="inline-flex min-h-[3rem] flex-1 items-center justify-center rounded-full bg-brand px-4 py-3 text-center text-sm font-semibold text-white transition hover:bg-brand/90 sm:min-w-0 sm:px-6"
         >
           {isEn ? 'Take skin test' : 'Пройти тест кожи'}
         </Link>
         <Link
           to="/shop"
-          className="w-full rounded-full border border-slate-200 bg-white px-8 py-3 text-center text-sm font-semibold text-slate-800 transition hover:border-brand hover:text-brand sm:w-auto"
+          className="inline-flex min-h-[3rem] flex-1 items-center justify-center rounded-full border border-slate-200 bg-white px-4 py-3 text-center text-sm font-semibold text-slate-800 transition hover:border-brand hover:text-brand sm:min-w-0 sm:px-6"
         >
           {isEn ? 'Go to catalog' : 'В каталог'}
         </Link>

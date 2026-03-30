@@ -116,7 +116,7 @@ export const Profile: React.FC = () => {
   const [verifyEmailError, setVerifyEmailError] = useState<string | null>(null);
   const [telegramLinkLoading, setTelegramLinkLoading] = useState(false);
   const [telegramLinkError, setTelegramLinkError] = useState<string | null>(null);
-  /** 헤더 배지: 사용 가능 쿠폰 수만 (목록은 /profile/coupons) */
+  /** 헤더 배지: 사용 가능 멤버십 쿠폰 + 셀피 분석 프로젝트 수 (목록은 /profile/coupons) */
   const [activeCouponCount, setActiveCouponCount] = useState<number | null>(null);
   const [couponCountLoading, setCouponCountLoading] = useState(false);
   const prevTelegramIdRef = useRef<string | null | undefined>(undefined);
@@ -284,16 +284,24 @@ export const Profile: React.FC = () => {
     }
     const requestedUserId = userId;
     setCouponCountLoading(true);
-    supabase
-      .from('membership_coupons')
-      .select('expires_at, used_at')
-      .eq('user_id', requestedUserId)
-      .then(({ data }) => {
+    Promise.all([
+      supabase
+        .from('membership_coupons')
+        .select('expires_at, used_at')
+        .eq('user_id', requestedUserId),
+      supabase.from('selfie_coupon_balances').select('balance').eq('user_id', requestedUserId).maybeSingle(),
+    ])
+      .then(([mRes, sRes]) => {
         if (currentUserIdRef.current !== requestedUserId) return;
         const now = Date.now();
-        const rows = (data ?? []) as { expires_at: string; used_at: string | null }[];
+        const rows = (mRes.data ?? []) as { expires_at: string; used_at: string | null }[];
         const n = rows.filter((c) => !c.used_at && new Date(c.expires_at).getTime() >= now).length;
-        setActiveCouponCount(n);
+        let selfie = 0;
+        if (!sRes.error && sRes.data != null) {
+          const raw = (sRes.data as { balance?: number | null }).balance;
+          if (typeof raw === 'number' && !Number.isNaN(raw)) selfie = Math.max(0, raw);
+        }
+        setActiveCouponCount(n + selfie);
       })
       .catch(() => {
         if (currentUserIdRef.current !== requestedUserId) return;
@@ -854,9 +862,9 @@ export const Profile: React.FC = () => {
         </div>
       )}
 
-      {/* 그래픽/아이콘 메뉴: 컴팩트 카드, xl에서 4열로 넓은 화면에서 가로 여유 */}
+      {/* 그래픽/아이콘 메뉴: 컴팩트 카드, xl에서 5열(카탈로그 /shop 포함) */}
       <nav
-        className="mt-5 grid grid-cols-2 gap-2 sm:mt-8 sm:gap-3 xl:grid-cols-4 xl:gap-3"
+        className="mt-5 grid grid-cols-2 gap-2 sm:mt-8 sm:gap-3 xl:grid-cols-5 xl:gap-3"
         aria-label="Profile menu"
       >
         <Link
@@ -888,6 +896,26 @@ export const Profile: React.FC = () => {
             <p className="prose-ru mt-0.5 text-center text-[10px] text-slate-500 sm:text-xs whitespace-nowrap">
               {lastSkinType ? (language === 'en' ? `Latest: ${lastSkinType}` : `Последний: ${lastSkinType}`) : tr('Последний: —', 'Latest: —')}
             </p>
+          </div>
+        </Link>
+
+        <Link
+          to="/shop"
+          className="flex min-h-0 min-w-0 flex-col items-center gap-2 rounded-2xl border border-slate-100 bg-white px-2 py-3 text-center shadow-sm transition hover:border-brand/40 hover:bg-brand-soft/10 sm:px-3.5 sm:py-3.5"
+          aria-label={tr('Каталог Beauty box', 'Beauty box catalog')}
+        >
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM13.5 3.75h2.25A2.25 2.25 0 0118 6v2.25a2.25 2.25 0 01-2.25 2.25h-2.25A2.25 2.25 0 0113.5 8.25V6a2.25 2.25 0 012.25-2.25zM3.75 15.75h2.25A2.25 2.25 0 0110.5 18v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V18a2.25 2.25 0 012.25-2.25zM13.5 15.75h2.25A2.25 2.25 0 0118 18v2.25a2.25 2.25 0 01-2.25 2.25h-2.25A2.25 2.25 0 0113.5 20.25V18a2.25 2.25 0 012.25-2.25z"
+              />
+            </svg>
+          </span>
+          <div className="min-w-0 px-0.5">
+            <p className="text-center text-sm font-semibold text-slate-800 sm:text-base whitespace-nowrap">{tr('Каталог', 'Catalog')}</p>
+            <p className="prose-ru mt-0.5 text-center text-[10px] text-slate-500 sm:text-xs whitespace-nowrap">{tr('Beauty box', 'Beauty box')}</p>
           </div>
         </Link>
 

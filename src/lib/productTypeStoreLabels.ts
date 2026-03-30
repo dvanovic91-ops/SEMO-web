@@ -3,7 +3,7 @@
  * 스토어는 언어별 표기만 바꿔 보여 줌(컬럼 추가 없음).
  */
 const BY_KO_KEY: Record<string, { ko: string; en: string; ru: string }> = {
-  세럼: { ko: '세럼', en: 'Serum', ru: '세럼' },
+  세럼: { ko: '세럼', en: 'Serum', ru: 'Серум' },
   크림: { ko: '크림', en: 'Cream', ru: 'Крем' },
   토너: { ko: '토너', en: 'Toner', ru: 'Тонер' },
   클렌저: { ko: '클렌저', en: 'Cleanser', ru: 'Очищающее средство' },

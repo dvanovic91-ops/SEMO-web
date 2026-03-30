@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
-import { supabase } from '../lib/supabase';
+import { supabase, SUPABASE_URL } from '../lib/supabase';
 import { getOrCreateVisitSessionId } from '../lib/clientSession';
 import { migrateLegacyProfileEditToSupabase } from '../lib/profileDeliveryDb';
 
@@ -90,6 +90,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUserEmailState(email);
       setUserId(email === TEST_ADMIN_EMAIL ? ADMIN_DUMMY_USER_ID : null);
     } else {
+      try {
+        sessionStorage.removeItem('semo_tg_mini_login_try');
+      } catch {
+        /* private mode */
+      }
       if (supabase) supabase.auth.signOut().catch(() => {});
       setUserEmailState(null);
       setUserId(null);
@@ -253,6 +258,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (session?.user) {
             void applySession(session);
             return;
+          }
+          /**
+           * Telegram Mini App: Google/Yandex OAuth는 WebView에서 차단됨(disallowed_useragent).
+           * initData → Edge `telegram-auth` → magiclink verify로 세션 생성 (연동 계정이면 해당 유저).
+           */
+          try {
+            const { isTelegramMiniApp, loginWithMiniApp } = await import('../lib/telegramAuth');
+            if (!cancelled && isTelegramMiniApp() && SUPABASE_URL) {
+              const onceKey = 'semo_tg_mini_login_try';
+              if (!sessionStorage.getItem(onceKey)) {
+                sessionStorage.setItem(onceKey, '1');
+                const mini = await loginWithMiniApp(supabase!, SUPABASE_URL);
+                if (mini.ok && !cancelled) {
+                  const { data: { session: afterTg } } = await supabase!.auth.getSession();
+                  if (afterTg?.user) {
+                    void applySession(afterTg);
+                    return;
+                  }
+                }
+                if (!mini.ok) {
+                  sessionStorage.removeItem(onceKey);
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('[Auth] Telegram Mini App login skipped:', e);
           }
           const { data: { session: refreshed } } = await supabase!.auth.refreshSession();
           void applySession(refreshed ?? null);

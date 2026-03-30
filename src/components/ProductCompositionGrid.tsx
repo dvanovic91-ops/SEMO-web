@@ -48,10 +48,10 @@ type Props = {
   parentProductId?: string;
 };
 
-/** 유형 라벨 — 썸네일 아래 (컴팩트 그리드용). 이미지–텍스트 간격 ≈ 기본 대비 +10% */
+/** 유형 라벨 — 썸네일 아래 (컴팩트 그리드용). 이미지–텍스트 간격은 썸네일 하단 ~ 라벨 상단 margin */
 function ProductTypeLabel({ label }: { label: string }) {
   return (
-    <span className="mt-[0.4125rem] block max-w-full text-center text-[0.7rem] font-medium leading-tight tracking-tight text-slate-500 line-clamp-2 sm:mt-[0.55rem] sm:text-[0.8125rem] md:mt-[0.4125rem] md:text-[0.75rem]">
+    <span className="mt-[0.825rem] block max-w-full text-center text-[0.7rem] font-medium leading-tight tracking-tight text-slate-500 line-clamp-2 sm:mt-[1.1rem] sm:text-[0.8125rem] md:mt-[0.825rem] md:text-[0.75rem]">
       {label}
     </span>
   );
@@ -110,7 +110,7 @@ export function ProductCompositionGrid({
                 {typeLabelRow ? (
                   <ProductTypeLabel label={typeLabelRow} />
                 ) : (
-                  <div className="mt-[0.4125rem] h-4 shrink-0 sm:mt-[0.55rem] md:h-3.5" />
+                  <div className="mt-[0.825rem] h-4 shrink-0 sm:mt-[1.1rem] md:h-3.5" />
                 )}
               </div>
             );
