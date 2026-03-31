@@ -11,6 +11,7 @@ import {
   accountStatusPillClass,
 } from '../lib/accountLinkUi';
 import { AuthInitializingScreen } from '../components/SemoPageSpinner';
+import { hasSelfieAnalysisSnapshot } from '../lib/skinTestSelfie';
 
 /** 관리자 2계정은 등급 라벨을 VIP로 고정 표시 */
 const VIP_ADMIN_EMAILS = ['dvanovic91@gmail.com', 'admin@semo-box.ru'];
@@ -111,6 +112,8 @@ export const Profile: React.FC = () => {
   /** 회원 등급: basic(일반) / premium(프리미엄) / family(가족) — 주문 누계 기준으로 계산 */
   const [membershipTier, setMembershipTier] = useState<'basic' | 'premium' | 'family'>(initialMembershipTier);
   const [lastSkinType, setLastSkinType] = useState<string | null>(null);
+  /** 저장된 결과 중 셀카 분석 없음(설문만) 건수 — Tests 타일 배지용 */
+  const [skinTestWithoutSelfieCount, setSkinTestWithoutSelfieCount] = useState(0);
   const [verifyEmailSending, setVerifyEmailSending] = useState(false);
   const [verifyEmailMessage, setVerifyEmailMessage] = useState<string | null>(null);
   const [verifyEmailError, setVerifyEmailError] = useState<string | null>(null);
@@ -218,28 +221,39 @@ export const Profile: React.FC = () => {
     void refreshProfile();
   }, [refreshProfile, userId]);
 
-  // 마지막 тип кожи (карточка «Тесты»: «Последний: …»)
+  // 마지막 тип кожи + 셀카 미완료 건수 (карточка «Тесты»)
   useEffect(() => {
     if (!supabase || !userId) {
       setLastSkinType(null);
+      setSkinTestWithoutSelfieCount(0);
       return;
     }
     supabase
       .from('skin_test_results')
-      .select('skin_type, completed_at')
+      .select('skin_type, completed_at, selfie_analysis')
       .eq('user_id', userId)
       .then(({ data }) => {
         if (data && data.length > 0) {
-          const sorted = (data as { skin_type: string | null; completed_at: string }[])
+          const sorted = (
+            data as {
+              skin_type: string | null;
+              completed_at: string;
+              selfie_analysis?: unknown;
+            }[]
+          )
             .slice()
             .sort((a, b) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime());
           setLastSkinType(sorted[0].skin_type ?? null);
+          const n = sorted.filter((r) => !hasSelfieAnalysisSnapshot(r.selfie_analysis)).length;
+          setSkinTestWithoutSelfieCount(n);
         } else {
           setLastSkinType(null);
+          setSkinTestWithoutSelfieCount(0);
         }
       })
       .catch(() => {
         setLastSkinType(null);
+        setSkinTestWithoutSelfieCount(0);
       });
   }, [userId]);
 
@@ -884,8 +898,21 @@ export const Profile: React.FC = () => {
 
         <Link
           to="/profile/test-results"
-          className="flex min-h-0 min-w-0 flex-col items-center gap-2 rounded-2xl border border-slate-100 bg-white px-2 py-3 text-center shadow-sm transition hover:border-brand/40 hover:bg-brand-soft/10 sm:px-3.5 sm:py-3.5"
+          className="relative flex min-h-0 min-w-0 flex-col items-center gap-2 rounded-2xl border border-slate-100 bg-white px-2 py-3 text-center shadow-sm transition hover:border-brand/40 hover:bg-brand-soft/10 sm:px-3.5 sm:py-3.5"
+          aria-label={
+            skinTestWithoutSelfieCount > 0
+              ? `${tr('Тесты', 'Tests')}, ${tr('добавьте селфи к результату', 'add selfie to a saved result')}: ${skinTestWithoutSelfieCount}`
+              : tr('Тесты', 'Tests')
+          }
         >
+          {skinTestWithoutSelfieCount > 0 && (
+            <span
+              className="absolute right-2 top-2 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold leading-none text-white shadow-sm ring-2 ring-white"
+              aria-hidden
+            >
+              {skinTestWithoutSelfieCount > 9 ? '9+' : skinTestWithoutSelfieCount}
+            </span>
+          )}
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">
             <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />

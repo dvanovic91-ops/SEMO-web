@@ -12,6 +12,7 @@ import {
 } from 'recharts';
 import { useAuth } from '../../context/AuthContext';
 import { InventoryTab } from './InventoryTab';
+import ProductPlanningTab from './ProductPlanningTab';
 /** 대시보드 매출 기간: 일/주/월/기간 */
 type DashboardPeriodType = 'day' | 'week' | 'month' | 'range';
 import { deleteMappingForTypes, fetchMapping, saveMapping } from '../../lib/skinTypeSlotMapping';
@@ -478,11 +479,12 @@ const emptySlot = (index: number): Slot => ({
 /** 개발자 계정 이메일 — RLS 안내 문구에 사용 */
 const DEVELOPER_EMAILS = ['dvanovic91@gmail.com'];
 
-const ADMIN_TABS: { key: 'dashboard' | 'products' | 'skinMatch' | 'promo' | 'promoCodes' | 'broadcast' | 'orders' | 'activityLogs' | 'cartAbandonment' | 'reviewManagement' | 'members' | 'heroImage' | 'inventory'; label: string }[] = [
+const ADMIN_TABS: { key: 'dashboard' | 'products' | 'skinMatch' | 'promo' | 'promoCodes' | 'broadcast' | 'orders' | 'activityLogs' | 'cartAbandonment' | 'reviewManagement' | 'members' | 'heroImage' | 'inventory' | 'productPlanning'; label: string }[] = [
   { key: 'dashboard', label: '대시보드' },
   { key: 'heroImage', label: '히어로 이미지' },
   { key: 'products', label: '상품관리' },
   { key: 'inventory', label: '상품 & 재고 관리' },
+  { key: 'productPlanning', label: '제품 비교 및 기획' },
   { key: 'skinMatch', label: '테스트 매칭' },
   { key: 'promo', label: '프로모' },
   { key: 'promoCodes', label: '프로모코드' },
@@ -499,6 +501,7 @@ const ADMIN_TAB_ICON: Record<(typeof ADMIN_TABS)[number]['key'], string> = {
   dashboard: '📊',
   products: '📦',
   inventory: '📋',
+  productPlanning: '🧭',
   skinMatch: '🧪',
   promo: '🎁',
   promoCodes: '🎟️',
@@ -515,7 +518,7 @@ export const Admin: React.FC = () => {
   const { isLoggedIn, initialized, isAdmin, canGrantPermission, canGrantAdminRole, userEmail } = useAuth();
   const canBroadcast = isAdmin;
   const [tab, setTab] = useState<
-    'dashboard' | 'products' | 'skinMatch' | 'promo' | 'promoCodes' | 'broadcast' | 'orders' | 'activityLogs' | 'cartAbandonment' | 'reviewManagement' | 'members' | 'heroImage' | 'inventory'
+    'dashboard' | 'products' | 'skinMatch' | 'promo' | 'promoCodes' | 'broadcast' | 'orders' | 'activityLogs' | 'cartAbandonment' | 'reviewManagement' | 'members' | 'heroImage' | 'inventory' | 'productPlanning'
   >('dashboard');
   /** 모바일: 햄버거로 열리는 탭 메뉴 */
   const [adminMobileMenuOpen, setAdminMobileMenuOpen] = useState(false);
@@ -3958,6 +3961,7 @@ export const Admin: React.FC = () => {
 
       {/* ── 상품 & 재고 관리 탭 ── */}
       {tab === 'inventory' && <InventoryTab />}
+      {tab === 'productPlanning' && <ProductPlanningTab />}
 
       {tab === 'products' && (
         <section className="mt-4 space-y-4">
@@ -4915,16 +4919,19 @@ export const Admin: React.FC = () => {
                                 </option>
                               ))}
                             </select>
-                            {/* 커스터마이징 제품 체크박스 */}
-                            <label className="flex shrink-0 cursor-pointer items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[10px] text-slate-600 hover:border-orange-300 hover:bg-orange-50">
+                            {/* 체크=커스터마이징 제품 (테스트 결과 추천/근거 참조 대상) */}
+                            <label
+                              className="flex shrink-0 cursor-pointer items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[10px] text-slate-600 hover:border-orange-300 hover:bg-orange-50"
+                              title="체크하면 커스터마이징 제품으로 저장됩니다."
+                            >
                               <input
                                 type="checkbox"
                                 checked={comp.is_customized ?? false}
                                 onChange={(e) => handleComponentChange(idx, { is_customized: e.target.checked })}
                                 className="accent-orange-500"
                               />
-                              <span className={comp.is_customized ? 'font-semibold text-orange-600' : ''}>
-                                {comp.is_customized ? '✦ 맞춤' : '공용'}
+                              <span className={comp.is_customized ? 'font-semibold text-orange-600' : 'text-slate-500'}>
+                                {comp.is_customized ? '✦ 커스터마이징' : '커스터마이징'}
                               </span>
                             </label>
                             <div className="flex shrink-0 gap-1">

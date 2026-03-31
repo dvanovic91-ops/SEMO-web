@@ -31,6 +31,10 @@ export type ProductCompositionItem = {
   marketing_claim_ru?: string | null;
   /** sku_items.product_type — 썸네일 위 소형 유형 라벨 */
   product_type?: string | null;
+  /** 관리자 구성에서 커스터마이징 여부 (AI 프롬프트 컨텍스트용) */
+  is_customized?: boolean;
+  /** 핵심 성분 요약 (AI 프롬프트 컨텍스트용) */
+  key_ingredients?: string | null;
 };
 
 function getComponentImageUrls(comp: ProductCompositionItem): string[] {

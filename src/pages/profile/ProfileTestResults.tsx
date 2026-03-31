@@ -67,6 +67,11 @@ export const ProfileTestResults: React.FC = () => {
   const viewLink = isEn ? 'View test result' : 'Результат теста';
   const badgeSurveyOnly = isEn ? 'Survey only' : 'Только опросник';
   const badgeSurveySelfie = isEn ? 'Survey + selfie' : 'Опросник + селфи';
+  const selfiePendingHint = isEn ? 'Add a selfie to complete this result' : 'Добавьте селфи к этому результату';
+  /** 배지 호버 툴팁 — 한 줄 안내 */
+  const selfiePendingTooltip = isEn
+    ? 'Open this result and add a selfie to finish the analysis.'
+    : 'Откройте результат и добавьте селфи — так анализ будет полным.';
 
   return (
     <main className="mx-auto max-w-xl px-4 py-6 sm:px-6 sm:py-10 md:py-14">
@@ -97,8 +102,20 @@ export const ProfileTestResults: React.FC = () => {
               <li key={r.id}>
                 <Link
                   to={resultHref}
-                  className="flex items-center justify-between rounded-xl border border-slate-100 bg-white px-4 py-4 transition hover:border-brand/30 hover:bg-brand-soft/10"
+                  title={!hasSelfie ? selfiePendingHint : undefined}
+                  aria-label={!hasSelfie ? `${r.skin_type ?? '—'}, ${selfiePendingHint}` : undefined}
+                  className={`relative flex items-center justify-between overflow-visible rounded-xl border border-slate-100 bg-white px-4 py-4 transition hover:border-brand/30 hover:bg-brand-soft/10 ${!hasSelfie ? 'pr-12' : ''}`}
                 >
+                  {!hasSelfie ? (
+                    <span className="group/badge absolute right-3 top-3 z-20 inline-flex" aria-hidden>
+                      <span className="pointer-events-none absolute bottom-[calc(100%+6px)] right-0 z-30 w-max max-w-[min(240px,calc(100vw-2.5rem))] rounded-lg bg-slate-800 px-2.5 py-1.5 text-left text-[11px] font-medium leading-snug text-white shadow-lg ring-1 ring-white/10 opacity-0 transition-opacity duration-200 group-hover/badge:opacity-100">
+                        {selfiePendingTooltip}
+                      </span>
+                      <span className="inline-flex h-[18px] min-w-[18px] cursor-help items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold leading-none text-white shadow-sm ring-2 ring-white">
+                        1
+                      </span>
+                    </span>
+                  ) : null}
                   <div className="min-w-0 flex-1">
                     <p className="font-medium text-slate-800">{r.skin_type ?? '—'}</p>
                     <p className="text-xs text-slate-500">{formatDate(r.completed_at)}</p>

@@ -381,7 +381,7 @@ export const BoxComponentDetail: React.FC = () => {
       <p className="mb-8">
         <Link
           to={`/product/${productId ?? ''}`}
-          className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition hover:text-brand"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"
         >
           <BackArrow />{' '}
           {productName ? (isEn ? `Back to «${productName}»` : `«${productName}»`) : tr('Back to set', 'К набору')}
@@ -474,7 +474,7 @@ export const BoxComponentDetail: React.FC = () => {
                 </section>
                 <section className="rounded-xl bg-slate-50/90 px-4 py-4 ring-1 ring-slate-100">
                   <h3 className={SECTION_KICKER}>{tr('Shelf life', 'Срок годности')}</h3>
-                  <p className="mt-2 text-sm leading-relaxed text-slate-600">{shelfLifeLine}</p>
+                  <p className="mt-2 text-sm font-medium leading-relaxed text-slate-700">{shelfLifeLine}</p>
                 </section>
                 <section className="rounded-xl bg-slate-50/90 px-4 py-4 ring-1 ring-slate-100">
                   <h3 className={SECTION_KICKER}>{tr('Product', 'Продукт')}</h3>
@@ -482,13 +482,13 @@ export const BoxComponentDetail: React.FC = () => {
                     {sku.brand?.trim() ? (
                       <div className="grid gap-0.5 sm:grid-cols-[minmax(0,6.5rem)_1fr] sm:items-baseline sm:gap-x-5">
                         <dt className="text-[11px] font-medium text-slate-400">{tr('Brand', 'Бренд')}</dt>
-                        <dd className="text-sm font-medium text-slate-800">{sku.brand.trim()}</dd>
+                        <dd className="text-sm font-medium text-slate-700">{sku.brand.trim()}</dd>
                       </div>
                     ) : null}
                     {sku.product_type?.trim() ? (
                       <div className="grid gap-0.5 sm:grid-cols-[minmax(0,6.5rem)_1fr] sm:items-baseline sm:gap-x-5">
                         <dt className="text-[11px] font-medium text-slate-400">{tr('Type', 'Тип')}</dt>
-                        <dd className="text-sm font-medium text-slate-800">
+                        <dd className="text-sm font-medium text-slate-700">
                           {formatProductTypeForLanguage(sku.product_type, language)}
                         </dd>
                       </div>
@@ -496,14 +496,14 @@ export const BoxComponentDetail: React.FC = () => {
                     {sku.name_en?.trim() ? (
                       <div className="grid gap-0.5 sm:grid-cols-[minmax(0,6.5rem)_1fr] sm:items-baseline sm:gap-x-5">
                         <dt className="text-[11px] font-medium text-slate-400">{tr('Name (EN)', 'Название (EN)')}</dt>
-                        <dd className="text-sm font-medium text-slate-800">{sku.name_en.trim()}</dd>
+                        <dd className="text-sm font-medium text-slate-700">{sku.name_en.trim()}</dd>
                       </div>
                     ) : null}
                     <div className="grid gap-0.5 sm:grid-cols-[minmax(0,6.5rem)_1fr] sm:items-baseline sm:gap-x-5">
                       <dt className="text-[11px] font-medium text-slate-400">
                         {tr('Place of origin', 'Страна производства')}
                       </dt>
-                      <dd className="text-sm font-medium text-slate-800">
+                      <dd className="text-sm font-medium text-slate-700">
                         {sku.country_of_origin?.trim()
                           ? sku.country_of_origin.trim()
                           : tr('Made in Korea', 'Сделано в Корее')}

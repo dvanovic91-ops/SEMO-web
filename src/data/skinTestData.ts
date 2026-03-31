@@ -69,21 +69,10 @@ export const SCORE_MAP: Record<string, number> = {
   ans_n2: -2,
 };
 
-/** 프로필 단계별 선택지 (나이, 성별, 도시, 고민, 루틴, 유입경로) */
+/** 프로필 단계별 선택지 (나이, 성별, 루틴, 유입경로) */
 export const PROFILE_STEPS = [
   { key: 'age', label: 'Ваш возраст?', options: [['До 20 лет', 'age_1'], ['20–25', 'age_2'], ['26–30', 'age_3'], ['31–35', 'age_4'], ['36–40', 'age_5'], ['41–45', 'age_6'], ['45+', 'age_7']] as OptionItem[] },
   { key: 'gender', label: 'Ваш пол?', options: [['Женский', 'gen_f'], ['Мужской', 'gen_m']] as OptionItem[] },
-  {
-    key: 'concern',
-    label: 'Главная проблема с кожей?',
-    options: [
-      ['Акне и высыпания', 'con_1'],
-      ['Сухость и шелушение', 'con_2'],
-      ['Пигментация и неровный тон', 'con_3'],
-      ['Возрастные изменения', 'con_4'],
-      ['Избыточный блеск', 'con_5'],
-    ] as OptionItem[],
-  },
   {
     key: 'routine',
     label: 'Как бы вы описали свой уход за кожей?',

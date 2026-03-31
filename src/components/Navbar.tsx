@@ -6,7 +6,6 @@ import { useProductNavReplacement } from '../context/ProductNavReplacementContex
 import { supabase } from '../lib/supabase';
 import { useCart } from '../context/CartContext';
 import { useNotifications, type NotificationRow } from '../hooks/useNotifications';
-import { useSkinReminderBadge } from '../hooks/useSkinReminderBadge';
 import { notificationKindBadgeRu, resolveNotificationHref } from '../lib/notificationNavigation';
 import { SEMO_BOX_SUBMENU, isSemoBoxSubmenuPath } from '../lib/semoBoxSubmenu';
 import { formatCurrencyAmount } from '../lib/market';
@@ -82,7 +81,6 @@ export const Navbar: React.FC = () => {
   const navigationType = useNavigationType();
   const { items, total, totalCount, updateQuantity } = useCart();
   const { isLoggedIn, userId } = useAuth();
-  const { count: skinReminderCount } = useSkinReminderBadge(userId, 'monthly');
   const { language, currency, country, setLanguage, setCurrency } = useI18n();
   /** true: аккаунт привязан к Telegram — иконка в шапке #26A5E4; иначе тёмная */
   const [telegramLinkedNav, setTelegramLinkedNav] = useState<boolean | null>(null);
@@ -896,11 +894,6 @@ export const Navbar: React.FC = () => {
                     : 'border-slate-200/90 text-slate-700'
               }`}
             >
-              {isLoggedIn && skinReminderCount > 0 && (
-                <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-semibold leading-none text-white">
-                  {skinReminderCount > 9 ? '9+' : skinReminderCount}
-                </span>
-              )}
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.6">
                 <circle cx="12" cy="9" r="3.5" />
                 <path d="M6 19.5c1.4-2.3 3.3-3.5 6-3.5s4.6 1.2 6 3.5" />
