@@ -85,12 +85,12 @@ function CenterAxisRow({
 
   const leftActive = positiveOn === 'left' ? c > 0 : c < 0;
   const rightActive = positiveOn === 'left' ? c < 0 : c > 0;
-  const poleClass = (active: boolean) =>
-    active
-      ? barColor === 'photo'
-        ? 'font-bold text-sky-600'
-        : 'font-bold text-brand'
-      : 'font-medium text-slate-500';
+  const poleClass = (active: boolean) => {
+    if (barColor === 'photo') {
+      return active ? 'font-semibold text-sky-500' : 'font-normal text-slate-400';
+    }
+    return active ? 'font-bold text-brand' : 'font-medium text-slate-500';
+  };
 
   const barBg = barColor === 'photo' ? 'bg-sky-500' : 'bg-brand';
   const segCommon = `absolute top-0 z-[1] h-full ${barBg} shadow-sm transition-[width,left] duration-300 ease-out`;
@@ -120,16 +120,16 @@ function CenterAxisRow({
     <div className={`mb-4 last:mb-0 ${ring}`}>
       {metricTitle ? (
         <p className="mb-1 flex items-center text-[10px] font-medium uppercase tracking-wide text-slate-500">
-          <SourceBadge source={barColor} isEn={isEn} />
+          {barColor === 'brand' ? <SourceBadge source={barColor} isEn={isEn} /> : null}
           {metricTitle}
         </p>
       ) : null}
       {note ? (
         <p className="mb-1.5 text-[9px] leading-snug text-slate-400">{note}</p>
       ) : null}
-      <div className="mb-1.5 flex items-baseline justify-between gap-2 text-[11px] leading-tight sm:text-xs">
-        <span className={`min-w-0 flex-1 text-left ${poleClass(leftActive)}`}>{poles.left}</span>
-        <span className={`min-w-0 flex-1 text-right ${poleClass(rightActive)}`}>{poles.right}</span>
+      <div className="mb-1.5 flex items-baseline justify-between gap-2 leading-tight">
+        <span className={`min-w-0 flex-1 text-left ${barColor === 'photo' ? 'text-[9px]' : 'text-[11px] sm:text-xs'} ${poleClass(leftActive)}`}>{poles.left}</span>
+        <span className={`min-w-0 flex-1 text-right ${barColor === 'photo' ? 'text-[9px]' : 'text-[11px] sm:text-xs'} ${poleClass(rightActive)}`}>{poles.right}</span>
       </div>
       <div className="relative h-4 w-full overflow-hidden rounded-full ring-1 ring-slate-200/90">
         <div className="pointer-events-none absolute inset-0 flex">
