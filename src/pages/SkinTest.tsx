@@ -1733,20 +1733,23 @@ export const SkinTest: React.FC = () => {
             ageCode={profileData.age ?? undefined}
           />
 
-          <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/90 px-3 py-3 sm:px-4 sm:py-4">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-              {isEn ? 'Your snapshot in plain words' : 'Кратко о текущем профиле'}
-            </p>
-            <p className="mt-2 text-sm leading-relaxed text-slate-700">{stateSummaryParagraph}</p>
-            <p className="mt-2 text-[11px] leading-snug text-slate-500">
-              {isEn
-                ? 'This is a lifestyle-oriented summary from your answers and optional photo signals—not a medical diagnosis.'
-                : 'Это бытовое резюме по ответам и (если есть) фото, а не медицинский диагноз.'}
-            </p>
-          </div>
+          {/* AI 텍스트 없을 때만 "Кратко" 박스 표시 */}
+          {aiDisplaySections.length === 0 && !aiAnalysisLoading && !postSelfieUnifiedLoading && (
+            <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/90 px-3 py-3 sm:px-4 sm:py-4">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                {isEn ? 'Your snapshot in plain words' : 'Кратко о текущем профиле'}
+              </p>
+              <p className="mt-2 text-sm leading-relaxed text-slate-700">{stateSummaryParagraph}</p>
+              <p className="mt-2 text-[11px] leading-snug text-slate-500">
+                {isEn
+                  ? 'This is a lifestyle-oriented summary from your answers and optional photo signals—not a medical diagnosis.'
+                  : 'Это бытовое резюме по ответам и (если есть) фото, а не медицинский диагноз.'}
+              </p>
+            </div>
+          )}
 
-          {/* 설명 — AI 텍스트 우선, 없으면 하드코딩 폴백 */}
-          <div className="mt-5 py-3">
+          {/* AI 분석 섹션 */}
+          <div className="mt-5">
             {postSelfieUnifiedLoading ? (
               <p className="animate-pulse text-sm text-slate-400">
                 {isEn
@@ -1758,32 +1761,48 @@ export const SkinTest: React.FC = () => {
                 {isEn ? 'Generating personalised analysis…' : 'Генерируем персональный анализ…'}
               </p>
             ) : aiAnalysisText && aiDisplaySections.length > 0 ? (
-              <div className="space-y-5">
-                {aiDisplaySections.map((sec, idx) => (
-                  <section
-                    key={`ai-sec-${idx}-${String(sec.title ?? '').slice(0, 12)}`}
-                    className="border-b border-slate-100 pb-4 last:border-b-0 last:pb-0"
-                  >
-                    {sec.title ? (
-                      <h3 className="text-sm font-semibold tracking-wide text-brand">{sec.title}</h3>
-                    ) : null}
-                    <p
-                      className={`text-sm leading-relaxed text-slate-700 sm:text-base ${sec.title ? 'mt-2' : ''}`}
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_2px_12px_-6px_rgba(15,23,42,0.10)]">
+                {aiDisplaySections.map((sec, idx) => {
+                  const isLast = idx === aiDisplaySections.length - 1;
+                  return (
+                    <section
+                      key={`ai-sec-${idx}-${String(sec.title ?? '').slice(0, 12)}`}
+                      className={`px-4 py-5 sm:px-6 sm:py-6 ${!isLast ? 'border-b border-slate-100' : ''}`}
                     >
-                      {sec.body}
-                    </p>
-                  </section>
-                ))}
+                      {sec.title ? (
+                        <p className="mb-2.5 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-widest text-brand">
+                          <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand/10 text-[9px] font-bold text-brand">
+                            {idx + 1}
+                          </span>
+                          {sec.title}
+                        </p>
+                      ) : null}
+                      <p className="text-sm leading-relaxed text-slate-700 sm:text-[15px]">
+                        {sec.body}
+                      </p>
+                      {/* 마지막 섹션 아래 제품 연결 화살표 */}
+                      {isLast && (recommendedProductPreview?.status === 'ok') && (
+                        <div className="mt-4 flex items-center gap-2 border-t border-slate-100 pt-4">
+                          <span className="text-[11px] font-medium text-slate-400">
+                            {isEn ? 'Your SEMO pick for this routine ↓' : 'Ваш персональный выбор SEMO для этого ухода ↓'}
+                          </span>
+                        </div>
+                      )}
+                    </section>
+                  );
+                })}
               </div>
             ) : (
-              <p className="text-sm leading-relaxed text-slate-700 sm:text-base">
-                {isEn ? englishResultDesc(type) : stripSkinDescTrailingEmojiRu(info.desc)}
-              </p>
+              <>
+                <p className="text-sm leading-relaxed text-slate-700 sm:text-base">
+                  {isEn ? englishResultDesc(type) : stripSkinDescTrailingEmojiRu(info.desc)}
+                </p>
+                {/* 케어 주의사항 — 폴백 시에만 표시 */}
+                <p className="mt-3 text-sm leading-relaxed text-slate-500">
+                  {skinCareNote(type, scores, isEn)}
+                </p>
+              </>
             )}
-            {/* 케어 주의사항 */}
-            <p className="mt-3 text-sm leading-relaxed text-slate-500">
-              {skinCareNote(type, scores, isEn)}
-            </p>
           </div>
 
           {/* ── 셀카: 쿠폰 1장 이상일 때만 노출 (잔여 0이면 안내만) ── */}
@@ -2019,9 +2038,8 @@ export const SkinTest: React.FC = () => {
             </div>
           )}
 
-          {/* Персональный выбор SEMO — 설명 직후, 설명과 간격 절반 수준(mt-4) */}
-          {/* 모바일에서 구성 설명 폭 확보: 안쪽 여백 축소 */}
-          <div className="mt-4 rounded-xl border border-brand/20 bg-brand-soft/25 px-3 py-4 sm:px-5 sm:py-5 md:px-6 md:py-6">
+          {/* Персональный выбор SEMO */}
+          <div className="mt-3 rounded-xl border border-brand/20 bg-brand-soft/25 px-3 py-4 sm:px-5 sm:py-5 md:px-6 md:py-6">
             <p className="text-sm font-medium tracking-wide text-brand">
               {recommendedProductPreview?.status === 'ok' && recommendedProductPreview.name?.trim()
                 ? (isEn ? `SEMO personal pick: ${recommendedProductPreview.name.trim()}` : `Персональный выбор SEMO : ${recommendedProductPreview.name.trim()}`)
