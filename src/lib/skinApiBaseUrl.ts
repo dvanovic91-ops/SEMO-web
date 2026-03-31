@@ -12,3 +12,9 @@ export function getSkinApiBaseUrl(): string {
   if (import.meta.env.DEV) return '/skin-api';
   return 'https://declive-maura-irksomely.ngrok-free.dev';
 }
+
+/** ngrok 무료 플랜 브라우저 경고 우회용 기본 헤더 */
+export const skinApiHeaders: Record<string, string> = {
+  'Content-Type': 'application/json',
+  'ngrok-skip-browser-warning': 'true',
+};

@@ -22,7 +22,7 @@ import { getOrCreateVisitSessionId } from '../lib/clientSession';
 import { getRecommendedProductIdForSkinType } from '../lib/skinTypeSlotMapping';
 import { getSkuCompositionDisplayParts } from '../lib/skuMarketingDescriptions';
 import { resolveSkuStorefrontName } from '../lib/skuStorefrontTitle';
-import { getSkinApiBaseUrl } from '../lib/skinApiBaseUrl';
+import { getSkinApiBaseUrl, skinApiHeaders } from '../lib/skinApiBaseUrl';
 import { SkinResultMetricsCharts } from '../components/SkinResultMetricsCharts';
 import { buildConcernMetricFocusForApi } from '../lib/concernMetricHighlight';
 import { selfieAnalysisToClientState } from '../lib/skinTestSelfie';
@@ -1076,7 +1076,7 @@ export const SkinTest: React.FC = () => {
           try {
             const res = await fetch(`${skinApiBase}/analyze-text`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: skinApiHeaders,
               body: JSON.stringify({
                 skin_type: result.type,
                 concern_text: concernText || '',
@@ -1523,7 +1523,7 @@ export const SkinTest: React.FC = () => {
           try {
             const uniRes = await fetch(`${skinApiBase}/analyze-text-with-selfie`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: skinApiHeaders,
               body: JSON.stringify({
                 skin_type: result.type,
                 concern_text: concernText || '',

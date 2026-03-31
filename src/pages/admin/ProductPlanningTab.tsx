@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../../lib/supabase';
-import { getSkinApiBaseUrl } from '../../lib/skinApiBaseUrl';
+import { getSkinApiBaseUrl, skinApiHeaders } from '../../lib/skinApiBaseUrl';
 
 const SKIN_API_URL = getSkinApiBaseUrl();
 
@@ -151,7 +151,7 @@ export default function ProductPlanningTab() {
     try {
       const res = await fetch(`${SKIN_API_URL}/planning/candidate-compare`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: skinApiHeaders,
         signal: ac.signal,
         body: JSON.stringify({
           category: cat,

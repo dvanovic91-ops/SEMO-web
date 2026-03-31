@@ -42,7 +42,7 @@ import {
   upsertProductMarketPrices,
   type ProductMarketPriceRow,
 } from '../../lib/productMarketPrices';
-import { getSkinApiBaseUrl } from '../../lib/skinApiBaseUrl';
+import { getSkinApiBaseUrl, skinApiHeaders } from '../../lib/skinApiBaseUrl';
 
 /** 관리자 폼: 모바일 100% 폭, 터치 친화적 min-height · text-base로 iOS 입력 시 자동 확대 완화 */
 const inputClass =
@@ -1728,7 +1728,7 @@ export const Admin: React.FC = () => {
 
         const res = await fetch(`${SKIN_API_URL}/analyze-box-match`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: skinApiHeaders,
           body: JSON.stringify({
             slot_num: slotNum,
             product_name: productName,
@@ -1785,7 +1785,7 @@ export const Admin: React.FC = () => {
       const timer = setTimeout(() => ctrl.abort(), 120_000);
       const res = await fetch(`${SKIN_API_URL}/analyze-box-combo`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: skinApiHeaders,
         body: JSON.stringify({ sku_ids: skuIds }),
         signal: ctrl.signal,
       });

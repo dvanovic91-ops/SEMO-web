@@ -8,7 +8,7 @@ import {
 } from '../../lib/ingredientLibrary';
 import { stripLegacyMockHeroClaimPrefix } from '../../lib/skuMarketingDescriptions';
 import { supabase } from '../../lib/supabase';
-import { getSkinApiBaseUrl } from '../../lib/skinApiBaseUrl';
+import { getSkinApiBaseUrl, skinApiHeaders } from '../../lib/skinApiBaseUrl';
 import {
   axisResultForEndpoint,
   computeAxisScores,
@@ -19,6 +19,11 @@ import {
 } from '../../lib/admin/ingredientAxisScoring';
 
 const SKIN_API_URL = getSkinApiBaseUrl();
+
+function skinApiFetchErrorDetail(err: unknown): string {
+  const m = err instanceof Error ? err.message : String(err);
+  return `${m} — 요청 베이스: ${SKIN_API_URL}`;
+}
 
 /* ─── 타입 ─── */
 type SkuCategory = 'beauty' | 'fit' | 'hair';
@@ -1168,7 +1173,7 @@ export function InventoryTab() {
             const timer = setTimeout(() => ctrl.abort(), 90_000); // 90초 타임아웃
             const res = await fetch(`${SKIN_API_URL}/enrich-ingredient-library`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: skinApiHeaders,
               body: JSON.stringify({
                 ingredients: parsed.map((i) => ({
                   name: i.name,
@@ -1255,7 +1260,7 @@ export function InventoryTab() {
     let cancelled = false;
     (async () => {
       try {
-        const r = await fetch(`${SKIN_API_URL}/health`, { method: 'GET' });
+        const r = await fetch(`${SKIN_API_URL}/health`, { method: 'GET', headers: skinApiHeaders });
         if (cancelled) return;
         if (r.ok) {
           setSkinApiHealth('ok');
@@ -1336,7 +1341,7 @@ export function InventoryTab() {
     try {
       const res = await fetch(`${SKIN_API_URL}/search-product`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: skinApiHeaders,
         body: JSON.stringify({
           brand: '',
           product_name: q,
@@ -1408,7 +1413,7 @@ export function InventoryTab() {
         }
       }
     } catch (e) {
-      showToast(`API 연결 오류: ${(e as Error).message} (Flask 서버 실행 확인)`, 'error');
+      showToast(`API 연결 오류: ${skinApiFetchErrorDetail(e)} (무제 폴더에서 python main.py 또는 VITE_SKIN_API_URL)`, 'error');
     } finally {
       setIsSearching(false);
     }
@@ -1430,7 +1435,7 @@ export function InventoryTab() {
     try {
       const res = await fetch(`${SKIN_API_URL}/search-product`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: skinApiHeaders,
         body: JSON.stringify({
           brand: '',
           product_name: mergedKo,
@@ -1459,7 +1464,7 @@ export function InventoryTab() {
         return next;
       });
     } catch (e) {
-      showToast(`API 오류: ${(e as Error).message}`, 'error');
+      showToast(`API 오류: ${skinApiFetchErrorDetail(e)}`, 'error');
     } finally {
       setIsSearching(false);
     }
@@ -1501,7 +1506,7 @@ export function InventoryTab() {
     try {
       const res = await fetch(`${SKIN_API_URL}/search-product`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: skinApiHeaders,
         body: JSON.stringify({
           brand: '',
           product_name: mergedKo,
@@ -1526,8 +1531,8 @@ export function InventoryTab() {
       } else {
         showToast('번역 결과를 가져오지 못했습니다. GEMINI_API_KEY와 입력 한글을 확인하세요.', 'error');
       }
-    } catch {
-      showToast('번역 API 오류', 'error');
+    } catch (e) {
+      showToast(`번역 API 오류: ${skinApiFetchErrorDetail(e)}`, 'error');
     } finally {
       setTranslatingNameEn(false);
     }
@@ -1560,7 +1565,7 @@ export function InventoryTab() {
           }
           const res = await fetch(`${SKIN_API_URL}/search-product`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: skinApiHeaders,
             body: JSON.stringify({
               brand: '',
               product_name: mergedKo,
@@ -1712,7 +1717,7 @@ export function InventoryTab() {
         try {
           const res = await fetch(`${SKIN_API_URL}/fetch-ingredients`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: skinApiHeaders,
           body: JSON.stringify({
             sku_id: savedId,
             product_name: editingSku.display_name?.trim() || editingSku.name?.trim() || '',
@@ -1736,7 +1741,7 @@ export function InventoryTab() {
             showToast(`저장은 완료됐으나 성분 수집 실패: ${fetchData.error ?? '알 수 없는 오류'}`, 'error');
           }
         } catch (e) {
-          showToast(`저장은 완료됐으나 성분 API 오류: ${(e as Error).message}`, 'error');
+          showToast(`저장은 완료됐으나 성분 API 오류: ${skinApiFetchErrorDetail(e)}`, 'error');
         }
       } else {
         showToast('저장했습니다.', 'success');
@@ -1813,7 +1818,7 @@ export function InventoryTab() {
     try {
       const res = await fetch(`${SKIN_API_URL}/fetch-ingredients`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: skinApiHeaders,
         body: JSON.stringify({
           sku_id:           sku.id,
           product_name:     sku.display_name ?? sku.name,
@@ -1850,7 +1855,7 @@ export function InventoryTab() {
         showToast(`성분 분석 실패: ${data.error ?? '알 수 없는 오류'}`, 'error');
       }
     } catch (e) {
-      showToast(`성분 API 연결 오류: ${(e as Error).message}`, 'error');
+      showToast(`성분 API 연결 오류: ${skinApiFetchErrorDetail(e)}`, 'error');
     } finally {
       setFetchingIngredientId(null);
       await loadSkus(); // DB에서 최신 상태 재로드
@@ -1864,7 +1869,7 @@ export function InventoryTab() {
     try {
       const res = await fetch(`${SKIN_API_URL}/generate-claim-only`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: skinApiHeaders,
         body: JSON.stringify({ sku_id: sku.id }),
       });
       const data = await res.json() as { success: boolean; product_claim?: ProductClaimApi; error?: string };
@@ -1875,7 +1880,7 @@ export function InventoryTab() {
         showToast(`마케팅문구 생성 실패: ${data.error ?? '알 수 없는 오류'}`, 'error');
       }
     } catch (e) {
-      showToast(`API 연결 오류: ${(e as Error).message}`, 'error');
+      showToast(`API 연결 오류: ${skinApiFetchErrorDetail(e)}`, 'error');
     } finally {
       setGeneratingClaimSkuId(null);
     }
@@ -1888,7 +1893,7 @@ export function InventoryTab() {
     try {
       const res = await fetch(`${SKIN_API_URL}/regenerate-hero-ingredients`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: skinApiHeaders,
         body: JSON.stringify({
           sku_id: sku.id,
           ...buildHeroSelectionApiFields(sku.product_type),
@@ -1918,7 +1923,7 @@ export function InventoryTab() {
         showToast(`핵심 재선정 실패: ${data.error ?? '알 수 없는 오류'}`, 'error');
       }
     } catch (e) {
-      showToast(`API 연결 오류: ${(e as Error).message}`, 'error');
+      showToast(`API 연결 오류: ${skinApiFetchErrorDetail(e)}`, 'error');
     } finally {
       setRegeneratingHeroSkuId(null);
     }
@@ -2019,7 +2024,7 @@ export function InventoryTab() {
     try {
       const res = await fetch(`${SKIN_API_URL}/parse-ingredients-text`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: skinApiHeaders,
         body: JSON.stringify({
           preview_only: true,
           raw_text:     raw,
@@ -2049,7 +2054,7 @@ export function InventoryTab() {
         showToast(`미리보기 실패: ${data.error ?? '알 수 없는 오류'}`, 'error');
       }
     } catch (e) {
-      showToast(`API 연결 오류: ${(e as Error).message}`, 'error');
+      showToast(`API 연결 오류: ${skinApiFetchErrorDetail(e)}`, 'error');
     } finally {
       setPreviewParsing(false);
     }
@@ -2064,7 +2069,7 @@ export function InventoryTab() {
     try {
       const res = await fetch(`${SKIN_API_URL}/parse-ingredients-text`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: skinApiHeaders,
         body: JSON.stringify({
           sku_id:       editingSku.id,
           raw_text:     raw,
@@ -2098,7 +2103,7 @@ export function InventoryTab() {
         showToast(`파싱 실패: ${data.error ?? '알 수 없는 오류'}`, 'error');
       }
     } catch (e) {
-      showToast(`API 연결 오류: ${(e as Error).message}`, 'error');
+      showToast(`API 연결 오류: ${skinApiFetchErrorDetail(e)}`, 'error');
     } finally {
       setParsingIngText(false);
     }
