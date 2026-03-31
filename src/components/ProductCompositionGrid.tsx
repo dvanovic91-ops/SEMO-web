@@ -72,7 +72,8 @@ export function ProductCompositionGrid({
   if (components.length === 0) return null;
 
   const outer = className ?? 'mt-6';
-  const rows = components.slice(0, 8);
+  /** 예전 slice(0,8)는 9번째 이후 구성품이 “삭제된 것처럼” 보이게 함 — DB·관리자는 최대 8개 권장이나 전량 표시 */
+  const rows = components;
   const titleClass = `min-w-0 text-left ${PRODUCT_DETAIL_SECTION_KICKER_BASE} ${
     tighterMobileComposeTitle ? 'text-[0.6875rem] sm:text-[0.7rem]' : PRODUCT_DETAIL_SECTION_KICKER_SIZE
   }`;

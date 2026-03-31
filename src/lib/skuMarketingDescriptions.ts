@@ -4,6 +4,8 @@
  * DB description_* 에 히어만 있고 클레임이 빠진 예전 행도 claim 텍스트를 앞에 붙입니다.
  */
 
+import { stripLegacyNihuyaLinePrefix } from './legacyMockContent';
+
 /** 병합/표시용: ✨ 히어로 성분 줄 제거 (구성품 카드·소개 블록 등). */
 export function stripHeroBulletLines(text: string): string {
   return text
@@ -15,12 +17,7 @@ export function stripHeroBulletLines(text: string): string {
 
 /** 예전 목업 제품명이 소구문 앞에 붙은 행 (DB·표시 공통 정리). */
 export function stripLegacyMockHeroClaimPrefix(text: string): string {
-  const t = (text ?? '').trim();
-  if (!t) return t;
-  return t
-    .replace(/^니후야[^:]*:\s*/u, '')
-    .replace(/^Nihuya[^:]*:\s*/iu, '')
-    .trim();
+  return stripLegacyNihuyaLinePrefix(text ?? '');
 }
 
 export type SkuHeroDescRow = { name: string; ko: string; en: string; ru: string };

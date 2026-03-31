@@ -555,10 +555,11 @@ export const Navbar: React.FC = () => {
               <span className="font-semibold tracking-[0.2em] text-brand">SEMO </span>
               <span className="font-semibold tracking-[0.2em] text-slate-700">box</span>
             </Link>
+            {/* flex-1 + justify-center 만 쓰면 우측 툴바가 넓어 메뉴가 왼쪽으로 치우침 — translate-x 로 보정(값 키우면 언어·화폐 버튼과 간격 축소) */}
             <div className="flex min-w-0 flex-1 items-center justify-center px-1">
               {!productDesktopNav?.compact ? (
                 <nav
-                  className="flex min-w-0 max-w-[min(100%,52rem)] flex-wrap items-center justify-center gap-x-[calc(1.5rem*1.1)] text-sm lg:gap-x-[calc(2.5rem*1.1)]"
+                  className="flex min-w-0 max-w-[min(100%,52rem)] flex-wrap items-center justify-center gap-x-9 gap-y-2 text-sm md:translate-x-[4.5vw]"
                   aria-label="Main"
                 >
                   <NavLink
@@ -624,7 +625,7 @@ export const Navbar: React.FC = () => {
                 <div className="min-h-[2.75rem] w-full min-w-0" aria-hidden />
               )}
             </div>
-            {/* 데스크톱: 유틸 아이콘 (컴팩트 시 В корзину는 오버레이 안) */}
+            {/* 데스크톱: 유틸 — 언어·화폐 왼쪽에 큰 고정 마진 없음(gap-3은 로고·가운데·이 그룹 사이 공통 간격) */}
             <div className="relative z-20 flex min-w-0 shrink-0 items-center gap-2">
             <div className="flex items-center gap-1 pr-0.5">
               <div ref={langMenuRef} className="relative">

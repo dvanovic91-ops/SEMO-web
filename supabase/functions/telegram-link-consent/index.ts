@@ -2,7 +2,7 @@
 // 1) validate deep-link token
 // 2) link telegram account via RPC link_telegram
 // 3) save phone from Telegram contact share
-// 4) save notification consents (orders/marketing)
+// 4) save notification prefs: orders always on at link; marketing from body
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -48,14 +48,12 @@ Deno.serve(async (req) => {
   let token: string | null = null;
   let telegram_id: string | null = null;
   let phone: string | null = null;
-  let consent_orders = true;
   let consent_marketing = false;
   try {
     const body = await req.json();
     token = typeof body.token === 'string' ? body.token : null;
     telegram_id = typeof body.telegram_id === 'string' ? body.telegram_id : null;
     phone = typeof body.phone === 'string' ? body.phone : null;
-    if (typeof body.consent_orders === 'boolean') consent_orders = body.consent_orders;
     if (typeof body.consent_marketing === 'boolean') consent_marketing = body.consent_marketing;
   } catch {
     return json({ error: 'Invalid JSON body' }, 400);
@@ -89,10 +87,11 @@ Deno.serve(async (req) => {
   if (rpcErr) return json({ error: 'link_telegram_failed', details: rpcErr.message }, 500);
   if (!rpcData?.ok) return json({ error: rpcData?.error ?? 'link_telegram_failed' }, 400);
 
+  // При привязке заказы/доставка всегда on; «новинки» — только consent_marketing (как в user_bot save_phone_and_consents_after_link).
   const patch = {
     phone: normalizedPhone,
     phone_verified: true,
-    telegram_notify_orders: consent_orders,
+    telegram_notify_orders: true,
     telegram_notify_marketing: consent_marketing,
   };
   const { error: updErr } = await supabase.from('profiles').update(patch).eq('id', linkRow.user_id);
@@ -103,7 +102,7 @@ Deno.serve(async (req) => {
     user_id: linkRow.user_id,
     telegram_id: telegram_id.trim(),
     phone: normalizedPhone,
-    consent_orders,
+    consent_orders: true,
     consent_marketing,
     message:
       'linked_with_consent; user can change notification preferences later in profile settings',

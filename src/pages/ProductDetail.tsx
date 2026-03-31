@@ -11,7 +11,7 @@ import { BackArrow } from '../components/BackArrow';
 import { ProductCompositionGrid } from '../components/ProductCompositionGrid';
 import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../components/SemoPageSpinner';
 import {
-  mockBriefFromComponents,
+  createEmptyIngredientBrief,
   normalizeBrief,
   type ProductIngredientBrief,
   type ProductIngredientBriefMap,
@@ -24,6 +24,7 @@ import {
 import { getSkuCompositionDisplayParts } from '../lib/skuMarketingDescriptions';
 import { resolveSkuStorefrontName } from '../lib/skuStorefrontTitle';
 import { formatStorefrontDate } from '../lib/formatStorefrontDate';
+import { stripLegacyProductMultilineField } from '../lib/legacyMockContent';
 
 type Product = {
   id: string;
@@ -563,7 +564,7 @@ export const ProductDetail: React.FC = () => {
       try {
         const { data: prodData, error: prodErr } = await supabase
           .from('products')
-          .select('id, name, category, description, image_url, image_urls, rrp_price, prp_price')
+          .select('id, name, category, description, detail_description, image_url, image_urls, rrp_price, prp_price')
           .eq('id', currentId)
           .single();
 
@@ -590,8 +591,8 @@ export const ProductDetail: React.FC = () => {
         const productRow: Product = {
           id: row.id,
           name: row.name,
-          description: row.description,
-          detail_description: row.detail_description ?? null,
+          description: stripLegacyProductMultilineField(row.description),
+          detail_description: stripLegacyProductMultilineField(row.detail_description ?? null),
           image_url: row.image_url,
           image_urls: imgs.length ? imgs : row.image_url ? [String(row.image_url)] : [],
           rrp_price: row.rrp_price,
@@ -659,11 +660,7 @@ export const ProductDetail: React.FC = () => {
         }
         if (cancelled || currentId !== (id ?? '')) return;
         setComponents((prev) => (prev.length === compList.length && compList.length === 0 ? prev : compList));
-        const fallbackBrief = mockBriefFromComponents(
-          productRow.name,
-          compList.map((c) => (c.name ?? '').trim()).filter(Boolean)
-        );
-        setIngredientBrief(fallbackBrief);
+        setIngredientBrief(createEmptyIngredientBrief());
 
         try {
           const { data: ingredientSetting } = await supabase

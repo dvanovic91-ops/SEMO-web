@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import { SemoPageSpinner, SEMO_SECTION_LOADING_CLASS } from '../components/SemoPageSpinner';
 import { ShopProductCard, type ShopItem, type ShopLayoutCategory } from './Shop';
 import { BOX_HISTORY_SEASON_LABELS_KEY, HISTORY_SEASON_COUNT } from '../lib/catalogSlotRooms';
+import { isLegacyMockCatalogProductName } from '../lib/legacyMockContent';
 
 const BEAUTY: ShopLayoutCategory = 'beauty';
 
@@ -76,14 +77,16 @@ export const BoxHistory: React.FC = () => {
         history_season_index?: number | null;
         history_order?: number | null;
       }[];
-      const beautyRows = rows.filter((p) => {
-        const c = String(p.category ?? '')
-          .trim()
-          .toLowerCase();
-        if (!c || c === 'null') return true;
-        if (c === 'inner_beauty' || c === 'hair_beauty') return false;
-        return c === 'beauty' || c === 'beautybox' || c === 'beauty_box' || c === 'beauty-box';
-      });
+      const beautyRows = rows
+        .filter((p) => {
+          const c = String(p.category ?? '')
+            .trim()
+            .toLowerCase();
+          if (!c || c === 'null') return true;
+          if (c === 'inner_beauty' || c === 'hair_beauty') return false;
+          return c === 'beauty' || c === 'beautybox' || c === 'beauty_box' || c === 'beauty-box';
+        })
+        .filter((p) => !isLegacyMockCatalogProductName(p.name));
       const toShopItem = (p: (typeof beautyRows)[0]): ShopItem => {
         const prp = p.prp_price != null ? Number(p.prp_price) : null;
         const rrp = p.rrp_price != null ? Number(p.rrp_price) : null;

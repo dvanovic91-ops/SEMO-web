@@ -16,6 +16,7 @@ import {
   parseCatalogVisibleByRoom,
   type CatalogSlotRoom,
 } from '../lib/catalogSlotRooms';
+import { isLegacyMockCatalogProductName } from '../lib/legacyMockContent';
 
 /** 슬롯 또는 폴백 상품 타입 */
 type ShopItem = {
@@ -339,6 +340,8 @@ async function buildShopItemsFromCategoryProducts(
     filtered = filtered.filter((p) => !p.box_history);
   }
 
+  filtered = filtered.filter((p) => !isLegacyMockCatalogProductName(p.name));
+
   const productIds = filtered.map((p) => p.id);
   const marketPriceMap = await loadMarketPriceMap(client, productIds);
   return rowsToShopItems(filtered, max, currency, marketPriceMap);
@@ -534,7 +537,9 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
         });
         // 슬롯에 UUID는 있으나 삭제·RLS 등으로 상품 행을 못 붙인 경우는 노출하지 않음.
         // 뷰티: box_history(과거 시즌) 상품은 메인 카탈로그에서 제외 → «История боксов» 전용
-        const slotFiltered = list.filter((item) => item.productId != null && !item.boxHistory);
+        const slotFiltered = list
+          .filter((item) => item.productId != null && !item.boxHistory)
+          .filter((item) => !isLegacyMockCatalogProductName(item.name));
         // 핏/헤어 등: catalog_room_slots 행은 있는데 product_id 가 비었거나 전부 걸러지면 카드 0개 →
         // 슬롯 없을 때와 같이 products.category 로 채움 (빈 슬롯만 마이그레이션된 경우 흔함)
         if (slotFiltered.length === 0) {

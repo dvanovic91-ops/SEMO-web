@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useAuth } from './AuthContext';
 import { useI18n, type AppCurrency } from './I18nContext';
 import { supabase } from '../lib/supabase';
@@ -156,6 +156,47 @@ function toSnapshotItems(items: CartItem[]) {
   }));
 }
 
+/** 장바구니 스냅샷의 name·imageUrl을 products 현재값과 맞춤 (관리자 수정·슬롯 교체 후에도 표시 일치) */
+function applyProductRowsToCartItems(
+  prev: CartItem[],
+  rows: { id: string; name?: string | null; image_url?: string | null }[],
+): CartItem[] {
+  const map = new Map<string, { name: string; image_url: string | null }>();
+  for (const row of rows) {
+    map.set(row.id, {
+      name: (row.name ?? '').trim(),
+      image_url: row.image_url != null ? String(row.image_url) : null,
+    });
+  }
+  let changed = false;
+  const next = prev.map((item) => {
+    const p = map.get(item.id);
+    if (!p) return item;
+    const name = p.name || item.name;
+    const imageUrl = p.image_url ?? item.imageUrl ?? null;
+    if (item.name === name && (item.imageUrl ?? null) === (imageUrl ?? null)) return item;
+    changed = true;
+    return { ...item, name, imageUrl };
+  });
+  return changed ? next : prev;
+}
+
+async function fetchMergedCartWithProductMeta(
+  client: NonNullable<typeof supabase>,
+  cart: CartItem[],
+): Promise<CartItem[]> {
+  if (cart.length === 0) return cart;
+  const ids = [...new Set(cart.map((i) => i.id))].filter(Boolean);
+  if (ids.length === 0) return cart;
+  try {
+    const { data, error } = await client.from('products').select('id, name, image_url').in('id', ids);
+    if (error || !data?.length) return cart;
+    return applyProductRowsToCartItems(cart, data as { id: string; name?: string | null; image_url?: string | null }[]);
+  } catch {
+    return cart;
+  }
+}
+
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const { userId } = useAuth();
   const { currency } = useI18n();
@@ -164,12 +205,46 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const [remoteReady, setRemoteReady] = useState(false);
   /** 마지막으로 가격을 갱신한 통화 (불필요한 재조회 방지) */
   const lastRefreshedCurrency = useRef<string | null>(null);
+  const itemsRef = useRef<CartItem[]>(items);
+  itemsRef.current = items;
+
+  const productIdsKey = useMemo(
+    () => [...new Set(items.map((i) => i.id))].filter(Boolean).sort().join(','),
+    [items],
+  );
+
+  const runProductMetaSync = useCallback(async () => {
+    if (!supabase) return;
+    if (userId && !remoteReady) return;
+    const cur = itemsRef.current;
+    if (cur.length === 0) return;
+    const ids = [...new Set(cur.map((i) => i.id))].filter(Boolean);
+    if (ids.length === 0) return;
+    try {
+      const { data, error } = await supabase.from('products').select('id, name, image_url').in('id', ids);
+      if (error || !data?.length) return;
+      setItems((prev) => applyProductRowsToCartItems(prev, data as { id: string; name?: string | null; image_url?: string | null }[]));
+    } catch {
+      // ignore
+    }
+  }, [supabase, userId, remoteReady]);
 
   useEffect(() => {
     if (!userId) {
-      setItems(loadCartWithMigration(null));
-      setRemoteReady(true);
-      return;
+      const raw = loadCartWithMigration(null);
+      if (!supabase) {
+        setItems(raw);
+        setRemoteReady(true);
+        return;
+      }
+      let cancelled = false;
+      void fetchMergedCartWithProductMeta(supabase, raw).then((m) => {
+        if (!cancelled) setItems(m);
+        setRemoteReady(true);
+      });
+      return () => {
+        cancelled = true;
+      };
     }
     if (!supabase) {
       setItems(loadCartWithMigration(userId));
@@ -190,7 +265,10 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         .maybeSingle();
       if (!alive) return;
       if (error) {
-        setItems(loadCartWithMigration(userId));
+        const raw = loadCartWithMigration(userId);
+        const merged = await fetchMergedCartWithProductMeta(supabase, raw);
+        if (!alive) return;
+        setItems(merged);
         setRemoteReady(true);
         return;
       }
@@ -204,38 +282,44 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
           (remoteItems.length === 0 || localUpdatedAt > remoteUpdatedAt);
 
         if (shouldRestoreLocal) {
+          const mergedLocal = await fetchMergedCartWithProductMeta(supabase, localSeed);
+          if (!alive) return;
           const nowIso = new Date().toISOString();
           await supabase.from('cart_snapshots').upsert(
             {
               user_id: userId,
-              items: toSnapshotItems(localSeed),
-              total_cents: Math.round(localSeed.reduce((sum, x) => sum + x.price * x.quantity, 0) * 100),
+              items: toSnapshotItems(mergedLocal),
+              total_cents: Math.round(mergedLocal.reduce((sum, x) => sum + x.price * x.quantity, 0) * 100),
               updated_at: nowIso,
             },
             { onConflict: 'user_id' }
           );
           if (!alive) return;
-          setItems(localSeed);
+          setItems(mergedLocal);
           saveCartMetaUpdatedAt(userId, Math.max(localUpdatedAt, Date.now()));
           setRemoteReady(true);
           return;
         }
 
-        setItems(remoteItems);
+        const mergedRemote = await fetchMergedCartWithProductMeta(supabase, remoteItems);
+        if (!alive) return;
+        setItems(mergedRemote);
         saveCartMetaUpdatedAt(userId, Math.max(remoteUpdatedAt, Date.now()));
         setRemoteReady(true);
         return;
       }
 
       // 서버 스냅샷이 아직 없으면 로컬 캐시를 1회 시드로 올린 뒤 서버를 기준으로 사용한다.
-      setItems(localSeed);
+      const mergedSeed = await fetchMergedCartWithProductMeta(supabase, localSeed);
+      if (!alive) return;
+      setItems(mergedSeed);
       const nowIso = new Date().toISOString();
-      if (localSeed.length > 0) {
+      if (mergedSeed.length > 0) {
         await supabase.from('cart_snapshots').upsert(
           {
             user_id: userId,
-            items: toSnapshotItems(localSeed),
-            total_cents: Math.round(localSeed.reduce((sum, x) => sum + x.price * x.quantity, 0) * 100),
+            items: toSnapshotItems(mergedSeed),
+            total_cents: Math.round(mergedSeed.reduce((sum, x) => sum + x.price * x.quantity, 0) * 100),
             updated_at: nowIso,
           },
           { onConflict: 'user_id' }
@@ -316,6 +400,27 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     return () => { alive = false; };
   }, [currency, items.length]); // items.length로 아이템 추가/삭제 시에도 갱신
 
+  /** DB products와 상품명·대표 이미지 일치 (수량 변경만 한 경우에는 productIdsKey 불변이라 재조회 안 함) */
+  useEffect(() => {
+    if (!productIdsKey) return;
+    void runProductMetaSync();
+  }, [productIdsKey, runProductMetaSync]);
+
+  /** 비로그인: 포커스 시에만 최신 상품명 반영(로그인은 cart_snapshots 폴링·포커스 갱신에 병합 포함) */
+  useEffect(() => {
+    if (!supabase || userId) return;
+    const onFocus = () => void runProductMetaSync();
+    const onVisibility = () => {
+      if (typeof document !== 'undefined' && !document.hidden) void runProductMetaSync();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [supabase, userId, runProductMetaSync]);
+
   useEffect(() => {
     if (!userId) {
       try {
@@ -365,22 +470,23 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         .select('items, updated_at')
         .eq('user_id', userId)
         .maybeSingle()
-        .then(({ data, error }) => {
+        .then(async ({ data, error }) => {
           if (error) return;
           const remote = data as RemoteCartSnapshot | null;
           if (!remote) {
             const localSeed = loadCartWithMigration(userId);
             if (localSeed.length > 0) {
+              const merged = await fetchMergedCartWithProductMeta(supabase, localSeed);
               void supabase.from('cart_snapshots').upsert(
                 {
                   user_id: userId,
-                  items: toSnapshotItems(localSeed),
-                  total_cents: Math.round(localSeed.reduce((sum, x) => sum + x.price * x.quantity, 0) * 100),
+                  items: toSnapshotItems(merged),
+                  total_cents: Math.round(merged.reduce((sum, x) => sum + x.price * x.quantity, 0) * 100),
                   updated_at: new Date().toISOString(),
                 },
                 { onConflict: 'user_id' }
               );
-              setItems(localSeed);
+              setItems(merged);
               saveCartMetaUpdatedAt(userId, Date.now());
               return;
             }
@@ -392,7 +498,8 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
           const remoteUpdatedAt = remote.updated_at ? Date.parse(remote.updated_at) : Date.now();
           const localUpdatedAt = loadCartMetaUpdatedAt(userId);
           if (remoteUpdatedAt >= localUpdatedAt) {
-            setItems(remoteItems);
+            const merged = await fetchMergedCartWithProductMeta(supabase, remoteItems);
+            setItems(merged);
             saveCartMetaUpdatedAt(userId, remoteUpdatedAt);
           }
         });
@@ -426,7 +533,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         .select('items, updated_at')
         .eq('user_id', userId)
         .maybeSingle()
-        .then(({ data, error }) => {
+        .then(async ({ data, error }) => {
           if (error) return;
           const remote = data as RemoteCartSnapshot | null;
           if (!remote) return;
@@ -434,7 +541,8 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
           const remoteUpdatedAt = remote.updated_at ? Date.parse(remote.updated_at) : 0;
           const localUpdatedAt = loadCartMetaUpdatedAt(userId);
           if (remoteUpdatedAt > localUpdatedAt) {
-            setItems(remoteItems);
+            const merged = await fetchMergedCartWithProductMeta(supabase, remoteItems);
+            setItems(merged);
             saveCartMetaUpdatedAt(userId, remoteUpdatedAt);
           }
         });
@@ -449,7 +557,15 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       const i = prev.findIndex((x) => x.id === item.id);
       if (i >= 0) {
         const next = [...prev];
-        next[i] = { ...next[i], quantity: next[i].quantity + qty, price: item.price, originalPrice: item.originalPrice, currency: item.currency };
+        next[i] = {
+          ...next[i],
+          quantity: next[i].quantity + qty,
+          price: item.price,
+          originalPrice: item.originalPrice,
+          currency: item.currency,
+          name: item.name,
+          imageUrl: item.imageUrl ?? next[i].imageUrl,
+        };
         return next;
       }
       return [...prev, { ...item, quantity: qty }];

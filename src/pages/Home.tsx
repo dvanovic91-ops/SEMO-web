@@ -14,6 +14,7 @@ import {
   parseCatalogVisibleByRoom,
   type CatalogSlotRoom,
 } from '../lib/catalogSlotRooms';
+import { isLegacyMockCatalogProductName } from '../lib/legacyMockContent';
 
 /* ─── 히어로 이미지 타입 ─── */
 type HeroSlide = { image_url: string; mobile_image_url?: string; link_url?: string };
@@ -750,14 +751,32 @@ function ProductShowcase() {
             });
           });
         }
-        let priceMap: Record<string, { rrp_price: number; prp_price: number | null; image_url: string | null; image_urls: string[] | null; category: string | null }> = {};
+        let priceMap: Record<
+          string,
+          {
+            name?: string | null;
+            rrp_price: number;
+            prp_price: number | null;
+            image_url: string | null;
+            image_urls: string[] | null;
+            category: string | null;
+          }
+        > = {};
         if (productIds.length > 0) {
           const { data: prods } = await supabase
             .from('products')
-            .select('id, category, rrp_price, prp_price, image_url, image_urls')
+            .select('id, name, category, rrp_price, prp_price, image_url, image_urls')
             .in('id', productIds);
           if (prods) {
-            for (const p of prods as { id: string; category: string | null; rrp_price: number; prp_price: number | null; image_url: string | null; image_urls: string[] | null }[]) {
+            for (const p of prods as {
+              id: string;
+              name?: string | null;
+              category: string | null;
+              rrp_price: number;
+              prp_price: number | null;
+              image_url: string | null;
+              image_urls: string[] | null;
+            }[]) {
               priceMap[p.id] = p;
             }
           }
@@ -781,9 +800,15 @@ function ProductShowcase() {
           const primaryImg = productPrimary ?? slotImg ?? null;
           // 두번째 이미지: image_urls에서 첫번째 이미지와 다른 것 선택
           const secondImg = imgUrls.find((u) => u && u !== primaryImg) ?? (imgUrls.length > 1 ? imgUrls[1] : null);
+          const displayName = (
+            prod?.name?.trim() ||
+            slot.title ||
+            (language === 'en' ? `Slot ${slot.slot_index + 1}` : `Слот ${slot.slot_index + 1}`)
+          ).trim();
+          if (isLegacyMockCatalogProductName(displayName)) continue;
           grouped[cat].push({
             id: slot.product_id ?? `slot-${slot.slot_index}`,
-            name: slot.title ?? (language === 'en' ? `Slot ${slot.slot_index + 1}` : `Слот ${slot.slot_index + 1}`),
+            name: displayName,
             price: resolveDisplayPrices(
               prod?.rrp_price ?? null,
               prod?.prp_price ?? null,

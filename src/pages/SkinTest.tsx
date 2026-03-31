@@ -750,45 +750,46 @@ export const SkinTest: React.FC = () => {
           }
         }
 
-        const composition: ProductCompositionItem[] = compRows.map((c) => {
-          const sku = c.sku_items as {
-            brand?: string | null;
-            country_of_origin?: string | null;
-            display_name?: string | null;
-            name?: string | null;
-            name_en?: string | null;
-            description?: string | null;
-            description_ru?: string | null;
-            description_en?: string | null;
-            image_url?: string | null;
-            key_ingredients_desc?: Array<{ name: string; ko: string; en: string; ru: string }> | null;
-            product_type?: string | null;
-          } | null;
-          const hasSkuImage = !!sku?.image_url;
-          const parts = getSkuCompositionDisplayParts(sku);
-          return {
-            id: String(c.id),
-            sku_id: typeof c.sku_id === 'string' ? c.sku_id : null,
-            brand: sku?.brand ?? null,
-            country_of_origin: sku?.country_of_origin ?? null,
-            name: resolveSkuStorefrontName({
-              display_name: sku?.display_name,
-              name_en: sku?.name_en,
-              name: sku?.name,
-              fallbackName: (c.name as string | null) ?? null,
-              language,
-            }),
-            image_url: hasSkuImage ? sku!.image_url! : (c.image_url as string | null) ?? null,
-            image_urls: hasSkuImage ? [sku!.image_url!] : (c.image_urls as string[] | null) ?? null,
-            description: parts.ko.body ?? (c.description as string | null) ?? null,
-            description_ru: parts.ru.body ?? (c.description_ru as string | null) ?? null,
-            description_en: parts.en.body ?? (c.description_en as string | null) ?? null,
-            marketing_claim: parts.ko.claim,
-            marketing_claim_ru: parts.ru.claim,
-            marketing_claim_en: parts.en.claim,
-            product_type: sku?.product_type ?? null,
-          };
-        });
+        const composition: ProductCompositionItem[] = compRows
+          .map((c) => {
+            const sku = c.sku_items as {
+              brand?: string | null;
+              country_of_origin?: string | null;
+              display_name?: string | null;
+              name?: string | null;
+              name_en?: string | null;
+              description?: string | null;
+              description_ru?: string | null;
+              description_en?: string | null;
+              image_url?: string | null;
+              key_ingredients_desc?: Array<{ name: string; ko: string; en: string; ru: string }> | null;
+              product_type?: string | null;
+            } | null;
+            const hasSkuImage = !!sku?.image_url;
+            const parts = getSkuCompositionDisplayParts(sku);
+            return {
+              id: String(c.id),
+              sku_id: typeof c.sku_id === 'string' ? c.sku_id : null,
+              brand: sku?.brand ?? null,
+              country_of_origin: sku?.country_of_origin ?? null,
+              name: resolveSkuStorefrontName({
+                display_name: sku?.display_name,
+                name_en: sku?.name_en,
+                name: sku?.name,
+                fallbackName: (c.name as string | null) ?? null,
+                language,
+              }),
+              image_url: hasSkuImage ? sku!.image_url! : (c.image_url as string | null) ?? null,
+              image_urls: hasSkuImage ? [sku!.image_url!] : (c.image_urls as string[] | null) ?? null,
+              description: parts.ko.body ?? (c.description as string | null) ?? null,
+              description_ru: parts.ru.body ?? (c.description_ru as string | null) ?? null,
+              description_en: parts.en.body ?? (c.description_en as string | null) ?? null,
+              marketing_claim: parts.ko.claim,
+              marketing_claim_ru: parts.ru.claim,
+              marketing_claim_en: parts.en.claim,
+              product_type: sku?.product_type ?? null,
+            };
+          });
 
         if (!cancelled) {
           setRecommendedProductPreview({
