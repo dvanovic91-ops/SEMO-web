@@ -82,6 +82,9 @@ type SelfieAnalyzeResponse = {
   message?: string;
   retake_required?: boolean;
   message_ru?: string;
+  quality_warning?: boolean;
+  quality_warning_message_ru?: string;
+  quality_warning_message_en?: string;
   skin_metrics?: {
     redness_index?: number;
     pigment_unevenness?: number;
@@ -322,6 +325,7 @@ export const SkinTest: React.FC = () => {
   const [aiAnalysisLoading, setAiAnalysisLoading] = useState(false);
   const [selfieConsent, setSelfieConsent] = useState(false);
   const [selfieOpen, setSelfieOpen] = useState(false);
+  const [selfieFirstFlow, setSelfieFirstFlow] = useState(false);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<number[]>([]);
   const [result, setResult] = useState<{
@@ -355,6 +359,7 @@ export const SkinTest: React.FC = () => {
   const [selfiePreviewUrl, setSelfiePreviewUrl] = useState<string | null>(null);
   const [selfieAnalyzing, setSelfieAnalyzing] = useState(false);
   const [selfieAnalyzeError, setSelfieAnalyzeError] = useState<string | null>(null);
+  const [selfieAnalyzeWarning, setSelfieAnalyzeWarning] = useState<string | null>(null);
   const [selfieAnalyzeResult, setSelfieAnalyzeResult] = useState<SelfieAnalyzeResponse | null>(null);
   const [selfieComparisonComment, setSelfieComparisonComment] = useState<string | null>(null);
   const [selfieUploadMenuOpen, setSelfieUploadMenuOpen] = useState(false);
@@ -366,6 +371,7 @@ export const SkinTest: React.FC = () => {
     const f = e.target.files?.[0] ?? null;
     setSelfieFile(f);
     setSelfieAnalyzeError(null);
+    setSelfieAnalyzeWarning(null);
     setSelfieAnalyzeResult(null);
     setSelfieComparisonComment(null);
     setSelfiePreviewUrl((prev) => {
@@ -942,7 +948,11 @@ export const SkinTest: React.FC = () => {
   };
 
   const handleConcernNext = () => {
-    // 피부 고민 입력 완료 → 최종 결과 계산으로
+    // 피부 고민 입력 완료 → 로그인 사용자는 셀피 업로드 우선 플로우
+    if (userId && (selfieCouponCount ?? 0) > 0) {
+      setSelfieFirstFlow(true);
+      setSelfieOpen(true);
+    }
     handleFinalSubmit();
   };
 
@@ -1121,6 +1131,7 @@ export const SkinTest: React.FC = () => {
     }
     setSelfieAnalyzing(true);
     setSelfieAnalyzeError(null);
+    setSelfieAnalyzeWarning(null);
     try {
       const fd = new FormData();
       fd.append('image', selfieFile);
@@ -1153,6 +1164,10 @@ export const SkinTest: React.FC = () => {
       }
       if (!res.ok || payload.error) throw new Error(payload.message || (isEn ? 'Selfie analysis failed.' : 'Селфи-анализ не выполнен.'));
       if (payload.retake_required) throw new Error(payload.message_ru || (isEn ? 'Please retake selfie.' : 'Нужно переснять селфи.'));
+      if (payload.quality_warning) {
+        const warningText = isEn ? payload.quality_warning_message_en : payload.quality_warning_message_ru;
+        if (warningText && String(warningText).trim()) setSelfieAnalyzeWarning(String(warningText).trim());
+      }
       setSelfieAnalyzeResult(payload);
 
       const selfiePersist = {
@@ -1329,6 +1344,7 @@ export const SkinTest: React.FC = () => {
       } else {
         setSelfieComparisonComment(null);
       }
+      setSelfieFirstFlow(false);
 
       if (supabase) {
         const { data: consumeData, error: consumeErr } = await supabase.rpc('consume_selfie_coupon');
@@ -1694,7 +1710,7 @@ export const SkinTest: React.FC = () => {
       <main className="min-h-screen bg-white px-4 py-8 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-4xl">
           {/* 상단 타입 뱃지 — 회색 bar 없음 (다른 페이지 소제목과 높이 맞춤) */}
-          <div>
+          {!(userId && selfieFirstFlow) && <div>
             <p className="text-sm font-medium tracking-wide text-brand">
               {isEn ? 'Test result' : 'Результат теста'}
             </p>
@@ -1722,19 +1738,21 @@ export const SkinTest: React.FC = () => {
                 </div>
               </div>
             </div>
-          </div>
+          </div>}
 
-          <SkinResultMetricsCharts
-            scores={scores}
-            skinMetrics={selfieAnalyzeResult?.skin_metrics ?? null}
-            isEn={isEn}
-            concernProfileCode={profileData.concern}
-            concernFreeText={concernText}
-            ageCode={profileData.age ?? undefined}
-          />
+          {!(userId && selfieFirstFlow) && (
+            <SkinResultMetricsCharts
+              scores={scores}
+              skinMetrics={selfieAnalyzeResult?.skin_metrics ?? null}
+              isEn={isEn}
+              concernProfileCode={profileData.concern}
+              concernFreeText={concernText}
+              ageCode={profileData.age ?? undefined}
+            />
+          )}
 
           {/* AI 텍스트 없을 때만 "Кратко" 박스 표시 */}
-          {aiDisplaySections.length === 0 && !aiAnalysisLoading && !postSelfieUnifiedLoading && (
+          {!(userId && selfieFirstFlow) && aiDisplaySections.length === 0 && !aiAnalysisLoading && !postSelfieUnifiedLoading && (
             <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/90 px-3 py-3 sm:px-4 sm:py-4">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                 {isEn ? 'Your snapshot in plain words' : 'Кратко о текущем профиле'}
@@ -1749,7 +1767,7 @@ export const SkinTest: React.FC = () => {
           )}
 
           {/* AI 분석 섹션 */}
-          <div className="mt-5">
+          {!(userId && selfieFirstFlow) && <div className="mt-3 space-y-3">
             {postSelfieUnifiedLoading ? (
               <p className="animate-pulse text-sm text-slate-400">
                 {isEn
@@ -1761,60 +1779,57 @@ export const SkinTest: React.FC = () => {
                 {isEn ? 'Generating personalised analysis…' : 'Генерируем персональный анализ…'}
               </p>
             ) : aiAnalysisText && aiDisplaySections.length > 0 ? (
-              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_2px_12px_-6px_rgba(15,23,42,0.10)]">
+              <>
                 {aiDisplaySections.map((sec, idx) => {
                   const isLast = idx === aiDisplaySections.length - 1;
+                  const KICKERS_RU = ['\u0412\u0430\u0448\u0430 \u043a\u043e\u0436\u0430 \u0441\u0435\u0439\u0447\u0430\u0441', '\u0420\u0435\u043a\u043e\u043c\u0435\u043d\u0434\u0443\u0435\u043c\u044b\u0439 \u0443\u0445\u043e\u0434', '\u041e\u0436\u0438\u0434\u0430\u0435\u043c\u044b\u0439 \u044d\u0444\u0444\u0435\u043a\u0442 \u043e\u0442 \u0441\u0440\u0435\u0434\u0441\u0442\u0432'];
+                  const KICKERS_EN = ['Your skin right now', 'Recommended routine', 'Expected results'];
+                  const kicker = (isEn ? KICKERS_EN : KICKERS_RU)[idx] ?? (isEn ? KICKERS_EN[KICKERS_EN.length - 1] : KICKERS_RU[KICKERS_RU.length - 1]);
                   return (
-                    <section
+                    <div
                       key={`ai-sec-${idx}-${String(sec.title ?? '').slice(0, 12)}`}
-                      className={`px-4 py-5 sm:px-6 sm:py-6 ${!isLast ? 'border-b border-slate-100' : ''}`}
+                      className="rounded-xl border border-slate-100 bg-slate-50/90 px-3 py-3 sm:px-4 sm:py-4"
                     >
-                      {sec.title ? (
-                        <p className="mb-2.5 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-widest text-brand">
-                          <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand/10 text-[9px] font-bold text-brand">
-                            {idx + 1}
-                          </span>
-                          {sec.title}
-                        </p>
-                      ) : null}
-                      <p className="text-sm leading-relaxed text-slate-700 sm:text-[15px]">
-                        {sec.body}
-                      </p>
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{kicker}</p>
+                      <p className="mt-2 text-sm leading-relaxed text-slate-700">{sec.body}</p>
                       {/* 마지막 섹션 아래 제품 연결 화살표 */}
                       {isLast && (recommendedProductPreview?.status === 'ok') && (
-                        <div className="mt-4 flex items-center gap-2 border-t border-slate-100 pt-4">
+                        <div className="mt-3 flex items-center gap-2 border-t border-slate-100 pt-3">
                           <span className="text-[11px] font-medium text-slate-400">
-                            {isEn ? 'Your SEMO pick for this routine ↓' : 'Ваш персональный выбор SEMO для этого ухода ↓'}
+                            {isEn ? 'Your SEMO pick for this routine ↓' : '\u0412\u0430\u0448 \u043f\u0435\u0440\u0441\u043e\u043d\u0430\u043b\u044c\u043d\u044b\u0439 \u0432\u044b\u0431\u043e\u0440 SEMO \u0434\u043b\u044f \u044d\u0442\u043e\u0433\u043e \u0443\u0445\u043e\u0434\u0430 \u2193'}
                           </span>
                         </div>
                       )}
-                    </section>
+                    </div>
                   );
                 })}
-              </div>
+              </>
             ) : (
               <>
-                <p className="text-sm leading-relaxed text-slate-700 sm:text-base">
-                  {isEn ? englishResultDesc(type) : stripSkinDescTrailingEmojiRu(info.desc)}
-                </p>
-                {/* 케어 주의사항 — 폴백 시에만 표시 */}
-                <p className="mt-3 text-sm leading-relaxed text-slate-500">
-                  {skinCareNote(type, scores, isEn)}
-                </p>
+                <div className="rounded-xl border border-slate-100 bg-slate-50/90 px-3 py-3 sm:px-4 sm:py-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                    {isEn ? 'Your skin type' : '\u0412\u0430\u0448 \u0442\u0438\u043f \u043a\u043e\u0436\u0438'}
+                  </p>
+                  <p className="mt-2 text-sm leading-relaxed text-slate-700">
+                    {isEn ? englishResultDesc(type) : stripSkinDescTrailingEmojiRu(info.desc)}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-slate-100 bg-slate-50/90 px-3 py-3 sm:px-4 sm:py-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                    {isEn ? 'Care recommendations' : '\u0420\u0435\u043a\u043e\u043c\u0435\u043d\u0434\u0430\u0446\u0438\u0438 \u043f\u043e \u0443\u0445\u043e\u0434\u0443'}
+                  </p>
+                  <p className="mt-2 text-sm leading-relaxed text-slate-500">
+                    {skinCareNote(type, scores, isEn)}
+                  </p>
+                </div>
               </>
             )}
-          </div>
+          </div>}
 
           {/* ── 셀카: 쿠폰 1장 이상일 때만 노출 (잔여 0이면 안내만) ── */}
           {userId && selfieCouponCount !== null && (
-            <div className="mt-3">
-              {selfieCouponCount <= 0 ? (
-                <p className="rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-xs text-slate-600">
-                  {isEn
-                    ? 'You have no selfie analysis coupons left. Coupons are issued on sign-up (once per account on this device) or through promotions.'
-                    : 'У вас не осталось купонов на селфи-анализ. Купон выдаётся при регистрации (один раз на аккаунт на этом устройстве) или в акциях.'}
-                </p>
-              ) : !selfieOpen ? (
+            <div className={selfieFirstFlow ? 'mx-auto mt-0 w-full max-w-4xl' : 'mt-3'}>
+              {selfieCouponCount > 0 && !selfieOpen ? (
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="text-xs text-slate-400">
                     {isEn
@@ -1829,7 +1844,7 @@ export const SkinTest: React.FC = () => {
                     {isEn ? 'Upload photo →' : 'Загрузить фото →'}
                   </button>
                 </div>
-              ) : (
+              ) : selfieCouponCount > 0 ? (
                 <div className="rounded-xl border border-brand/20 bg-brand-soft/25 px-4 py-5 sm:px-5">
                   <div className="mb-4 flex items-center justify-between">
                     <p className="text-sm font-medium tracking-wide text-brand">
@@ -1883,6 +1898,11 @@ export const SkinTest: React.FC = () => {
                           <p className="mt-2 text-center text-[10px] font-semibold text-slate-600">
                             {isEn ? 'Your photo' : 'Ваше фото'}
                           </p>
+                          {selfieAnalyzeWarning && (
+                            <p className="mt-1 whitespace-pre-line text-center text-[10px] leading-snug text-red-600">
+                              {selfieAnalyzeWarning}
+                            </p>
+                          )}
                         </div>
                       ) : null}
                     </div>
@@ -2016,6 +2036,13 @@ export const SkinTest: React.FC = () => {
                           : 'Анализ'}
                     </button>
                   </div>
+                  {selfieAnalyzing && (
+                    <p className="mt-2 text-xs leading-snug text-brand">
+                      {isEn
+                        ? 'Analysing your selfie now. This can take up to 1-2 minutes.'
+                        : 'Идёт анализ фото. Это может занять до 1-2 минут.'}
+                    </p>
+                  )}
 
                   {selfieAnalyzeError && <p className="mt-2 text-xs text-red-500">{selfieAnalyzeError}</p>}
 
@@ -2034,12 +2061,23 @@ export const SkinTest: React.FC = () => {
                     <p className="mt-3 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700">{selfieComparisonComment}</p>
                   )}
                 </div>
+              ) : null}
+              {selfieFirstFlow && (
+                <div className="mt-3 flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => setSelfieFirstFlow(false)}
+                    className="text-xs font-medium text-slate-500 hover:text-slate-700"
+                  >
+                    {isEn ? 'Skip' : 'Пропустить'}
+                  </button>
+                </div>
               )}
             </div>
           )}
 
           {/* Персональный выбор SEMO */}
-          <div className="mt-3 rounded-xl border border-brand/20 bg-brand-soft/25 px-3 py-4 sm:px-5 sm:py-5 md:px-6 md:py-6">
+          {!(userId && selfieFirstFlow) && <div className="mt-3 rounded-xl border border-brand/20 bg-brand-soft/25 px-3 py-4 sm:px-5 sm:py-5 md:px-6 md:py-6">
             <p className="text-sm font-medium tracking-wide text-brand">
               {recommendedProductPreview?.status === 'ok' && recommendedProductPreview.name?.trim()
                 ? (isEn ? `SEMO personal pick: ${recommendedProductPreview.name.trim()}` : `Персональный выбор SEMO : ${recommendedProductPreview.name.trim()}`)
@@ -2104,11 +2142,11 @@ export const SkinTest: React.FC = () => {
                 parentProductId={recommendedProductPreview.productId}
               />
             )}
-          </div>
+          </div>}
 
 
           {/* CTA 섹션 */}
-          <div className="mt-10 flex flex-col items-center gap-4">
+          {!(userId && selfieFirstFlow) && <div className="mt-10 flex flex-col items-center gap-4">
 
             {/* ── 비로그인: 회원가입 유도 배너 ── */}
             {!userId && (
@@ -2153,7 +2191,7 @@ export const SkinTest: React.FC = () => {
                 </button>
               )}
             </div>
-          </div>
+          </div>}
 
           {cartToast && (
             <div
