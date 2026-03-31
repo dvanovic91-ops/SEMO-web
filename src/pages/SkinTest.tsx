@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   QUESTIONS,
@@ -104,6 +104,84 @@ type SelfieAnalyzeResponse = {
   };
 };
 
+type PrecheckStats = {
+  stdBrightness: number;
+  edgeDensity: number;
+  satMean: number;
+  satP90: number;
+};
+
+function percentile(values: number[], q: number): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const pos = Math.max(0, Math.min(sorted.length - 1, Math.floor((q / 100) * (sorted.length - 1))));
+  return sorted[pos] ?? 0;
+}
+
+async function precheckSelfieFile(file: File): Promise<PrecheckStats | null> {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = () => reject(new Error('image-load-failed'));
+      im.src = objectUrl;
+    });
+    const w = 320;
+    const h = 320;
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(img, 0, 0, w, h);
+    const { data } = ctx.getImageData(0, 0, w, h);
+
+    const grayVals: number[] = [];
+    const satVals: number[] = [];
+    const gray2d = new Float32Array(w * h);
+    let i = 0;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++, i++) {
+        const off = i * 4;
+        const r = data[off] ?? 0;
+        const g = data[off + 1] ?? 0;
+        const b = data[off + 2] ?? 0;
+        const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+        gray2d[i] = gray;
+        grayVals.push(gray);
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        const sat = max === 0 ? 0 : ((max - min) / max) * 255;
+        satVals.push(sat);
+      }
+    }
+    const mean = grayVals.reduce((a, b) => a + b, 0) / grayVals.length;
+    const variance = grayVals.reduce((a, b) => a + (b - mean) * (b - mean), 0) / grayVals.length;
+    const stdBrightness = Math.sqrt(Math.max(0, variance));
+
+    let edgeCount = 0;
+    let sampleCount = 0;
+    for (let y = 1; y < h; y++) {
+      for (let x = 1; x < w; x++) {
+        const idx = y * w + x;
+        const gx = Math.abs(gray2d[idx] - gray2d[idx - 1]);
+        const gy = Math.abs(gray2d[idx] - gray2d[idx - w]);
+        if (gx + gy > 34) edgeCount++;
+        sampleCount++;
+      }
+    }
+    const edgeDensity = sampleCount > 0 ? edgeCount / sampleCount : 0;
+    const satMean = satVals.reduce((a, b) => a + b, 0) / satVals.length;
+    const satP90 = percentile(satVals, 90);
+    return { stdBrightness, edgeDensity, satMean, satP90 };
+  } catch {
+    return null;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
 /** analyze-text / analyze-text-with-selfie — 섹션 배열 또는 구형 문자열 */
 type AiAnalysisSection = { title: string; body: string };
 type AiAnalysisSections = { ko: AiAnalysisSection[]; ru: AiAnalysisSection[]; en: AiAnalysisSection[] };
@@ -113,6 +191,8 @@ function parseAiAnalysisApiPayload(payload: {
   ko?: unknown;
   ru?: unknown;
   en?: unknown;
+  sections?: unknown;
+  output_lang?: unknown;
 }): AiAnalysisSections | null {
   if (!payload.success) return null;
   const normLang = (v: unknown): AiAnalysisSection[] => {
@@ -130,9 +210,15 @@ function parseAiAnalysisApiPayload(payload: {
     if (typeof v === 'string' && v.trim()) return [{ title: '', body: v.trim() }];
     return [];
   };
+  const outputLang = String(payload.output_lang ?? '').toLowerCase();
   const ko = normLang(payload.ko);
-  const ru = normLang(payload.ru);
-  const en = normLang(payload.en);
+  let ru = normLang(payload.ru);
+  let en = normLang(payload.en);
+  const single = normLang(payload.sections);
+  if (single.length > 0) {
+    if (outputLang === 'en') en = single;
+    else ru = single;
+  }
   if (ko.length === 0 && ru.length === 0 && en.length === 0) return null;
   return { ko, ru, en };
 }
@@ -193,7 +279,6 @@ const ANSWERS_EN: [string, string][] = [
 const PROFILE_STEPS_EN = [
   { key: 'age', label: 'Your age?', options: [['Under 20', 'age_1'], ['20-25', 'age_2'], ['26-30', 'age_3'], ['31-35', 'age_4'], ['36-40', 'age_5'], ['41-45', 'age_6'], ['45+', 'age_7']] as [string, string][] },
   { key: 'gender', label: 'Your gender?', options: [['Female', 'gen_f'], ['Male', 'gen_m']] as [string, string][] },
-  { key: 'concern', label: 'Main skin concern?', options: [['Acne and breakouts', 'con_1'], ['Dryness and flaking', 'con_2'], ['Pigmentation and uneven tone', 'con_3'], ['Aging signs', 'con_4'], ['Excess oil shine', 'con_5']] as [string, string][] },
   { key: 'routine', label: 'How would you describe your skin routine?', options: [['Almost none', 'rut_1'], ['Basic routine only', 'rut_2'], ['Full routine', 'rut_3']] as [string, string][] },
   { key: 'source', label: 'How did you hear about us?', options: [['Instagram / Social media', 'src_ig'], ['Friend recommendation', 'src_friend'], ['Yandex search', 'src_yandex'], ['Marketplaces', 'src_market'], ['Other', 'src_other']] as [string, string][] },
 ] as const;
@@ -321,8 +406,13 @@ export const SkinTest: React.FC = () => {
   const [profileStep, setProfileStep] = useState(0);
   const [profileData, setProfileData] = useState<Record<string, string>>({});
   const [concernText, setConcernText] = useState('');
+  const [submittedConcernContext, setSubmittedConcernContext] = useState<{ profileCode: string; freeText: string } | null>(null);
   const [aiAnalysisText, setAiAnalysisText] = useState<AiAnalysisSections | null>(null);
   const [aiAnalysisLoading, setAiAnalysisLoading] = useState(false);
+  const [aiAnalysisError, setAiAnalysisError] = useState<string | null>(null);
+  const [aiRetrying, setAiRetrying] = useState(false);
+  /** 이전 결과 보기 시 DB 로드가 완료됐는지 여부 — 완료 전에는 에러 표시 금지 */
+  const [dbAiLoadDone, setDbAiLoadDone] = useState(false);
   const [selfieConsent, setSelfieConsent] = useState(false);
   const [selfieOpen, setSelfieOpen] = useState(false);
   const [selfieFirstFlow, setSelfieFirstFlow] = useState(false);
@@ -360,6 +450,7 @@ export const SkinTest: React.FC = () => {
   const [selfieAnalyzing, setSelfieAnalyzing] = useState(false);
   const [selfieAnalyzeError, setSelfieAnalyzeError] = useState<string | null>(null);
   const [selfieAnalyzeWarning, setSelfieAnalyzeWarning] = useState<string | null>(null);
+  const [selfiePrecheckWarning, setSelfiePrecheckWarning] = useState<string | null>(null);
   const [selfieAnalyzeResult, setSelfieAnalyzeResult] = useState<SelfieAnalyzeResponse | null>(null);
   const [selfieComparisonComment, setSelfieComparisonComment] = useState<string | null>(null);
   const [selfieUploadMenuOpen, setSelfieUploadMenuOpen] = useState(false);
@@ -372,12 +463,27 @@ export const SkinTest: React.FC = () => {
     setSelfieFile(f);
     setSelfieAnalyzeError(null);
     setSelfieAnalyzeWarning(null);
+    setSelfiePrecheckWarning(null);
     setSelfieAnalyzeResult(null);
     setSelfieComparisonComment(null);
     setSelfiePreviewUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return f ? URL.createObjectURL(f) : null;
     });
+    if (f) {
+      void precheckSelfieFile(f).then((stats) => {
+        if (!stats) return;
+        const looksFiltered = stats.stdBrightness < 30 && stats.edgeDensity < 0.06;
+        const heavyMakeup = stats.satMean > 95 && stats.satP90 > 185 && stats.edgeDensity < 0.09;
+        if (looksFiltered || heavyMakeup) {
+          setSelfiePrecheckWarning(
+            isEn
+              ? 'Warning: this photo may be over-retouched or heavily made up. Analysis can be less accurate. For best results, use no filter/beauty mode and minimal makeup.'
+              : 'Предупреждение: фото похоже на сильно ретушированное или с выраженным макияжем. Точность анализа может быть ниже. Для лучшего результата — без фильтров/beauty mode и с минимальным макияжем.',
+          );
+        }
+      });
+    }
     setSelfieUploadMenuOpen(false);
     e.target.value = '';
   };
@@ -386,8 +492,39 @@ export const SkinTest: React.FC = () => {
   const pendingSkinTestResultRowIdRef = useRef<string | null>(null);
   /** insert 완료 전에 셀피 분석이 끝난 경우 — 같은 행에 나중에 PATCH */
   const pendingSelfiePersistRef = useRef<Record<string, unknown> | null>(null);
+  /** insert 완료 전에 AI 섹션 생성이 끝난 경우 — 같은 행에 나중에 PATCH */
+  const pendingAiPersistRef = useRef<Record<string, unknown> | null>(null);
   /** DB에서 결과/셀피 스냅샷 1회 로드 (같은 키 중복 방지) */
   const persistedSkinLoadKeyRef = useRef<string>('');
+
+  /** rowId가 늦게 확정돼도 큐잉된 selfie/ai 저장을 재시도 */
+  const flushQueuedPersists = useCallback(async () => {
+    if (!supabase || !userId) return;
+    const rowId = pendingSkinTestResultRowIdRef.current;
+    if (!rowId) return;
+
+    const queuedSelfie = pendingSelfiePersistRef.current;
+    if (queuedSelfie) {
+      const { error } = await supabase
+        .from('skin_test_results')
+        .update({ selfie_analysis: queuedSelfie })
+        .eq('id', rowId)
+        .eq('user_id', userId);
+      if (!error) pendingSelfiePersistRef.current = null;
+      else console.error('[SkinTest] queued selfie_analysis retry flush:', error);
+    }
+
+    const queuedAi = pendingAiPersistRef.current;
+    if (queuedAi) {
+      const { error } = await supabase
+        .from('skin_test_results')
+        .update({ ai_analysis: queuedAi })
+        .eq('id', rowId)
+        .eq('user_id', userId);
+      if (!error) pendingAiPersistRef.current = null;
+      else console.error('[SkinTest] queued ai_analysis retry flush:', error);
+    }
+  }, [supabase, userId]);
 
   /** 프로필 «Посмотреть результат теста» → ?type=DSNW[&id=uuid]: 동일 결과지 UI
    *  id가 있으면 해당 skin_test_results 행(셀피·점수) 로드에 쓰도록 sessionStorage·pending ref 설정.
@@ -406,6 +543,7 @@ export const SkinTest: React.FC = () => {
         /* ignore */
       }
       pendingSkinTestResultRowIdRef.current = resultRowIdQueryParam;
+      void flushQueuedPersists();
     } else {
       try {
         sessionStorage.removeItem(SKIN_RESULT_ROW_STORAGE);
@@ -419,8 +557,24 @@ export const SkinTest: React.FC = () => {
       info: SKIN_INFO[raw],
       scores: approximateScoresFromSkinTypeCode(raw),
     });
+    setSubmittedConcernContext(null);
     setStage('result');
   }, [skinTypeQueryParam, resultRowIdQueryParam, resultRowIdFromQueryOk]);
+
+  useEffect(() => {
+    if (stage !== 'result') return;
+    let cancelled = false;
+    const tick = () => {
+      if (cancelled) return;
+      void flushQueuedPersists();
+    };
+    tick();
+    const timer = window.setInterval(tick, 1500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [stage, flushQueuedPersists]);
 
   /** 장바구니 토스트 */
   useEffect(() => {
@@ -529,11 +683,13 @@ export const SkinTest: React.FC = () => {
 
       if (cancelled) return;
       if (!row) {
+        setDbAiLoadDone(true);
         persistedSkinLoadKeyRef.current = loadKey;
         return;
       }
 
       pendingSkinTestResultRowIdRef.current = row.id;
+      void flushQueuedPersists();
 
       const ct = row.concern_text;
       if (typeof ct === 'string' && ct.trim()) setConcernText(ct.trim());
@@ -594,14 +750,16 @@ export const SkinTest: React.FC = () => {
           en: a.en,
         });
         if (parsed) setAiAnalysisText(parsed);
-        else setAiAnalysisText(null);
-      } else {
-        setAiAnalysisText(null);
       }
+      // 주의: DB 재조회 시점에 ai_analysis가 아직 비어 있을 수 있다.
+      // 이때 기존에 화면에 보이는 AI 결과를 null로 덮어쓰면
+      // "잘 보이다가 다시 풀백/로딩으로 돌아가는" 깜빡임이 발생하므로 유지한다.
 
+      setDbAiLoadDone(true);
       persistedSkinLoadKeyRef.current = loadKey;
       } catch (e) {
         console.error('[SkinTest] persisted skin row load:', e);
+        setDbAiLoadDone(true);
         persistedSkinLoadKeyRef.current = loadKey;
       }
     })();
@@ -609,7 +767,7 @@ export const SkinTest: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [stage, result?.type, resultSyncNonce, userId, resultRowIdQueryParam, resultRowIdFromQueryOk]);
+  }, [stage, result?.type, resultSyncNonce, userId, resultRowIdQueryParam, resultRowIdFromQueryOk, flushQueuedPersists]);
 
   /** 쿠폰 0이 되면 열린 셀카 패널 닫기 */
   useEffect(() => {
@@ -619,6 +777,14 @@ export const SkinTest: React.FC = () => {
   useEffect(() => {
     if (!selfieOpen) setSelfieUploadMenuOpen(false);
   }, [selfieOpen]);
+
+  // 결과 화면 노출 규칙:
+  // - 테스트 마지막 단계의 셀피 우선 플로우(selfieFirstFlow)에서는 펼침
+  // - 일반 결과지에서는 접힘
+  useEffect(() => {
+    if (stage !== 'result') return;
+    setSelfieOpen(!!selfieFirstFlow);
+  }, [stage, selfieFirstFlow]);
 
   /** 회원: 셀카 분석 쿠폰 잔액(Supabase selfie_coupon_balances) */
   useEffect(() => {
@@ -780,6 +946,13 @@ export const SkinTest: React.FC = () => {
             } | null;
             const hasSkuImage = !!sku?.image_url;
             const parts = getSkuCompositionDisplayParts(sku);
+            const keyIngredients = Array.isArray(sku?.key_ingredients_desc)
+              ? sku!.key_ingredients_desc
+                  .map((x) => String(x?.name ?? '').trim())
+                  .filter((v): v is string => v.length > 0)
+                  .slice(0, 5)
+                  .join(', ')
+              : null;
             return {
               id: String(c.id),
               sku_id: typeof c.sku_id === 'string' ? c.sku_id : null,
@@ -801,6 +974,8 @@ export const SkinTest: React.FC = () => {
               marketing_claim_ru: parts.ru.claim,
               marketing_claim_en: parts.en.claim,
               product_type: sku?.product_type ?? null,
+              is_customized: Boolean(c.is_customized),
+              key_ingredients: keyIngredients,
             };
           });
 
@@ -825,21 +1000,49 @@ export const SkinTest: React.FC = () => {
     };
   }, [result?.type, language]);
 
-  /** 테스트 직후에만 AI 분석 호출. 프로필 «이전 결과»(?type=)로 열면 매번 Generating 하지 않고 정적 설명 사용 */
+  /** AI 분석 호출:
+   * - 새 테스트 결과(쿼리 없음): 1회 생성 허용
+   * - 이전 테스트 결과(?type=...): 재호출 금지, DB 저장본만 사용
+   */
   useEffect(() => {
     if (!result?.type) {
       setAiAnalysisText(null);
       setAiAnalysisLoading(false);
+      setAiAnalysisError(null);
+      setDbAiLoadDone(false);
       return;
     }
-    if (skinTypeQueryParam && skinTypeQueryParam === result.type) {
+    // 이미 화면에 AI 결과가 있으면 같은 결과에 대해 재호출하지 않는다.
+    // (의존성 변경/DB 재동기화 타이밍으로 텍스트가 계속 바뀌는 현상 방지)
+    if (aiAnalysisText) {
       setAiAnalysisLoading(false);
-      /* aiAnalysisText·셀피 수치는 DB 로드 effect가 채움 — 여기서 지우면 복원이 사라짐 */
+      setAiAnalysisError(null);
+      return;
+    }
+    // 이전 테스트 결과 보기에서는 API 재생성을 금지하고 DB 저장본만 사용
+    // DB 로드가 아직 완료되지 않은 경우 로딩 표시하며 대기 (레이스 컨디션 방지)
+    if (skinTypeQueryParam) {
+      if (!dbAiLoadDone) {
+        setAiAnalysisLoading(true);
+        setAiAnalysisError(null);
+        return;
+      }
+      // DB 로드 완료 후에도 AI 텍스트가 없을 때만 에러 표시
+      setAiAnalysisLoading(false);
+      setAiRetrying(false);
+      if (!aiAnalysisText) {
+        setAiAnalysisError(
+          isEn
+            ? 'Saved AI text is not available for this result.'
+            : 'Для этого результата сохранённый AI-текст отсутствует.',
+        );
+      }
       return;
     }
     let cancelled = false;
     setAiAnalysisLoading(true);
-    setAiAnalysisText(null);
+    setAiAnalysisError(null);
+    setAiRetrying(false);
     (async () => {
       try {
         const preview = recommendedProductPreview;
@@ -854,43 +1057,92 @@ export const SkinTest: React.FC = () => {
                 .join(', ')
             : '';
         const concernMetricFocus = buildConcernMetricFocusForApi(profileData.concern, concernText || '');
-        const res = await fetch(`${skinApiBase}/analyze-text`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            skin_type: result.type,
-            concern_text: concernText || '',
-            country,
-            age_code: profileData.age ?? 'age_3',
-            baumann_scores: result.scores,
-            ...(recName ? { recommended_product_name: recName } : {}),
-            ...(compHint ? { composition_product_types: compHint } : {}),
-            ...(concernMetricFocus ? { concern_metric_focus: concernMetricFocus } : {}),
-          }),
-        });
-        const payload = await res.json() as { success?: boolean; ko?: unknown; ru?: unknown; en?: unknown };
-        const parsed = parseAiAnalysisApiPayload(payload);
+        const customizedProducts =
+          preview?.status === 'ok' && Array.isArray(preview.composition)
+            ? preview.composition
+                .filter((c) => c.is_customized)
+                .slice(0, 3)
+                .map((c) => ({
+                  name: String(c.name ?? '').trim(),
+                  product_type: String(c.product_type ?? '').trim(),
+                  key_ingredients: String(c.key_ingredients ?? '').trim(),
+                  is_customized: true,
+                }))
+                .filter((c) => c.name.length > 0)
+            : [];
+        const outputLang = isEn ? 'en' : 'ru';
+        let parsed: AiAnalysisSections | null = null;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            const res = await fetch(`${skinApiBase}/analyze-text`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                skin_type: result.type,
+                concern_text: concernText || '',
+                country,
+                age_code: profileData.age ?? 'age_3',
+                baumann_scores: result.scores,
+                output_lang: outputLang,
+                ...(recName ? { recommended_product_name: recName } : {}),
+                ...(compHint ? { composition_product_types: compHint } : {}),
+                ...(customizedProducts.length > 0 ? { customized_products: customizedProducts } : {}),
+                ...(concernMetricFocus ? { concern_metric_focus: concernMetricFocus } : {}),
+              }),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const payload = await res.json() as {
+              success?: boolean;
+              ko?: unknown;
+              ru?: unknown;
+              en?: unknown;
+              sections?: unknown;
+              output_lang?: unknown;
+            };
+            parsed = parseAiAnalysisApiPayload(payload);
+            if (parsed) break;
+            throw new Error('empty-ai-payload');
+          } catch {
+            if (attempt === 0 && !cancelled) {
+              setAiRetrying(true);
+              await new Promise((r) => setTimeout(r, 600));
+              continue;
+            }
+            throw new Error('analyze-text-failed');
+          }
+        }
         if (!cancelled && parsed) {
           setAiAnalysisText(parsed);
+          setAiAnalysisError(null);
+          const aiPersist = {
+            en: parsed.en,
+            ru: parsed.ru,
+            ko: parsed.ko,
+          };
           const rowId = pendingSkinTestResultRowIdRef.current;
           if (supabase && userId && rowId) {
             void supabase
               .from('skin_test_results')
               .update({
-                ai_analysis: {
-                  en: parsed.en,
-                  ru: parsed.ru,
-                  ko: parsed.ko,
-                },
+                ai_analysis: aiPersist,
               })
               .eq('id', rowId)
               .eq('user_id', userId);
+          } else {
+            pendingAiPersistRef.current = aiPersist;
           }
+        } else if (!cancelled) {
+          setAiAnalysisError(isEn ? 'AI analysis could not be generated.' : 'Не удалось сформировать AI-анализ.');
         }
       } catch {
-        // 실패해도 하드코딩 텍스트로 폴백
+        if (!cancelled) {
+          setAiAnalysisError(isEn ? 'AI analysis request failed.' : 'Ошибка запроса AI-анализа.');
+        }
       } finally {
-        if (!cancelled) setAiAnalysisLoading(false);
+        if (!cancelled) {
+          setAiRetrying(false);
+          setAiAnalysisLoading(false);
+        }
       }
     })();
     return () => {
@@ -900,6 +1152,7 @@ export const SkinTest: React.FC = () => {
   }, [
     result?.type,
     skinTypeQueryParam,
+    dbAiLoadDone,
     userId,
     concernText,
     profileData.concern,
@@ -951,6 +1204,7 @@ export const SkinTest: React.FC = () => {
     // 피부 고민 입력 완료 → 로그인 사용자는 셀피 업로드 우선 플로우
     if (userId && (selfieCouponCount ?? 0) > 0) {
       setSelfieFirstFlow(true);
+      // 마지막 단계 업로드 유도는 펼친 상태로 시작
       setSelfieOpen(true);
     }
     handleFinalSubmit();
@@ -1009,6 +1263,10 @@ export const SkinTest: React.FC = () => {
         concerns: [] as string[],
         avoid: '',
       };
+      setSubmittedConcernContext({
+        profileCode: String(profileData.concern ?? '').trim(),
+        freeText: String(concernText ?? '').trim(),
+      });
       setResult({ type, info, scores });
       persistedSkinLoadKeyRef.current = '';
       setSelfieAnalyzeError(null);
@@ -1050,6 +1308,7 @@ export const SkinTest: React.FC = () => {
               }
               if (data?.id) {
                 pendingSkinTestResultRowIdRef.current = data.id;
+                void flushQueuedPersists();
                 try {
                   sessionStorage.setItem(SKIN_RESULT_ROW_STORAGE, data.id);
                 } catch {
@@ -1065,6 +1324,18 @@ export const SkinTest: React.FC = () => {
                     .eq('user_id', userId)
                     .then(({ error: upErr }) => {
                       if (upErr) console.error('[SkinTest] queued selfie_analysis flush:', upErr);
+                    });
+                }
+                const queuedAi = pendingAiPersistRef.current;
+                if (queuedAi) {
+                  pendingAiPersistRef.current = null;
+                  void supabase
+                    .from('skin_test_results')
+                    .update({ ai_analysis: queuedAi })
+                    .eq('id', data.id)
+                    .eq('user_id', userId)
+                    .then(({ error: upErr }) => {
+                      if (upErr) console.error('[SkinTest] queued ai_analysis flush:', upErr);
                     });
                 }
                 setResultSyncNonce((n) => n + 1);
@@ -1169,6 +1440,7 @@ export const SkinTest: React.FC = () => {
         if (warningText && String(warningText).trim()) setSelfieAnalyzeWarning(String(warningText).trim());
       }
       setSelfieAnalyzeResult(payload);
+      setSelfieOpen(false);
 
       const selfiePersist = {
         analyzed_at: new Date().toISOString(),
@@ -1182,6 +1454,7 @@ export const SkinTest: React.FC = () => {
           const sid = sessionStorage.getItem(SKIN_RESULT_ROW_STORAGE);
           if (sid && SKIN_TEST_RESULT_ROW_UUID_RE.test(sid)) {
             pendingSkinTestResultRowIdRef.current = sid;
+            void flushQueuedPersists();
             return sid;
           }
         } catch {
@@ -1194,6 +1467,7 @@ export const SkinTest: React.FC = () => {
             const sid = sessionStorage.getItem(SKIN_RESULT_ROW_STORAGE);
             if (sid && SKIN_TEST_RESULT_ROW_UUID_RE.test(sid)) {
               pendingSkinTestResultRowIdRef.current = sid;
+              void flushQueuedPersists();
               return sid;
             }
           } catch {
@@ -1217,6 +1491,7 @@ export const SkinTest: React.FC = () => {
 
       /* 설문 문단을 셀피 수치·코멘트와 한 흐름으로 재생성 (실패 시 기존 aiAnalysisText 유지). ?type= 프로필 진입 후 셀피도 동일 */
       setPostSelfieUnifiedLoading(true);
+      setAiRetrying(false);
       try {
         const pv = recommendedProductPreviewRef.current;
         const recName = pv?.status === 'ok' && pv.name?.trim() ? pv.name.trim() : '';
@@ -1229,46 +1504,92 @@ export const SkinTest: React.FC = () => {
                 .join(', ')
             : '';
         const concernMetricFocusSelfie = buildConcernMetricFocusForApi(profileData.concern, concernText || '');
-        const uniRes = await fetch(`${skinApiBase}/analyze-text-with-selfie`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            skin_type: result.type,
-            concern_text: concernText || '',
-            country,
-            age_code: profileData.age ?? 'age_3',
-            baumann_scores: result.scores,
-            skin_metrics: payload.skin_metrics ?? {},
-            gemini_selfie_en: payload.gemini_analysis?.en?.analysis ?? '',
-            gemini_selfie_ru: payload.gemini_analysis?.ru?.analysis ?? '',
-            gemini_selfie_ko: payload.gemini_analysis?.ko?.analysis ?? '',
-            ...(recName ? { recommended_product_name: recName } : {}),
-            ...(compHint ? { composition_product_types: compHint } : {}),
-            ...(concernMetricFocusSelfie ? { concern_metric_focus: concernMetricFocusSelfie } : {}),
-          }),
-        });
-        const uni = (await uniRes.json()) as { success?: boolean; ko?: unknown; ru?: unknown; en?: unknown };
-        const uniParsed = parseAiAnalysisApiPayload(uni);
+        const customizedProducts =
+          pv?.status === 'ok' && Array.isArray(pv.composition)
+            ? pv.composition
+                .filter((c) => c.is_customized)
+                .slice(0, 3)
+                .map((c) => ({
+                  name: String(c.name ?? '').trim(),
+                  product_type: String(c.product_type ?? '').trim(),
+                  key_ingredients: String(c.key_ingredients ?? '').trim(),
+                  is_customized: true,
+                }))
+                .filter((c) => c.name.length > 0)
+            : [];
+        const outputLang = isEn ? 'en' : 'ru';
+        let uniParsed: AiAnalysisSections | null = null;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            const uniRes = await fetch(`${skinApiBase}/analyze-text-with-selfie`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                skin_type: result.type,
+                concern_text: concernText || '',
+                country,
+                age_code: profileData.age ?? 'age_3',
+                baumann_scores: result.scores,
+                output_lang: outputLang,
+                skin_metrics: payload.skin_metrics ?? {},
+                gemini_selfie_en: payload.gemini_analysis?.en?.analysis ?? '',
+                gemini_selfie_ru: payload.gemini_analysis?.ru?.analysis ?? '',
+                gemini_selfie_ko: payload.gemini_analysis?.ko?.analysis ?? '',
+                ...(recName ? { recommended_product_name: recName } : {}),
+                ...(compHint ? { composition_product_types: compHint } : {}),
+                ...(customizedProducts.length > 0 ? { customized_products: customizedProducts } : {}),
+                ...(concernMetricFocusSelfie ? { concern_metric_focus: concernMetricFocusSelfie } : {}),
+              }),
+            });
+            if (!uniRes.ok) throw new Error(`HTTP ${uniRes.status}`);
+            const uni = (await uniRes.json()) as {
+              success?: boolean;
+              ko?: unknown;
+              ru?: unknown;
+              en?: unknown;
+              sections?: unknown;
+              output_lang?: unknown;
+            };
+            uniParsed = parseAiAnalysisApiPayload(uni);
+            if (uniParsed) break;
+            throw new Error('empty-ai-payload');
+          } catch {
+            if (attempt === 0) {
+              setAiRetrying(true);
+              await new Promise((r) => setTimeout(r, 600));
+              continue;
+            }
+            throw new Error('analyze-text-with-selfie-failed');
+          }
+        }
         if (uniParsed) {
           setAiAnalysisText(uniParsed);
+          setAiAnalysisError(null);
+          const aiPersist = {
+            en: uniParsed.en,
+            ru: uniParsed.ru,
+            ko: uniParsed.ko,
+          };
           const rowId = pendingSkinTestResultRowIdRef.current;
           if (supabase && userId && rowId) {
             void supabase
               .from('skin_test_results')
               .update({
-                ai_analysis: {
-                  en: uniParsed.en,
-                  ru: uniParsed.ru,
-                  ko: uniParsed.ko,
-                },
+                ai_analysis: aiPersist,
               })
               .eq('id', rowId)
               .eq('user_id', userId);
+          } else {
+            pendingAiPersistRef.current = aiPersist;
           }
+        } else {
+          setAiAnalysisError(isEn ? 'AI analysis could not be generated.' : 'Не удалось сформировать AI-анализ.');
         }
       } catch (uErr) {
         console.warn('[SkinTest] analyze-text-with-selfie:', uErr);
+        setAiAnalysisError(isEn ? 'AI analysis request failed.' : 'Ошибка запроса AI-анализа.');
       } finally {
+        setAiRetrying(false);
         setPostSelfieUnifiedLoading(false);
       }
 
@@ -1451,7 +1772,12 @@ export const SkinTest: React.FC = () => {
             {isEn ? (
               <>"Even expensive skincare is useless if it does not match your skin.<br />Take the test to avoid wasting money and get an expert care plan."</>
             ) : (
-              '«Даже дорогой уход бесполезен, если он не подходит вашей коже. Пройдите тест, чтобы не тратить лишнего и получить экспертный план ухода!»'
+              <>
+                «Даже дорогой уход бесполезен, если он не подходит вашей коже.»
+                <br className="hidden md:block" />
+                {' '}
+                Пройдите тест, чтобы не тратить лишнего и получить экспертный план ухода!
+              </>
             )}
           </p>
 
@@ -1702,10 +2028,16 @@ export const SkinTest: React.FC = () => {
       scores,
       selfieAnalyzeResult?.skin_metrics ?? null,
       isEn,
+      concernText,
     );
     const aiDisplaySections = aiAnalysisText
       ? pickDisplaySections(aiAnalysisText, isEn).filter((sec) => sec.title.trim() || sec.body.trim())
       : [];
+    const waitingForAiSections = aiDisplaySections.length === 0 && (aiAnalysisLoading || postSelfieUnifiedLoading);
+    const concernContext = submittedConcernContext ?? {
+      profileCode: String(profileData.concern ?? '').trim(),
+      freeText: String(concernText ?? '').trim(),
+    };
     return (
       <main className="min-h-screen bg-white px-4 py-8 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-4xl">
@@ -1745,40 +2077,36 @@ export const SkinTest: React.FC = () => {
               scores={scores}
               skinMetrics={selfieAnalyzeResult?.skin_metrics ?? null}
               isEn={isEn}
-              concernProfileCode={profileData.concern}
-              concernFreeText={concernText}
+              concernProfileCode={concernContext.profileCode}
+              concernFreeText={concernContext.freeText}
               ageCode={profileData.age ?? undefined}
             />
           )}
 
-          {/* AI 텍스트 없을 때만 "Кратко" 박스 표시 */}
-          {!(userId && selfieFirstFlow) && aiDisplaySections.length === 0 && !aiAnalysisLoading && !postSelfieUnifiedLoading && (
-            <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/90 px-3 py-3 sm:px-4 sm:py-4">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                {isEn ? 'Your snapshot in plain words' : 'Кратко о текущем профиле'}
+          {/* AI 준비 전에는 폴백 카드 대신 로딩 안내만 노출 */}
+          {!(userId && selfieFirstFlow) && waitingForAiSections && (
+            <div className="mt-4 rounded-xl border border-brand/20 bg-brand-soft/30 px-3 py-3 sm:px-4 sm:py-4">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-brand">
+                {isEn ? 'Analysis in progress' : 'Идёт анализ'}
               </p>
-              <p className="mt-2 text-sm leading-relaxed text-slate-700">{stateSummaryParagraph}</p>
-              <p className="mt-2 text-[11px] leading-snug text-slate-500">
+              <p className="mt-2 text-sm leading-relaxed text-slate-700">
                 {isEn
-                  ? 'This is a lifestyle-oriented summary from your answers and optional photo signals—not a medical diagnosis.'
-                  : 'Это бытовое резюме по ответам и (если есть) фото, а не медицинский диагноз.'}
+                  ? 'Generating your personalized result now. This may take 1-2 minutes.'
+                  : 'Формируем персональный результат. Это может занять 1-2 минуты.'}
               </p>
+              {aiRetrying && (
+                <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                  {isEn
+                    ? 'Network signal looks weak, retrying once now...'
+                    : 'Сигнал сети выглядит слабым, пробуем ещё раз...'}
+                </p>
+              )}
             </div>
           )}
 
           {/* AI 분석 섹션 */}
           {!(userId && selfieFirstFlow) && <div className="mt-3 space-y-3">
-            {postSelfieUnifiedLoading ? (
-              <p className="animate-pulse text-sm text-slate-400">
-                {isEn
-                  ? 'Merging your photo signals into your analysis…'
-                  : 'Объединяем данные селфи с анализом…'}
-              </p>
-            ) : aiAnalysisLoading ? (
-              <p className="animate-pulse text-sm text-slate-400">
-                {isEn ? 'Generating personalised analysis…' : 'Генерируем персональный анализ…'}
-              </p>
-            ) : aiAnalysisText && aiDisplaySections.length > 0 ? (
+            {aiAnalysisText && aiDisplaySections.length > 0 ? (
               <>
                 {aiDisplaySections.map((sec, idx) => {
                   const isLast = idx === aiDisplaySections.length - 1;
@@ -1791,58 +2119,94 @@ export const SkinTest: React.FC = () => {
                       className="rounded-xl border border-slate-100 bg-slate-50/90 px-3 py-3 sm:px-4 sm:py-4"
                     >
                       <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{kicker}</p>
-                      <p className="mt-2 text-sm leading-relaxed text-slate-700">{sec.body}</p>
-                      {/* 마지막 섹션 아래 제품 연결 화살표 */}
-                      {isLast && (recommendedProductPreview?.status === 'ok') && (
-                        <div className="mt-3 flex items-center gap-2 border-t border-slate-100 pt-3">
-                          <span className="text-[11px] font-medium text-slate-400">
-                            {isEn ? 'Your SEMO pick for this routine ↓' : '\u0412\u0430\u0448 \u043f\u0435\u0440\u0441\u043e\u043d\u0430\u043b\u044c\u043d\u044b\u0439 \u0432\u044b\u0431\u043e\u0440 SEMO \u0434\u043b\u044f \u044d\u0442\u043e\u0433\u043e \u0443\u0445\u043e\u0434\u0430 \u2193'}
-                          </span>
-                        </div>
+                      <div className="mt-2 space-y-2">
+                        {String(sec.body || '')
+                          .split(/\n\s*\n/g)
+                          .map((para) => para.trim())
+                          .filter(Boolean)
+                          .map((para, pIdx) => (
+                            <p key={`sec-${idx}-p-${pIdx}`} className="text-sm leading-relaxed text-slate-700">
+                              {para}
+                            </p>
+                          ))}
+                      </div>
+                      {idx === 0 && (
+                        <p className="mt-2 text-[11px] leading-snug text-slate-400">
+                          {isEn
+                            ? 'This reflects skin tendencies, not a medical diagnosis.'
+                            : 'Это профиль тенденций, а не медицинский диагноз.'}
+                        </p>
                       )}
                     </div>
                   );
                 })}
               </>
+            ) : (!waitingForAiSections && aiAnalysisError ? (
+              <div className="rounded-xl border border-rose-200 bg-rose-50/80 px-3 py-3 sm:px-4 sm:py-4">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-rose-700">
+                  {isEn ? 'Analysis failed' : 'Ошибка анализа'}
+                </p>
+                <p className="mt-2 text-sm leading-relaxed text-rose-700">
+                  {aiAnalysisError}
+                </p>
+              </div>
             ) : (
-              <>
-                <div className="rounded-xl border border-slate-100 bg-slate-50/90 px-3 py-3 sm:px-4 sm:py-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                    {isEn ? 'Your skin type' : '\u0412\u0430\u0448 \u0442\u0438\u043f \u043a\u043e\u0436\u0438'}
+              <div className="rounded-xl border border-brand/20 bg-brand-soft/30 px-3 py-3 sm:px-4 sm:py-4">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-brand">
+                  {isEn ? 'Analysis in progress' : 'Идёт анализ'}
+                </p>
+                <p className="mt-2 text-sm leading-relaxed text-slate-700">
+                  {isEn
+                    ? 'Preparing your final personalized result...'
+                    : 'Подготавливаем ваш персональный результат...'}
+                </p>
+                {aiRetrying && (
+                  <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                    {isEn
+                      ? 'Network signal looks weak, retrying once now...'
+                      : 'Сигнал сети выглядит слабым, пробуем ещё раз...'}
                   </p>
-                  <p className="mt-2 text-sm leading-relaxed text-slate-700">
-                    {isEn ? englishResultDesc(type) : stripSkinDescTrailingEmojiRu(info.desc)}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-slate-100 bg-slate-50/90 px-3 py-3 sm:px-4 sm:py-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                    {isEn ? 'Care recommendations' : '\u0420\u0435\u043a\u043e\u043c\u0435\u043d\u0434\u0430\u0446\u0438\u0438 \u043f\u043e \u0443\u0445\u043e\u0434\u0443'}
-                  </p>
-                  <p className="mt-2 text-sm leading-relaxed text-slate-500">
-                    {skinCareNote(type, scores, isEn)}
-                  </p>
-                </div>
-              </>
-            )}
+                )}
+              </div>
+            ))}
           </div>}
 
-          {/* ── 셀카: 쿠폰 1장 이상일 때만 노출 (잔여 0이면 안내만) ── */}
-          {userId && selfieCouponCount !== null && (
+          {/* ── 셀카 업로드 박스: 최초 분석 전/셀피 우선 단계에서만 노출 ── */}
+          {userId && selfieCouponCount !== null && (selfieFirstFlow || !selfieAnalyzeResult) && (
             <div className={selfieFirstFlow ? 'mx-auto mt-0 w-full max-w-4xl' : 'mt-3'}>
               {selfieCouponCount > 0 && !selfieOpen ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-xs text-slate-400">
+                <div className="rounded-xl border border-brand/20 bg-brand-soft/25 px-4 py-4 sm:px-5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm font-semibold tracking-wide text-brand">
+                      {isEn ? 'Selfie-based analysis' : 'Анализ по селфи'}
+                    </p>
+                    <span className="rounded-full bg-white/80 px-2.5 py-1 text-[11px] font-medium text-slate-500 ring-1 ring-slate-200/80">
+                      {isEn
+                        ? `${selfieCouponCount} coupon${selfieCouponCount > 1 ? 's' : ''} left`
+                        : `Купонов: ${selfieCouponCount}`}
+                    </span>
+                  </div>
+
+                  <p className="mt-2 text-sm leading-relaxed text-slate-700">
                     {isEn
-                      ? `Selfie deep-scan · ${selfieCouponCount} coupon${selfieCouponCount > 1 ? 's' : ''} left`
-                      : `Детальный анализ по селфи · купонов: ${selfieCouponCount}`}
+                      ? 'Get a more detailed skin diagnosis with one selfie upload.'
+                      : 'Получите более детальный анализ кожи на основе селфи.'}
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => setSelfieOpen(true)}
-                    className="text-xs font-medium text-brand hover:underline"
-                  >
-                    {isEn ? 'Upload photo →' : 'Загрузить фото →'}
-                  </button>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                    {isEn
+                      ? 'Adds photo signals for redness, tone unevenness, texture and T-zone shine.'
+                      : 'Добавляет фото-сигналы по покраснению, неровности тона, текстуре и блеску T-зоны.'}
+                  </p>
+
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={() => setSelfieOpen(true)}
+                      className="inline-flex items-center rounded-full border border-brand/25 bg-white px-3 py-1.5 text-xs font-medium text-brand transition hover:bg-brand hover:text-white"
+                    >
+                      {isEn ? 'Get selfie-based analysis' : 'Получить анализ по селфи'}
+                    </button>
+                  </div>
                 </div>
               ) : selfieCouponCount > 0 ? (
                 <div className="rounded-xl border border-brand/20 bg-brand-soft/25 px-4 py-5 sm:px-5">
@@ -1898,6 +2262,11 @@ export const SkinTest: React.FC = () => {
                           <p className="mt-2 text-center text-[10px] font-semibold text-slate-600">
                             {isEn ? 'Your photo' : 'Ваше фото'}
                           </p>
+                          {selfiePrecheckWarning && (
+                            <p className="mt-1 whitespace-pre-line text-center text-[10px] leading-snug text-red-600">
+                              {selfiePrecheckWarning}
+                            </p>
+                          )}
                           {selfieAnalyzeWarning && (
                             <p className="mt-1 whitespace-pre-line text-center text-[10px] leading-snug text-red-600">
                               {selfieAnalyzeWarning}
@@ -2036,14 +2405,6 @@ export const SkinTest: React.FC = () => {
                           : 'Анализ'}
                     </button>
                   </div>
-                  {selfieAnalyzing && (
-                    <p className="mt-2 text-xs leading-snug text-brand">
-                      {isEn
-                        ? 'Analysing your selfie now. This can take up to 1-2 minutes.'
-                        : 'Идёт анализ фото. Это может занять до 1-2 минут.'}
-                    </p>
-                  )}
-
                   {selfieAnalyzeError && <p className="mt-2 text-xs text-red-500">{selfieAnalyzeError}</p>}
 
                   {selfieAnalyzeResult?.gemini_analysis && (
@@ -2057,9 +2418,6 @@ export const SkinTest: React.FC = () => {
                     </div>
                   )}
 
-                  {selfieComparisonComment && (
-                    <p className="mt-3 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700">{selfieComparisonComment}</p>
-                  )}
                 </div>
               ) : null}
               {selfieFirstFlow && (
@@ -2199,6 +2557,17 @@ export const SkinTest: React.FC = () => {
               role="status"
             >
               {isEn ? 'Added to cart' : 'Добавлен в корзину'}
+            </div>
+          )}
+          {selfieAnalyzing && (
+            <div
+              className="fixed left-1/2 top-1/2 z-50 w-[min(26rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-slate-200 bg-slate-900 px-4 py-3 text-center text-sm font-medium text-white shadow-lg"
+              role="status"
+              aria-live="polite"
+            >
+              {isEn
+                ? 'Analysing your selfie. This can take up to 1-2 minutes.'
+                : 'Идёт анализ фото. Это может занять до 1-2 минут.'}
             </div>
           )}
         </div>
