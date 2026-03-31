@@ -26,6 +26,7 @@ import { getSkinApiBaseUrl } from '../lib/skinApiBaseUrl';
 import { SkinResultMetricsCharts } from '../components/SkinResultMetricsCharts';
 import { buildConcernMetricFocusForApi } from '../lib/concernMetricHighlight';
 import { selfieAnalysisToClientState } from '../lib/skinTestSelfie';
+import { buildSkinStateSummaryParagraph } from '../lib/skinTestStateSummary';
 
 const MAX_TEST_COUNT = 2;
 
@@ -86,6 +87,12 @@ type SelfieAnalyzeResponse = {
     pigment_unevenness?: number;
     texture_roughness?: number;
     oiliness_index?: number;
+    /** 트러블/뾰루지 */
+    blemishes_index?: number;
+    /** 칙칙함/광채 부족 */
+    dullness_index?: number;
+    /** 잔결/탄력 — 27세 이상만 표시 */
+    fine_lines_index?: number;
   };
   gemini_analysis?: {
     ko?: { analysis?: string };
@@ -1675,6 +1682,11 @@ export const SkinTest: React.FC = () => {
   // ─── 결과: SKIN_INFO 기반 럭셔리 결과 화면 (화이트 & 오렌지) ───
   if (stage === 'result' && result) {
     const { type, info, scores } = result;
+    const stateSummaryParagraph = buildSkinStateSummaryParagraph(
+      scores,
+      selfieAnalyzeResult?.skin_metrics ?? null,
+      isEn,
+    );
     const aiDisplaySections = aiAnalysisText
       ? pickDisplaySections(aiAnalysisText, isEn).filter((sec) => sec.title.trim() || sec.body.trim())
       : [];
@@ -1718,7 +1730,20 @@ export const SkinTest: React.FC = () => {
             isEn={isEn}
             concernProfileCode={profileData.concern}
             concernFreeText={concernText}
+            ageCode={profileData.age ?? undefined}
           />
+
+          <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/90 px-3 py-3 sm:px-4 sm:py-4">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+              {isEn ? 'Your snapshot in plain words' : 'Кратко о текущем профиле'}
+            </p>
+            <p className="mt-2 text-sm leading-relaxed text-slate-700">{stateSummaryParagraph}</p>
+            <p className="mt-2 text-[11px] leading-snug text-slate-500">
+              {isEn
+                ? 'This is a lifestyle-oriented summary from your answers and optional photo signals—not a medical diagnosis.'
+                : 'Это бытовое резюме по ответам и (если есть) фото, а не медицинский диагноз.'}
+            </p>
+          </div>
 
           {/* 설명 — AI 텍스트 우선, 없으면 하드코딩 폴백 */}
           <div className="mt-5 py-3">
@@ -1796,8 +1821,8 @@ export const SkinTest: React.FC = () => {
 
                   <p className="text-sm leading-relaxed text-slate-700">
                     {isEn
-                      ? 'Semo AI will measure redness, pigmentation, texture and oiliness with exact scores.'
-                      : 'Semo AI измерит покраснение, пигментацию, текстуру и жирность с точными показателями.'}
+                      ? 'Semo AI reads your photo for redness, tone unevenness, texture and T-zone shine and adds them to the chart above—signals depend on lighting and angle.'
+                      : 'Semo AI оценивает по фото покраснение, неровность тона, текстуру и блеск T-зоны и отражает это на диаграмме выше — сигналы зависят от света и ракурса.'}
                   </p>
 
                   {selfieCouponNotice && (
@@ -1975,25 +2000,6 @@ export const SkinTest: React.FC = () => {
 
                   {selfieAnalyzeError && <p className="mt-2 text-xs text-red-500">{selfieAnalyzeError}</p>}
 
-                  {selfieAnalyzeResult?.skin_metrics && (
-                    <div className="mt-4 border-t border-brand/10 pt-4">
-                      <p className="mb-2 text-sm font-medium tracking-wide text-brand">
-                        {isEn ? 'Semo AI metrics' : 'Semo AI метрики'}
-                      </p>
-                      <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-slate-600">
-                        <span>{isEn ? 'Redness' : 'Покраснение'} — {selfieAnalyzeResult.skin_metrics.redness_index ?? 0}/100</span>
-                        <span>{isEn ? 'Pigmentation' : 'Пигментация'} — {selfieAnalyzeResult.skin_metrics.pigment_unevenness ?? 0}/100</span>
-                        <span>{isEn ? 'Texture' : 'Текстура'} — {selfieAnalyzeResult.skin_metrics.texture_roughness ?? 0}/100</span>
-                        <span>{isEn ? 'Oiliness' : 'Жирность'} — {selfieAnalyzeResult.skin_metrics.oiliness_index ?? 0}/100</span>
-                      </div>
-                      <p className="mt-2 text-[11px] leading-snug text-slate-500">
-                        {isEn
-                          ? 'These numbers come from your photo (image signals), not a medical diagnosis. Higher means that feature looks stronger in the picture—e.g. more redness, uneven pigment, rougher texture, or oilier shine. 100 often means the model hit its upper cap for that signal; use them together with your Baumann type below, not alone.'
-                          : 'Это оценки по фото (сигналы изображения), не медицинский диагноз. Чем выше значение, тем сильнее визуально выражен признак (покраснение, неровный пигмент, текстура, блеск). 100 часто означает верхнюю границу модели; опирайтесь на них вместе с типом Baumann ниже.'}
-                      </p>
-                    </div>
-                  )}
-
                   {selfieAnalyzeResult?.gemini_analysis && (
                     <div className="mt-4 border-t border-brand/10 pt-4">
                       <p className="mb-1.5 text-sm font-medium tracking-wide text-brand">
@@ -2096,8 +2102,8 @@ export const SkinTest: React.FC = () => {
                 </p>
                 <p className="mt-2 text-sm leading-relaxed text-slate-600">
                   {isEn
-                    ? 'Sign up and upload your selfie to get a detailed AI skin analysis with Semo AI metrics, personalised product reasons, and progress tracking.'
-                    : 'Зарегистрируйтесь и загрузите селфи — получите детальный AI-анализ с Semo AI метриками, персональными рекомендациями и отслеживанием прогресса.'}
+                    ? 'Sign up and upload your selfie for a richer AI read—photo signals on the chart, personalised product angles, and progress-friendly notes.'
+                    : 'Зарегистрируйтесь и загрузите селфи — расширенный AI-разбор, фото-шкалы на диаграмме, персональные акценты по уходу и заметки для отслеживания динамики.'}
                 </p>
                 <Link
                   to="/login"

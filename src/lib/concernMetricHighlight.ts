@@ -2,7 +2,14 @@
  * 프로필 단계 «главная проблема» (con_1…5) + 자유 고민 텍스트 → 바우만 행(0–3)·셀피 지표 연결
  */
 
-export type SelfieMetricKey = 'redness_index' | 'pigment_unevenness' | 'texture_roughness' | 'oiliness_index';
+export type SelfieMetricKey =
+  | 'redness_index'
+  | 'pigment_unevenness'
+  | 'texture_roughness'
+  | 'oiliness_index'
+  | 'blemishes_index'
+  | 'dullness_index'
+  | 'fine_lines_index';
 
 export type ConcernMetricFocus = {
   baumannRowIndices: Set<number>;
@@ -18,11 +25,11 @@ const PROFILE_TO_BAUMANN: Record<string, number[]> = {
 };
 
 const PROFILE_TO_SELFIE: Record<string, SelfieMetricKey[]> = {
-  con_1: ['redness_index', 'texture_roughness', 'oiliness_index'],
-  con_2: ['texture_roughness'],
-  con_3: ['pigment_unevenness'],
-  con_4: ['texture_roughness'],
-  con_5: ['oiliness_index'],
+  con_1: ['redness_index', 'blemishes_index', 'texture_roughness', 'oiliness_index'],
+  con_2: ['texture_roughness', 'dullness_index'],
+  con_3: ['pigment_unevenness', 'dullness_index'],
+  con_4: ['texture_roughness', 'fine_lines_index'],
+  con_5: ['oiliness_index', 'blemishes_index'],
 };
 
 function addFromFreeText(text: string, baumann: Set<number>, selfie: Set<SelfieMetricKey>): void {
@@ -54,7 +61,20 @@ function addFromFreeText(text: string, baumann: Set<number>, selfie: Set<SelfieM
   ) {
     baumann.add(1);
     selfie.add('redness_index');
+    selfie.add('blemishes_index');
     selfie.add('texture_roughness');
+  }
+  if (/тусклость|dull|glow|сияние|radianc|блеклость|칙칙/i.test(t)) {
+    selfie.add('dullness_index');
+    selfie.add('pigment_unevenness');
+  }
+  if (/прыщ|pimple|высыпание|blemish|트러블/i.test(t)) {
+    baumann.add(1);
+    selfie.add('blemishes_index');
+  }
+  if (/упруг|эластич|lift|подтяжк|sagging|jowl/i.test(t)) {
+    baumann.add(3);
+    selfie.add('fine_lines_index');
   }
 }
 
@@ -99,8 +119,11 @@ export function buildConcernMetricFocusForApi(profileConcern: string | undefined
     const sk: Record<SelfieMetricKey, string> = {
       redness_index: 'redness',
       pigment_unevenness: 'pigment unevenness',
-      texture_roughness: 'texture / fine-line proxy',
+      texture_roughness: 'texture roughness',
       oiliness_index: 'T-zone gloss',
+      blemishes_index: 'blemishes / breakouts',
+      dullness_index: 'dullness / lack of glow',
+      fine_lines_index: 'fine lines / firmness signal',
     };
     const photo = [...selfieKeys].map((k) => sk[k]).join('; ');
     parts.push(`Photo metrics (when selfie was analyzed): ${photo}`);
