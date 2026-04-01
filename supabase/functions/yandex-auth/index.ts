@@ -28,14 +28,19 @@ function bufToHex(buf: ArrayBuffer): string {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-/** 트리거(handle_new_user)가 google/yandex만 자동 인증 처리 — Admin createUser는 provider 미지정 시 email로 분류될 수 있어 이중으로 채움 */
+/**
+ * profiles.email_verified_at — 트리거 protect_profile_email_verified_at_write 가
+ * 일반 UPDATE 를 막으므로 RPC(oauth_sync_email_verified_for_user)로만 갱신.
+ */
 async function ensureProfileEmailVerifiedForYandex(
   supabase: ReturnType<typeof createClient>,
   userId: string | null | undefined,
 ): Promise<void> {
   if (!userId) return;
-  const now = new Date().toISOString();
-  await supabase.from('profiles').update({ email_verified_at: now }).eq('id', userId).is('email_verified_at', null);
+  const { error } = await supabase.rpc('oauth_sync_email_verified_for_user', { p_user_id: userId });
+  if (error) {
+    console.error('oauth_sync_email_verified_for_user', error.message);
+  }
 }
 
 // ── Main handler ──

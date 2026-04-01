@@ -20,3 +20,20 @@ export const LegalDocLinksRu: React.FC = () => (
     </Link>
   </>
 );
+
+/** Same targets as Russian — English registration copy */
+export const LegalDocLinksEn: React.FC = () => (
+  <>
+    <Link to="/legal#privacy" className={linkClass}>
+      personal data processing terms
+    </Link>
+    {', '}
+    <Link to="/legal#terms" className={linkClass}>
+      user agreement
+    </Link>
+    {' and '}
+    <Link to="/legal#delivery" className={linkClass}>
+      delivery terms
+    </Link>
+  </>
+);

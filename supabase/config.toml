@@ -1,0 +1,7 @@
+# Edge Functions — 함수별 설정 (배포 시 CLI가 읽음)
+# https://supabase.com/docs/guides/functions/function-configuration
+
+# 얀덱스 로그인: 콜백 시점에 아직 Supabase 세션이 없을 수 있음 → JWT 없이 호출 허용.
+# 보안: OAuth code + 서버의 YANDEX_CLIENT_SECRET 으로 토큰 교환 시 검증됨.
+[functions.yandex-auth]
+verify_jwt = false

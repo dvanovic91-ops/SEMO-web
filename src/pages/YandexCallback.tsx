@@ -6,10 +6,12 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { getYandexOAuthRedirectUri } from '../lib/auth';
+import { useI18n } from '../context/I18nContext';
 import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../components/SemoPageSpinner';
 
 export const YandexCallback: React.FC = () => {
   const navigate = useNavigate();
+  const { setCountry, setLanguage, setCurrency } = useI18n();
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -65,7 +67,11 @@ export const YandexCallback: React.FC = () => {
           return;
         }
 
-        // 성공 → 홈으로
+        // 얀덱스 진입은 러시아권 기본(로컬 EN/USD 저장값 덮어씀 — 헤더에서 변경 가능)
+        setCountry('RU');
+        setLanguage('ru');
+        setCurrency('RUB');
+
         navigate('/', { replace: true });
       } catch (err) {
         setError((err as Error).message);

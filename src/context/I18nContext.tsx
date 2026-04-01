@@ -24,6 +24,8 @@ const COUNTRY_KEY = 'semo_country';
  * - 등록대행사/서버에서 `https://semo-box.com/?semo_entry=ru` 로내면 러시아 루트(러시아·루블·회원가입 국가 기본 RU).
  * - 명시적 글로벌 진입: `?semo_entry=intl` 또는 `?semo_entry=com` → 영어·달러·배송국 AE 기본(변경 가능).
  * 쿼리는 읽은 뒤 주소창에서 제거(replaceState)한다.
+ * - 저장값 없는 첫 방문: `navigator.language` 가 ru* 이면 RU·руб·RU (IP 조회 생략).
+ * - 얀덱스 OAuth 성공 시(YandexCallback): RU·ru·RUB 로 맞춤(헤더에서 변경 가능).
  */
 const ENTRY_PARAM = 'semo_entry';
 
@@ -96,52 +98,60 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (savedCurrency === 'RUB' || savedCurrency === 'USD' || savedCurrency === 'KZT' || savedCurrency === 'UZS') {
         setCurrency(savedCurrency);
       }
-      // 첫 방문자(저장값 없음)만 IP 국가 기반 자동 기본값 적용
+      // 첫 방문자(저장값 없음): ru 로케일이면 RU·руб·RU, 아니면 IP 기반
       if (!savedLang && !savedCurrency && !savedCountry) {
-        const controller = new AbortController();
-        const timeout = window.setTimeout(() => controller.abort(), 1800);
-        void fetch('https://ipapi.co/json/', { signal: controller.signal })
-          .then((r) => (r.ok ? r.json() : null))
-          .then((data: { country_code?: string } | null) => {
-            const cc = (data?.country_code ?? '').toUpperCase();
-            if (cc === 'RU') {
-              if (userInteractedRef.current) return;
-              setCountry('RU');
-              setLanguage('ru');
-              setCurrency('RUB');
-              return;
-            }
-            if (cc === 'KZ') {
-              if (userInteractedRef.current) return;
-              setCountry('KZ');
-              setLanguage('ru');
-              setCurrency('KZT');
-              return;
-            }
-            if (cc === 'UZ') {
-              if (userInteractedRef.current) return;
-              setCountry('UZ');
-              setLanguage('ru');
-              setCurrency('UZS');
-              return;
-            }
-            if (cc === 'AE') {
+        const navLang = (typeof navigator !== 'undefined' ? navigator.language || '' : '').toLowerCase();
+        if (navLang.startsWith('ru')) {
+          userInteractedRef.current = true;
+          setCountry('RU');
+          setLanguage('ru');
+          setCurrency('RUB');
+        } else {
+          const controller = new AbortController();
+          const timeout = window.setTimeout(() => controller.abort(), 1800);
+          void fetch('https://ipapi.co/json/', { signal: controller.signal })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((data: { country_code?: string } | null) => {
+              const cc = (data?.country_code ?? '').toUpperCase();
+              if (cc === 'RU') {
+                if (userInteractedRef.current) return;
+                setCountry('RU');
+                setLanguage('ru');
+                setCurrency('RUB');
+                return;
+              }
+              if (cc === 'KZ') {
+                if (userInteractedRef.current) return;
+                setCountry('KZ');
+                setLanguage('ru');
+                setCurrency('KZT');
+                return;
+              }
+              if (cc === 'UZ') {
+                if (userInteractedRef.current) return;
+                setCountry('UZ');
+                setLanguage('ru');
+                setCurrency('UZS');
+                return;
+              }
+              if (cc === 'AE') {
+                if (userInteractedRef.current) return;
+                setCountry('AE');
+                setLanguage('en');
+                setCurrency('USD');
+                return;
+              }
+              // 기타 국가는 영어/달러·배송국 AE(미등록 기본)로 시작
               if (userInteractedRef.current) return;
               setCountry('AE');
               setLanguage('en');
               setCurrency('USD');
-              return;
-            }
-            // 기타 국가는 영어/달러·배송국 AE(미등록 기본)로 시작
-            if (userInteractedRef.current) return;
-            setCountry('AE');
-            setLanguage('en');
-            setCurrency('USD');
-          })
-          .catch(() => {
-            /* network ignore */
-          })
-          .finally(() => window.clearTimeout(timeout));
+            })
+            .catch(() => {
+              /* network ignore */
+            })
+            .finally(() => window.clearTimeout(timeout));
+        }
       }
     } catch {
       /* ignore */

@@ -78,6 +78,19 @@ async function fetchProfileEmailVerifiedAt(userId: string): Promise<string | nul
   return (data as { email_verified_at?: string | null } | null)?.email_verified_at ?? null;
 }
 
+/** 구글/얀덱스 OAuth(또는 얀덱스 user_metadata) — 이메일 매직링크 없이 신뢰 */
+function isOauthGoogleOrYandexUser(user: User): boolean {
+  const p = String(user.app_metadata?.provider ?? '').toLowerCase();
+  if (p === 'google' || p === 'yandex') return true;
+  const prov = user.app_metadata?.providers;
+  if (Array.isArray(prov)) {
+    return prov.some((x) => x === 'google' || x === 'yandex');
+  }
+  const yid = (user.user_metadata as Record<string, unknown> | undefined)?.yandex_id;
+  if (yid != null && String(yid).trim() !== '') return true;
+  return false;
+}
+
 /** 로그인 상태 — Supabase 세션 우선, 없으면 localStorage(테스트용) */
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [userEmail, setUserEmailState] = useState<string | null>(null);
@@ -114,7 +127,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { data, error } = await supabase.auth.getUser();
       if (error || !data.user) return;
       await maybeSyncProfileEmailFromAuth(data.user);
-      const v = await fetchProfileEmailVerifiedAt(data.user.id);
+      let v = await fetchProfileEmailVerifiedAt(data.user.id);
+      if (
+        !v &&
+        data.user.id !== ADMIN_DUMMY_USER_ID &&
+        isOauthGoogleOrYandexUser(data.user)
+      ) {
+        const { error: rpcErr } = await supabase.rpc('sync_own_oauth_email_verified');
+        if (!rpcErr) {
+          v = await fetchProfileEmailVerifiedAt(data.user.id);
+        }
+      }
       if (data.user.id === ADMIN_DUMMY_USER_ID) {
         setEmailConfirmedAt(v ?? new Date().toISOString());
       } else {
@@ -154,6 +177,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await maybeSyncProfileEmailFromAuth(serverUser);
       }
       let profileVerified = await fetchProfileEmailVerifiedAt(session.user.id);
+      if (
+        !profileVerified &&
+        serverUser &&
+        session.user.id !== ADMIN_DUMMY_USER_ID &&
+        supabase &&
+        isOauthGoogleOrYandexUser(serverUser)
+      ) {
+        const { error: oauthRpcErr } = await supabase.rpc('sync_own_oauth_email_verified');
+        if (oauthRpcErr) {
+          console.warn('[Auth] sync_own_oauth_email_verified', oauthRpcErr.message);
+        } else {
+          profileVerified = await fetchProfileEmailVerifiedAt(session.user.id);
+        }
+      }
       if (session.user.id === ADMIN_DUMMY_USER_ID) {
         setEmailConfirmedAt(profileVerified ?? new Date().toISOString());
       } else {

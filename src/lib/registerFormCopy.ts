@@ -1,0 +1,308 @@
+export type RegisterFormLang = 'ru' | 'en';
+
+export type RegisterFormStrings = {
+  title: string;
+  sectionMain: string;
+  emailVerifyTitle: string;
+  emailVerifyBtn: string;
+  emailInvalid: string;
+  emailNoteLine1: string;
+  emailNoteLine2: string;
+  emailNoteSingle: string;
+  password: string;
+  name: string;
+  namePh: string;
+  gender: string;
+  genderM: string;
+  genderF: string;
+  referrer: string;
+  referrerHint: string;
+  sectionDelivery: string;
+  deliveryOptional: string;
+  lastName: string;
+  firstName: string;
+  patronymic: string;
+  fioHint: string;
+  noPatronymic: string;
+  phone: string;
+  verifyPhone: string;
+  phoneNote: string;
+  country: string;
+  addressSearch: string;
+  addressTooltip: string;
+  addressTooltipAria: string;
+  addressPh: string;
+  cityRegion: string;
+  cityPh: string;
+  street: string;
+  streetPh: string;
+  apt: string;
+  aptPh: string;
+  postcode: string;
+  postcodeHint: string;
+  inn: string;
+  innHint: string;
+  innPh: string;
+  passportSeries: string;
+  passportNumber: string;
+  legalPrefix: string;
+  submit: string;
+  submitting: string;
+  hasAccount: string;
+  toastWelcome: string;
+  toastCheckEmail: string;
+  successBody: string;
+  loginLink: string;
+  errName: string;
+  errLegal: string;
+  errService: string;
+  errEmailInvalid: string;
+  errRateLimit: string;
+  errSmtp: string;
+  errDb: string;
+  errCaptcha: string;
+  errSignupOff: string;
+  errExists: string;
+  errGeneric: string;
+  errSession: string;
+};
+
+const ru: RegisterFormStrings = {
+  title: 'Регистрация',
+  sectionMain: 'Основные данные',
+  emailVerifyTitle: 'После регистрации откройте письмо и перейдите по ссылке',
+  emailVerifyBtn: 'Подтвердить email',
+  emailInvalid:
+    'Введите корректный адрес: латиница, цифры и . _ % + - до @; домен как mail.ru или semo-box.ru.',
+  emailNoteLine1: 'Вход без подтверждения, но активация обязательна для заказов.',
+  emailNoteLine2: 'Изменение e-mail после регистрации невозможно.',
+  emailNoteSingle:
+    'Вход без подтверждения, но активация обязательна для заказов. Изменение e-mail после регистрации невозможно.',
+  password: 'Пароль',
+  name: 'Имя',
+  namePh: 'Например, Анна',
+  gender: 'Пол',
+  genderM: 'Мужской',
+  genderF: 'Женский',
+  referrer: 'Email рекомендателя',
+  referrerHint: '* электронная почта человека, который порекомендовал вас',
+  sectionDelivery: 'Доставка',
+  deliveryOptional: '(при заказе — обязательно)',
+  lastName: 'Фамилия',
+  firstName: 'Имя',
+  patronymic: 'Отчество',
+  fioHint: '* ФИО как в паспорте (латинскими буквами).',
+  noPatronymic: 'Нет отчества',
+  phone: 'Номер телефона',
+  verifyPhone: 'Подтвердить',
+  phoneNote: 'Подтверждается через Telegram, за подтверждение +200 баллов.',
+  country: 'Страна доставки',
+  addressSearch: 'Адрес (поиск по базе)',
+  addressTooltip: 'При вводе адреса нижние поля заполнятся автоматически.',
+  addressTooltipAria: 'Подсказка',
+  addressPh: 'Начните вводить адрес, затем выберите вариант из списка',
+  cityRegion: 'Город / Регион',
+  cityPh: 'Москва, Санкт-Петербург',
+  street: 'Улица, Дом, Корпус/Строение',
+  streetPh: 'ул. Арбат, д. 15, корп. 2',
+  apt: 'Кв. / Офис',
+  aptPh: 'кв. 104',
+  postcode: 'Postcode',
+  postcodeHint: '(индекс, 6 цифр)',
+  inn: 'INN',
+  innHint: '(ИНН, 12 цифр)',
+  innPh: '12 цифр',
+  passportSeries: 'Серия паспорта',
+  passportNumber: 'Номер паспорта',
+  legalPrefix: 'Я соглашаюсь с',
+  submit: 'Зарегистрироваться',
+  submitting: 'Регистрация…',
+  hasAccount: 'Уже есть аккаунт? Войти',
+  toastWelcome: 'Добро пожаловать!',
+  toastCheckEmail: 'Проверьте почту (папка «Спам»).',
+  successBody:
+    'Аккаунт создан. Откройте письмо и перейдите по ссылке, затем войдите — или подтвердите email в личном кабинете.',
+  loginLink: 'Перейти к входу',
+  errName: 'Укажите имя для обращения.',
+  errLegal: 'Подтвердите согласие с условиями обработки данных и доставки.',
+  errService: 'Сервис регистрации временно недоступен.',
+  errEmailInvalid:
+    'Этот адрес электронной почты не принимается сервисом. Попробуйте другой адрес или свяжитесь с нами.',
+  errRateLimit: 'Слишком много попыток. Подождите около часа и попробуйте снова.',
+  errSmtp:
+    'Регистрация временно недоступна: проблема с отправкой письма подтверждения. Проверьте настройки почты в сервисе и повторите попытку.',
+  errDb:
+    'Регистрация отклонена настройками базы данных. Требуется проверка серверных правил (триггер/политики профиля).',
+  errCaptcha: 'Сервис попросил проверку безопасности (CAPTCHA). Обновите страницу и попробуйте снова.',
+  errSignupOff: 'Регистрация по email отключена в настройках сервиса.',
+  errExists:
+    'Этот email уже зарегистрирован. Если письмо подтверждения не пришло, проверьте почту и папку «Спам».',
+  errGeneric: 'Не удалось завершить регистрацию.',
+  errSession: 'Регистрация создана, но сессия не применилась. Войдите вручную.',
+};
+
+const en: RegisterFormStrings = {
+  title: 'Create account',
+  sectionMain: 'Basic information',
+  emailVerifyTitle: 'After signing up, open the email and follow the link',
+  emailVerifyBtn: 'Verify email',
+  emailInvalid:
+    'Enter a valid address: Latin letters, digits and . _ % + - before @; domain like mail.ru or gmail.com.',
+  emailNoteLine1: 'You can sign in without mail confirmation, but you must verify email to place orders.',
+  emailNoteLine2: 'You cannot change your e-mail after registration.',
+  emailNoteSingle:
+    'You can sign in without mail confirmation, but you must verify email to place orders. You cannot change your e-mail after registration.',
+  password: 'Password',
+  name: 'Display name',
+  namePh: 'e.g. Anna',
+  gender: 'Gender',
+  genderM: 'Male',
+  genderF: 'Female',
+  referrer: 'Referrer email',
+  referrerHint: '* email of the person who referred you',
+  sectionDelivery: 'Delivery',
+  deliveryOptional: '(required when you order)',
+  lastName: 'Last name',
+  firstName: 'First name',
+  patronymic: 'Middle name',
+  fioHint: '* Full name as in passport (Latin letters).',
+  noPatronymic: 'No middle name',
+  phone: 'Phone number',
+  verifyPhone: 'Verify',
+  phoneNote: 'Verified via Telegram; +200 points for verification.',
+  country: 'Delivery country',
+  addressSearch: 'Address (database search)',
+  addressTooltip: 'When you pick an address, the fields below fill in automatically.',
+  addressTooltipAria: 'Hint',
+  addressPh: 'Start typing, then choose from the list',
+  cityRegion: 'City / Region',
+  cityPh: 'Moscow, Saint Petersburg',
+  street: 'Street, building, block',
+  streetPh: 'e.g. 15 Arbat St, bld. 2',
+  apt: 'Apt. / Office',
+  aptPh: 'apt. 104',
+  postcode: 'Postcode',
+  postcodeHint: '(6 digits)',
+  inn: 'INN',
+  innHint: '(12 digits)',
+  innPh: '12 digits',
+  passportSeries: 'Passport series',
+  passportNumber: 'Passport number',
+  legalPrefix: 'I agree to the',
+  submit: 'Sign up',
+  submitting: 'Signing up…',
+  hasAccount: 'Already have an account? Sign in',
+  toastWelcome: 'Welcome!',
+  toastCheckEmail: 'Check your inbox (and Spam).',
+  successBody:
+    'Account created. Open the email and follow the link, then sign in — or confirm your email in your profile.',
+  loginLink: 'Go to sign in',
+  errName: 'Please enter your display name.',
+  errLegal: 'Please accept the data processing and delivery terms.',
+  errService: 'Registration is temporarily unavailable.',
+  errEmailInvalid:
+    'This email address is not accepted. Try another one or contact us.',
+  errRateLimit: 'Too many attempts. Please wait about an hour and try again.',
+  errSmtp:
+    'Registration is temporarily unavailable: confirmation email could not be sent. Please try again later.',
+  errDb:
+    'Registration was blocked by server rules. Please contact support.',
+  errCaptcha: 'The service asked for a security check (CAPTCHA). Refresh the page and try again.',
+  errSignupOff: 'Email sign-up is disabled in the service settings.',
+  errExists:
+    'This email is already registered. If you did not get a confirmation email, check Spam.',
+  errGeneric: 'Could not complete registration.',
+  errSession: 'Account was created but the session did not apply. Please sign in manually.',
+};
+
+export const REGISTER_FORM_COPY: Record<RegisterFormLang, RegisterFormStrings> = { ru, en };
+
+export function getRegisterFormStrings(lang: RegisterFormLang): RegisterFormStrings {
+  return REGISTER_FORM_COPY[lang];
+}
+
+/** OAuth 후 배송 전용 페이지 — Register와 동일 필드 라벨 + 페이지/검증 문구 */
+export type RegisterShippingStrings = Pick<
+  RegisterFormStrings,
+  | 'cityRegion'
+  | 'cityPh'
+  | 'street'
+  | 'streetPh'
+  | 'apt'
+  | 'aptPh'
+  | 'postcode'
+  | 'postcodeHint'
+  | 'phone'
+  | 'inn'
+  | 'innHint'
+  | 'innPh'
+  | 'passportSeries'
+  | 'passportNumber'
+> & {
+  title: string;
+  subtitle: string;
+  save: string;
+  errFillRequired: string;
+  errPostcode6: string;
+  errInn12: string;
+  errPassportSeries4: string;
+  errPassportNumber6: string;
+  errPhone: string;
+};
+
+const shippingExtraRu: Pick<
+  RegisterShippingStrings,
+  | 'title'
+  | 'subtitle'
+  | 'save'
+  | 'errFillRequired'
+  | 'errPostcode6'
+  | 'errInn12'
+  | 'errPassportSeries4'
+  | 'errPassportNumber6'
+  | 'errPhone'
+> = {
+  title: 'Данные для доставки',
+  subtitle: 'Укажите адрес и данные для таможенного оформления',
+  save: 'Сохранить',
+  errFillRequired: 'Заполните все обязательные поля.',
+  errPostcode6: 'Индекс должен содержать 6 цифр.',
+  errInn12: 'ИНН должен содержать 12 цифр.',
+  errPassportSeries4: 'Серия паспорта — 4 цифры.',
+  errPassportNumber6: 'Номер паспорта — 6 цифр.',
+  errPhone: 'Укажите полный номер телефона.',
+};
+
+const shippingExtraEn: typeof shippingExtraRu = {
+  title: 'Delivery details',
+  subtitle: 'Enter your address and customs clearance information',
+  save: 'Save',
+  errFillRequired: 'Please fill in all required fields.',
+  errPostcode6: 'Postcode must be 6 digits.',
+  errInn12: 'INN must be 12 digits.',
+  errPassportSeries4: 'Passport series must be 4 digits.',
+  errPassportNumber6: 'Passport number must be 6 digits.',
+  errPhone: 'Please enter a complete phone number.',
+};
+
+export function getRegisterShippingStrings(lang: RegisterFormLang): RegisterShippingStrings {
+  const b = REGISTER_FORM_COPY[lang];
+  const x = lang === 'ru' ? shippingExtraRu : shippingExtraEn;
+  return {
+    cityRegion: b.cityRegion,
+    cityPh: b.cityPh,
+    street: b.street,
+    streetPh: b.streetPh,
+    apt: b.apt,
+    aptPh: b.aptPh,
+    postcode: b.postcode,
+    postcodeHint: b.postcodeHint,
+    phone: b.phone,
+    inn: b.inn,
+    innHint: b.innHint,
+    innPh: b.innPh,
+    passportSeries: b.passportSeries,
+    passportNumber: b.passportNumber,
+    ...x,
+  };
+}

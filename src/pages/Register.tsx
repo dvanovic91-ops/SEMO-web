@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { InnHelpTooltip } from '../components/InnHelpTooltip';
 import { supabase } from '../lib/supabase';
@@ -6,6 +6,8 @@ import { AddressSuggest } from '../components/AddressSuggest';
 import { BackArrow } from '../components/BackArrow';
 import { useAuth } from '../context/AuthContext';
 import { useI18n } from '../context/I18nContext';
+import { getRegisterFormStrings } from '../lib/registerFormCopy';
+import { useRegisterFormLang } from '../lib/registerFormLocale';
 import { accountPrimaryCtaClass } from '../lib/accountLinkUi';
 import {
   deliveryFormNoteRowClass,
@@ -15,7 +17,7 @@ import {
 import { isValidEmailFormat } from '../lib/emailValidation';
 import { clampDigits } from '../lib/digitsOnly';
 import { CustomsPassportNotice } from '../components/CustomsPassportNotice';
-import { LegalDocLinksRu } from '../components/LegalDocLinksRu';
+import { LegalDocLinksEn, LegalDocLinksRu } from '../components/LegalDocLinksRu';
 import { PhoneCountryCodeSelect } from '../components/PhoneCountryCodeSelect';
 import { CountrySelect } from '../components/CountrySelect';
 import { formatIntlPhoneByCountry, type PhoneCountry } from '../lib/phoneIntl';
@@ -42,6 +44,8 @@ export const Register: React.FC = () => {
   const navigate = useNavigate();
   const { country, setCountry } = useI18n();
   const { applySession } = useAuth();
+  const registerLang = useRegisterFormLang();
+  const t = useMemo(() => getRegisterFormStrings(registerLang), [registerLang]);
   const [email, setEmail] = useState('');
   const [emailError, setEmailError] = useState(false);
   const [codeSent, setCodeSent] = useState(false);
@@ -100,16 +104,16 @@ export const Register: React.FC = () => {
     }
     if (!nickname.trim()) {
       hasError = true;
-      setSubmitError('Укажите имя для обращения.');
+      setSubmitError(t.errName);
     }
     if (hasError) return;
     if (!legalConsent) {
-      setSubmitError('Подтвердите согласие с условиями обработки данных и доставки.');
+      setSubmitError(t.errLegal);
       return;
     }
 
     if (!supabase) {
-      setSubmitError('Сервис регистрации временно недоступен.');
+      setSubmitError(t.errService);
       return;
     }
 
@@ -132,21 +136,21 @@ export const Register: React.FC = () => {
         // 운영 환경 원인 추적용(사용자에게는 노출하지 않음)
         console.error('[Register] signUp failed', { code, message: error.message });
         if (msg.includes('invalid') && msg.includes('email')) {
-          setSubmitError('Этот адрес электронной почты не принимается сервисом. Попробуйте другой адрес или свяжитесь с нами.');
+          setSubmitError(t.errEmailInvalid);
         } else if (msg.includes('rate limit') || msg.includes('rate_limit')) {
-          setSubmitError('Слишком много попыток. Подождите около часа и попробуйте снова.');
+          setSubmitError(t.errRateLimit);
         } else if (msg.includes('email not confirmed') || msg.includes('confirmation') || msg.includes('smtp')) {
-          setSubmitError('Регистрация временно недоступна: проблема с отправкой письма подтверждения. Проверьте настройки почты в сервисе и повторите попытку.');
+          setSubmitError(t.errSmtp);
         } else if (msg.includes('database') || msg.includes('saving new user')) {
-          setSubmitError('Регистрация отклонена настройками базы данных. Требуется проверка серверных правил (триггер/политики профиля).');
+          setSubmitError(t.errDb);
         } else if (msg.includes('captcha')) {
-          setSubmitError('Сервис попросил проверку безопасности (CAPTCHA). Обновите страницу и попробуйте снова.');
+          setSubmitError(t.errCaptcha);
         } else if (msg.includes('signup is disabled')) {
-          setSubmitError('Регистрация по email отключена в настройках сервиса.');
+          setSubmitError(t.errSignupOff);
         } else if (msg.includes('already registered') || msg.includes('already exists') || msg.includes('user already registered')) {
-          setSubmitError('Этот email уже зарегистрирован. Если письмо подтверждения не пришло, проверьте почту и папку «Спам».');
+          setSubmitError(t.errExists);
         } else {
-          setSubmitError(error.message || 'Не удалось завершить регистрацию.');
+          setSubmitError(error.message || t.errGeneric);
         }
         return;
       }
@@ -168,20 +172,18 @@ export const Register: React.FC = () => {
           await applySession(session);
         } catch (e) {
           console.error('[Register] applySession', e);
-          setSubmitError('Регистрация создана, но сессия не применилась. Войдите вручную.');
+          setSubmitError(t.errSession);
           return;
         }
-        setToastMessage('Добро пожаловать!');
+        setToastMessage(t.toastWelcome);
         window.setTimeout(() => setToastMessage(null), 2500);
         navigate('/', { replace: true });
         return;
       }
 
       // Confirm email ON в Supabase: вход только после ссылки в письме — подтверждение в личном кабинете
-      setSubmitSuccess(
-        'Аккаунт создан. Откройте письмо и перейдите по ссылке, затем войдите — или подтвердите email в личном кабинете.',
-      );
-      setToastMessage('Проверьте почту (папка «Спам»).');
+      setSubmitSuccess(t.successBody);
+      setToastMessage(t.toastCheckEmail);
       window.setTimeout(() => setToastMessage(null), 3500);
     } finally {
       setSubmitting(false);
@@ -201,14 +203,20 @@ export const Register: React.FC = () => {
       )}
       <header className="mb-10 text-center">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
-          Регистрация
+          {t.title}
         </h1>
       </header>
 
-      <form className="space-y-6" onSubmit={handleSubmit}>
+      {/* noValidate: 브라우저 기본 required 툴팁은 OS 언어로 뜸 → 검증은 handleSubmit + t */}
+      <form
+        className="space-y-6"
+        noValidate
+        onSubmit={handleSubmit}
+        lang={registerLang === 'ru' ? 'ru' : 'en'}
+      >
         <section>
           <h2 className="mb-4 text-lg font-semibold text-slate-900">
-            Основные данные
+            {t.sectionMain}
           </h2>
           <div className="flex flex-col gap-4">
             <div className={fieldColClass}>
@@ -227,20 +235,19 @@ export const Register: React.FC = () => {
                     if (emailError) setEmailError(false);
                   }}
                   onBlur={handleEmailBlur}
-                  required
                 />
                 <button
                   type="button"
                   disabled
-                  title="После регистрации откройте письмо и перейдите по ссылке"
+                  title={t.emailVerifyTitle}
                   className={`${accountPrimaryCtaClass} w-full sm:w-[13.5rem] sm:shrink-0`}
                 >
-                  Подтвердить email
+                  {t.emailVerifyBtn}
                 </button>
               </div>
               {emailError && (
                 <p className="text-xs text-red-500">
-                  Введите корректный адрес: латиница, цифры и . _ % + - до @; домен как mail.ru или semo-box.ru.
+                  {t.emailInvalid}
                 </p>
               )}
               <div
@@ -251,24 +258,24 @@ export const Register: React.FC = () => {
                 <div className="flex items-start gap-1 sm:hidden">
                   <span aria-hidden>*</span>
                   <div className="min-w-0 flex flex-col whitespace-pre-line">
-                    <span>Вход без подтверждения, но активация обязательна для заказов.</span>
-                    <span>Изменение e-mail после регистрации невозможно.</span>
+                    <span>{t.emailNoteLine1}</span>
+                    <span>{t.emailNoteLine2}</span>
                   </div>
                 </div>
-                {/* sm+: одна строка (nowrap + тонкий скролл при узкой ширине) */}
+                {/* sm+: одна строка (nowrap + тонкий 스크ролл при узкой ширине) */}
                 <div className="hidden min-w-0 items-start gap-1 overflow-x-auto pb-0.5 [scrollbar-width:thin] sm:flex">
                   <span className="shrink-0" aria-hidden>
                     *
                   </span>
                   <span className="whitespace-nowrap">
-                    Вход без подтверждения, но активация обязательна для заказов. Изменение e-mail после регистрации невозможно.
+                    {t.emailNoteSingle}
                   </span>
                 </div>
               </div>
             </div>
             <div className={fieldColClass}>
               <label htmlFor="password" className={fieldLabelClass}>
-                Пароль
+                {t.password}
                 <span className="text-brand">*</span>
               </label>
               <input
@@ -281,42 +288,40 @@ export const Register: React.FC = () => {
                   setPassword(e.target.value);
                   if (passwordError) setPasswordError(false);
                 }}
-                required
               />
             </div>
             {/* 닉네임 — 서비스에서 불러줄 이름 */}
             <div className={fieldColClass}>
               <label htmlFor="nickname" className={fieldLabelClass}>
-                Имя <span className="text-brand">*</span>
+                {t.name} <span className="text-brand">*</span>
               </label>
               <input
                 id="nickname"
                 type="text"
-                placeholder="Например, Анна"
+                placeholder={t.namePh}
                 className={inputClass}
                 value={nickname}
                 onChange={(e) => setNickname(e.target.value)}
-                required
               />
             </div>
             <div className={fieldColClass}>
               <p className={fieldLabelClass}>
-                Пол
+                {t.gender}
               </p>
               <div className="flex gap-6">
                 <label className="flex cursor-pointer items-center gap-2">
                   <input type="radio" name="gender" value="M" className="h-4 w-4 border-slate-300 text-brand focus:ring-brand" />
-                  <span className="text-sm text-slate-700">Мужской</span>
+                  <span className="text-sm text-slate-700">{t.genderM}</span>
                 </label>
                 <label className="flex cursor-pointer items-center gap-2">
                   <input type="radio" name="gender" value="F" className="h-4 w-4 border-slate-300 text-brand focus:ring-brand" />
-                  <span className="text-sm text-slate-700">Женский</span>
+                  <span className="text-sm text-slate-700">{t.genderF}</span>
                 </label>
               </div>
             </div>
             <div className={fieldColClass}>
               <label htmlFor="referrer" className={fieldLabelClass}>
-                Email рекомендателя
+                {t.referrer}
               </label>
               <input
                 id="referrer"
@@ -325,7 +330,7 @@ export const Register: React.FC = () => {
                 className={inputClass}
               />
               <p className={hintClass}>
-                * электронная почта человека, который порекомендовал вас
+                {t.referrerHint}
               </p>
             </div>
           </div>
@@ -334,7 +339,7 @@ export const Register: React.FC = () => {
         {/* 배송 — 주소 세분화: Город/Регион, Улица/Дом/Корпус, Кв/Офис */}
         <section>
           <h2 className="mb-4 text-lg font-semibold text-slate-900">
-            Доставка <span className={hintClass}>(при заказе — обязательно)</span>
+            {t.sectionDelivery} <span className={hintClass}>{t.deliveryOptional}</span>
           </h2>
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-4 rounded-xl border border-brand/20 bg-brand-soft/10 px-4 py-4">
@@ -343,7 +348,7 @@ export const Register: React.FC = () => {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-3 sm:items-start">
               <div className={fioCellClass}>
                 <label htmlFor="lastName" className={`${fieldLabelClass} flex flex-wrap items-center gap-x-1`}>
-                  Фамилия
+                  {t.lastName}
                 </label>
                 <input
                   id="lastName"
@@ -356,7 +361,7 @@ export const Register: React.FC = () => {
               </div>
               <div className={fioCellClass}>
                 <label htmlFor="firstName" className={`${fieldLabelClass} flex flex-wrap items-center gap-x-1`}>
-                  Имя
+                  {t.firstName}
                 </label>
                 <input
                   id="firstName"
@@ -369,7 +374,7 @@ export const Register: React.FC = () => {
               </div>
               <div className={fioCellClass}>
                 <label htmlFor="patronymic" className={`${fieldLabelClass} flex flex-wrap items-center gap-x-1`}>
-                  Отчество
+                  {t.patronymic}
                 </label>
                 <input
                   id="patronymic"
@@ -385,17 +390,17 @@ export const Register: React.FC = () => {
             {/* Мобильный: «Нет отчества» 위, подсказка ФИО 아래; sm+: 그리드. 체크↔안내 간격 = gap-1 */}
             <div className="flex flex-col-reverse items-start gap-1 sm:grid sm:grid-cols-3 sm:items-start sm:justify-items-start sm:gap-x-3 sm:gap-y-0">
               <p className="min-w-0 max-w-full text-[11px] leading-snug text-slate-500 sm:col-span-2 sm:row-start-1">
-                * ФИО как в паспорте (латинскими буквами).
+                {t.fioHint}
               </p>
               <label className="inline-flex w-fit shrink-0 cursor-pointer items-center gap-1.5 text-[11px] text-slate-500 sm:col-start-3 sm:row-start-1 sm:place-self-start">
                 <input type="checkbox" checked={noPatronymic} onChange={(e) => { const v = e.target.checked; setNoPatronymic(v); if (v) setFioMiddle(''); }} className="h-3 w-3 rounded border-slate-300 text-brand focus:ring-brand" />
-                <span className="whitespace-nowrap">Нет отчества</span>
+                <span className="whitespace-nowrap">{t.noPatronymic}</span>
               </label>
             </div>
             </div>
             <div className={fieldColClass}>
               <label htmlFor="phone" className={fieldLabelClass}>
-                Номер телефона
+                {t.phone}
               </label>
               <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-stretch">
                 <PhoneCountryCodeSelect value={phoneCountry} onChange={setPhoneCountry} />
@@ -413,21 +418,21 @@ export const Register: React.FC = () => {
                   disabled={phoneValue.replace(/\D/g, '').length < 10}
                   className={`${accountPrimaryCtaClass} w-full shrink-0 sm:w-auto sm:px-5`}
                 >
-                  Подтвердить
+                  {t.verifyPhone}
                 </button>
               </div>
               <div className={deliveryFormNoteRowClass} role="note">
                 <span aria-hidden className="shrink-0 select-none">*</span>
                 <div className={deliveryFormNoteScrollClass}>
                   <span className={deliveryFormNoteTextClass}>
-                    Подтверждается через Telegram, за подтверждение +200 баллов.
+                    {t.phoneNote}
                   </span>
                 </div>
               </div>
             </div>
             <div className={fieldColClass}>
               <label htmlFor="register-country" className={fieldLabelClass}>
-                Страна доставки
+                {t.country}
               </label>
               <CountrySelect
                 id="register-country"
@@ -439,18 +444,18 @@ export const Register: React.FC = () => {
               country={country}
               label={
                 <span className="inline-flex items-center gap-2">
-                  Адрес (поиск по базе)
-                  <span className="group relative ml-0.5 inline-flex cursor-help" aria-label="Подсказка">
+                  {t.addressSearch}
+                  <span className="group relative ml-0.5 inline-flex cursor-help" aria-label={t.addressTooltipAria}>
                     <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 text-xs font-medium transition hover:border-brand hover:text-brand">
                       ?
                     </span>
                     <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 inline-block w-max -translate-x-1/2 whitespace-nowrap rounded border border-slate-100 bg-white px-2.5 py-1.5 text-left text-xs font-medium leading-none text-brand shadow-md opacity-0 transition group-hover:opacity-100">
-                      При вводе адреса нижние поля заполнятся автоматически.
+                      {t.addressTooltip}
                     </span>
                   </span>
                 </span>
               }
-              placeholder="Начните вводить адрес, затем выберите вариант из списка"
+              placeholder={t.addressPh}
               value={addressSearch}
               onChange={setAddressSearch}
               onPartsChange={({ cityRegion, streetHouse, apartmentOffice, postcode }) => {
@@ -466,40 +471,40 @@ export const Register: React.FC = () => {
             />
             <div className={fieldColClass}>
               <label htmlFor="cityRegion" className={fieldLabelClass}>
-                Город / Регион
+                {t.cityRegion}
               </label>
               <input
                 id="cityRegion"
                 type="text"
-                placeholder="Москва, Санкт-Петербург"
+                placeholder={t.cityPh}
                 className={inputClass}
               />
             </div>
             <div className={fieldColClass}>
               <label htmlFor="streetHouse" className={fieldLabelClass}>
-                Улица, Дом, Корпус/Строение
+                {t.street}
               </label>
               <input
                 id="streetHouse"
                 type="text"
-                placeholder="ул. Арбат, д. 15, корп. 2"
+                placeholder={t.streetPh}
                 className={inputClass}
               />
             </div>
             <div className={fieldColClass}>
               <label htmlFor="apartmentOffice" className={fieldLabelClass}>
-                Кв. / Офис
+                {t.apt}
               </label>
               <input
                 id="apartmentOffice"
                 type="text"
-                placeholder="кв. 104"
+                placeholder={t.aptPh}
                 className={inputClass}
               />
             </div>
             <div className={fieldColClass}>
               <label htmlFor="postcode" className={fieldLabelClass}>
-                Postcode <span className={hintClass}>(индекс, 6 цифр)</span>
+                {t.postcode} <span className={hintClass}>{t.postcodeHint}</span>
               </label>
               <input
                 id="postcode"
@@ -516,13 +521,13 @@ export const Register: React.FC = () => {
             </div>
             <div className={fieldColClass}>
               <label htmlFor="inn" className={`${fieldLabelClass} inline-flex items-center gap-1`}>
-                INN <span className={hintClass}>(ИНН, 12 цифр)</span>
-                <InnHelpTooltip />
+                {t.inn} <span className={hintClass}>{t.innHint}</span>
+                <InnHelpTooltip locale={registerLang} />
               </label>
               <input
                 id="inn"
                 type="text"
-                placeholder="12 цифр"
+                placeholder={t.innPh}
                 className={inputClass}
                 maxLength={12}
                 inputMode="numeric"
@@ -534,7 +539,7 @@ export const Register: React.FC = () => {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className={fieldColClass}>
-                <label htmlFor="passportSeries" className={fieldLabelClass}>Серия паспорта</label>
+                <label htmlFor="passportSeries" className={fieldLabelClass}>{t.passportSeries}</label>
                 <input
                   id="passportSeries"
                   type="text"
@@ -549,7 +554,7 @@ export const Register: React.FC = () => {
                 />
               </div>
               <div className={fieldColClass}>
-                <label htmlFor="passportNumber" className={fieldLabelClass}>Номер паспорта</label>
+                <label htmlFor="passportNumber" className={fieldLabelClass}>{t.passportNumber}</label>
                 <input
                   id="passportNumber"
                   type="text"
@@ -564,7 +569,7 @@ export const Register: React.FC = () => {
                 />
               </div>
             </div>
-            <CustomsPassportNotice />
+            <CustomsPassportNotice locale={registerLang} />
             </div>
           </div>
           {/* 하단 안내 문구는 제거 — 화면을 더 간결하게 유지 */}
@@ -576,13 +581,13 @@ export const Register: React.FC = () => {
             checked={legalConsent}
             onChange={(e) => {
               setLegalConsent(e.target.checked);
-              if (submitError?.includes('согласие')) setSubmitError(null);
+              if (submitError === t.errLegal) setSubmitError(null);
             }}
             className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-brand focus:ring-brand"
-            required
           />
           <span>
-            Я соглашаюсь с <LegalDocLinksRu />.
+            {t.legalPrefix}{' '}
+            {registerLang === 'ru' ? <LegalDocLinksRu /> : <LegalDocLinksEn />}.
           </span>
         </label>
 
@@ -591,7 +596,7 @@ export const Register: React.FC = () => {
           disabled={submitting}
           className="min-h-11 w-full rounded-full bg-brand py-3 text-base font-semibold text-white transition hover:bg-brand/90 disabled:opacity-60"
         >
-          {submitting ? 'Регистрация…' : 'Зарегистрироваться'}
+          {submitting ? t.submitting : t.submit}
         </button>
         {submitError && (
           <p className="mt-2 text-sm text-red-500">
@@ -605,7 +610,7 @@ export const Register: React.FC = () => {
               to="/login"
               className="mt-2 inline-flex font-medium text-brand underline decoration-brand/30 underline-offset-2 hover:opacity-90"
             >
-              Перейти к входу
+              {t.loginLink}
             </Link>
           </div>
         )}
@@ -616,7 +621,7 @@ export const Register: React.FC = () => {
           to="/login"
           className="inline-flex max-w-full items-center justify-center gap-1.5 whitespace-nowrap text-[clamp(13px,3.85vw,15px)] font-medium text-brand hover:opacity-90 sm:text-[12px]"
         >
-          <BackArrow /> Уже есть аккаунт? Войти
+          <BackArrow /> {t.hasAccount}
         </Link>
       </p>
     </main>
