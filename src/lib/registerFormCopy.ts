@@ -285,6 +285,12 @@ const shippingExtraEn: typeof shippingExtraRu = {
   errPhone: 'Please enter a complete phone number.',
 };
 
+/** 로그인 화면 하단 — Register와 동일 CIS 규칙(ru|en) */
+export const LOGIN_LEGAL_INTRO: Record<RegisterFormLang, string> = {
+  ru: 'Продолжая вход (email или соцсети), вы подтверждаете ознакомление с ',
+  en: 'By continuing to sign in (email or social accounts), you confirm that you have reviewed the ',
+};
+
 export function getRegisterShippingStrings(lang: RegisterFormLang): RegisterShippingStrings {
   const b = REGISTER_FORM_COPY[lang];
   const x = lang === 'ru' ? shippingExtraRu : shippingExtraEn;

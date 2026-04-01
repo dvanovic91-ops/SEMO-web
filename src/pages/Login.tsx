@@ -4,8 +4,10 @@ import { useAuth } from '../context/AuthContext';
 import { supabase, setRememberMe } from '../lib/supabase';
 import { isValidEmailFormat } from '../lib/emailValidation';
 import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../components/SemoPageSpinner';
-import { LegalDocLinksRu } from '../components/LegalDocLinksRu';
+import { LegalDocLinksEn, LegalDocLinksRu } from '../components/LegalDocLinksRu';
 import { useI18n } from '../context/I18nContext';
+import { LOGIN_LEGAL_INTRO } from '../lib/registerFormCopy';
+import { useRegisterFormLang } from '../lib/registerFormLocale';
 import { isTelegramMiniApp } from '../lib/telegramAuth';
 import { getYandexOAuthRedirectUri } from '../lib/auth';
 
@@ -20,6 +22,7 @@ const inputClass =
 export const Login: React.FC = () => {
   const navigate = useNavigate();
   const { language } = useI18n();
+  const loginFormLang = useRegisterFormLang();
   const { isLoggedIn, initialized, applySession } = useAuth();
   const tt = {
     title: language === 'en' ? 'Sign in / Register' : 'Войти / зарегистрироваться',
@@ -253,8 +256,12 @@ export const Login: React.FC = () => {
         </button>
       </form>
 
-      <p className="mt-4 text-center text-[12px] leading-relaxed text-slate-500 sm:text-[13px]">
-        Продолжая вход (email или соцсети), вы подтверждаете ознакомление с <LegalDocLinksRu />.
+      <p
+        className="mt-4 text-center text-[12px] leading-relaxed text-slate-500 sm:text-[13px]"
+        lang={loginFormLang === 'ru' ? 'ru' : 'en'}
+      >
+        {LOGIN_LEGAL_INTRO[loginFormLang]}
+        {loginFormLang === 'ru' ? <LegalDocLinksRu /> : <LegalDocLinksEn />}.
       </p>
 
       <label className="mt-6 flex cursor-pointer items-center gap-2">
