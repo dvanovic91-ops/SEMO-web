@@ -8,6 +8,8 @@ export type IngredientLibraryRow = {
   avoid_skin_types: string[];
   /** Gemini 5축 0–10 (D,O,S,P,W) */
   axis_scores: Record<string, number> | null;
+  /** 관리자 토글: 순서 가중 보정(저농도 유효 액티브) */
+  tier_active: boolean;
   synergy_with: string[];
   conflict_with: string[];
   concentration_note: string | null;
@@ -53,29 +55,103 @@ function lineHasLibraryAxisScores(axisScores: unknown): boolean {
   return false;
 }
 
+/** Python `ingredient_axis_library_merge.infer_dospw_axis_scores_from_line` 와 동일 테이블 */
+const TAG_AXIS_INFER_DOSPW: Record<string, Partial<Record<(typeof LIB_AXIS_KEYS)[number], number>>> = {
+  hydrating: { D: 8, O: 2 },
+  oil_control: { D: 2, O: 8 },
+  soothing: { S: 8 },
+  barrier: { S: 5, D: 4 },
+  brightening: { P: 8 },
+  anti_aging: { W: 8 },
+  exfoliating: { O: 6, P: 5 },
+  antioxidant: { P: 6, W: 6 },
+  firming: { W: 7 },
+  acne: { O: 7 },
+  sensitizing: { S: 3, O: 4 },
+  uv_protection: { P: 7 },
+};
+
 /**
- * ingredient_library에만 있는 axis_scores를 ingredients_json 각 줄에 붙입니다.
+ * 기획 탭 「축값」커버리지용: 저장된 axis_scores 가 없어도 benefit_tags(및 is_sensitizing)로
+ * D~W 추정이 되면 true — 서버 `infer_dospw_axis_scores_from_line` 과 동일 테이블.
+ */
+export function lineHasEffectiveDospwAxisSignalForCoverage(ing: Record<string, unknown>): boolean {
+  if (lineHasLibraryAxisScores(ing.axis_scores)) return true;
+  return inferDospwAxisScoresFromLine(ing) !== null;
+}
+
+function inferDospwAxisScoresFromLine(o: Record<string, unknown>): Record<string, number> | null {
+  const acc: Record<(typeof LIB_AXIS_KEYS)[number], number> = { D: 0, O: 0, S: 0, P: 0, W: 0 };
+  let hit = false;
+  const tags = o.benefit_tags;
+  if (Array.isArray(tags)) {
+    for (const t of tags) {
+      if (typeof t !== 'string') continue;
+      const prof = TAG_AXIS_INFER_DOSPW[t.trim()];
+      if (!prof) continue;
+      hit = true;
+      for (const k of LIB_AXIS_KEYS) {
+        const v = prof[k];
+        if (typeof v === 'number') acc[k] = Math.max(acc[k], v);
+      }
+    }
+  }
+  if (o.is_sensitizing === true) {
+    hit = true;
+    acc.S = Math.max(acc.S, 2);
+    acc.O = Math.max(acc.O, 3);
+  }
+  if (!hit) return null;
+  const out: Record<string, number> = {};
+  for (const k of LIB_AXIS_KEYS) {
+    if (acc[k] > 0) out[k] = Math.max(0, Math.min(10, Math.round(acc[k])));
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+/**
+ * ingredient_library의 axis_scores를 우선 병합하고, 없으면 benefit_tags로 D~W 보조 추정.
  * 이미 D/O/S/P/W 중 하나라도 숫자가 있으면 해당 줄은 건드리지 않습니다.
  */
 export function mergeAxisScoresFromLibraryIntoIngredientsJson(
   ingredientsJson: unknown[],
   libMap: Map<string, IngredientLibraryRow>,
-): { merged: unknown[]; linesFilled: number } {
+): { merged: unknown[]; linesFilled: number; tierTouched: number } {
   let linesFilled = 0;
+  let tierTouched = 0;
   const merged = ingredientsJson.map((item) => {
     if (!item || typeof item !== 'object') return item;
     const o = item as Record<string, unknown>;
     const name = typeof o.name === 'string' ? o.name : '';
     if (!name.trim()) return item;
     const nameLower = typeof o.name_lower === 'string' ? o.name_lower : name.toLowerCase();
-    if (lineHasLibraryAxisScores(o.axis_scores)) return item;
     const lib = lookupIngredientLibraryRow(libMap, name, nameLower);
+    let next: Record<string, unknown> = { ...o };
+    let changed = false;
+    if (lib) {
+      const libTier = Boolean(lib.tier_active);
+      if (Boolean(o.tier_active) !== libTier) {
+        next.tier_active = libTier;
+        changed = true;
+        tierTouched += 1;
+      }
+    }
+    if (lineHasLibraryAxisScores(next.axis_scores)) {
+      return changed ? next : item;
+    }
     const ax = lib?.axis_scores;
-    if (!ax || Object.keys(ax).length === 0) return item;
-    linesFilled += 1;
-    return { ...o, axis_scores: { ...ax } };
+    if (ax && Object.keys(ax).length > 0) {
+      linesFilled += 1;
+      return { ...next, axis_scores: { ...ax } };
+    }
+    const inferred = inferDospwAxisScoresFromLine(next);
+    if (inferred) {
+      linesFilled += 1;
+      return { ...next, axis_scores: inferred };
+    }
+    return changed ? next : item;
   });
-  return { merged, linesFilled };
+  return { merged, linesFilled, tierTouched };
 }
 
 /** 저장 직전: 라이브러리에서 조회해 병합. 변경이 없으면 null */
@@ -95,8 +171,8 @@ export async function applyAxisScoresFromLibraryToIngredientsJson(
     .filter((k) => k.length > 0);
   if (keys.length === 0) return null;
   const libMap = await fetchIngredientLibraryMap(client, keys);
-  const { merged, linesFilled } = mergeAxisScoresFromLibraryIntoIngredientsJson(ingredientsJson, libMap);
-  if (linesFilled === 0) return null;
+  const { merged, linesFilled, tierTouched } = mergeAxisScoresFromLibraryIntoIngredientsJson(ingredientsJson, libMap);
+  if (linesFilled === 0 && tierTouched === 0) return null;
   return merged;
 }
 
@@ -134,6 +210,7 @@ function rowFromDb(r: Record<string, unknown>): IngredientLibraryRow {
     benefit_tags: parseBenefitTags(r.benefit_tags),
     avoid_skin_types: parseBenefitTags(r.avoid_skin_types),
     axis_scores: parseAxisScores(r.axis_scores),
+    tier_active: r.tier_active === true,
     synergy_with: parseTextArray(r.synergy_with),
     conflict_with: parseTextArray(r.conflict_with),
     concentration_note: typeof r.concentration_note === 'string' ? r.concentration_note : null,
@@ -202,6 +279,7 @@ export async function upsertIngredientLibraryFromJson(
         avoid_skin_types: ex?.avoid_skin_types ?? [],
         axis_scores:
           ex?.axis_scores && Object.keys(ex.axis_scores).length > 0 ? ex.axis_scores : {},
+        tier_active: ex?.tier_active === true,
         synergy_with: ex?.synergy_with ?? [],
         conflict_with: ex?.conflict_with ?? [],
         concentration_note: ex?.concentration_note ?? null,

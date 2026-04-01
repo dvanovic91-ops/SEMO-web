@@ -65,6 +65,8 @@ type IngredientItem = {
   avoid_skin_types?: string[];
   /** 라이브러리 Gemini 5축 0–10 */
   axis_scores?: Record<string, number> | null;
+  /** 성분 사전 tier_active 병합값 — 순서 가중 보정 */
+  tier_active?: boolean;
   is_sensitizing?: boolean;
   [key: string]: unknown;
 };
@@ -791,7 +793,15 @@ function parseIngredientsJson(raw: unknown[] | null | undefined): IngredientItem
       ? (o.benefit_tags.filter((t) => typeof t === 'string') as string[])
       : [];
     const is_sensitizing = Boolean(o.is_sensitizing);
-    out.push({ name, name_lower, position, benefit_tags, is_sensitizing });
+    const tier_active = o.tier_active === true ? true : o.tier_active === false ? false : undefined;
+    out.push({
+      name,
+      name_lower,
+      position,
+      benefit_tags,
+      is_sensitizing,
+      ...(tier_active !== undefined ? { tier_active } : {}),
+    });
   }
   return out;
 }
@@ -1074,6 +1084,9 @@ type SearchProductApiResponse = {
   note?: string;
 };
 
+/** 재고 현황 대시보드 접기 상태 (브라우저 로컬). '0' = 접힘 */
+const INVENTORY_STOCK_SUMMARY_OPEN_LS = 'semo-admin-inventory-stock-summary-open';
+
 /* ─── 메인 컴포넌트 ─── */
 export function InventoryTab() {
   const [allSkus, setAllSkus] = useState<SkuItem[]>([]);
@@ -1112,8 +1125,26 @@ export function InventoryTab() {
   const [searchFailed, setSearchFailed] = useState(false);
   const [pendingTranslation, setPendingTranslation] = useState<{ brand?: string; name?: string } | null>(null);
 
-  // 접기/펼치기
-  const [stockSummaryOpen, setStockSummaryOpen] = useState(true);
+  // 접기/펼치기 (로컬 유지)
+  const [stockSummaryOpen, setStockSummaryOpen] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      return window.localStorage.getItem(INVENTORY_STOCK_SUMMARY_OPEN_LS) !== '0';
+    } catch {
+      return true;
+    }
+  });
+  const toggleStockSummaryOpen = useCallback(() => {
+    setStockSummaryOpen((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem(INVENTORY_STOCK_SUMMARY_OPEN_LS, next ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
   /** 목록 카드에서 히어로 문구 EN/RU 줄 펼침 (한글은 항상 표시) */
   const [expandedHeroI18nBySku, setExpandedHeroI18nBySku] = useState<Set<string>>(new Set());
   /** 전성분(한국어) 패널 펼침 */
@@ -1307,6 +1338,64 @@ export function InventoryTab() {
   }, []);
 
   useEffect(() => { loadSkus(); }, [loadSkus]);
+
+  /** 성분 사전 tier_active + 현재 SKU ingredients_json 동기화 (기획/매칭 가중 일치) */
+  const [tierToggleBusyKey, setTierToggleBusyKey] = useState<string | null>(null);
+  const handleToggleIngredientTierActive = useCallback(
+    async (sku: SkuItem, ing: IngredientItem, libRow: IngredientLibraryRow | null) => {
+      if (!supabase) {
+        showToast('연결을 확인하세요.', 'error');
+        return;
+      }
+      const nk = normalizeInciKey(ing.name, ing.name_lower);
+      const busyKey = `${sku.id}:${nk}`;
+      const current = Boolean(libRow?.tier_active ?? ing.tier_active);
+      const nextVal = !current;
+      setTierToggleBusyKey(busyKey);
+      try {
+        if (libRow?.inci_key) {
+          const { error } = await supabase
+            .from('ingredient_library')
+            .update({ tier_active: nextVal })
+            .eq('inci_key', libRow.inci_key);
+          if (error) throw error;
+        } else {
+          const { error } = await supabase.from('ingredient_library').insert({
+            inci_key: nk,
+            name_en: ing.name,
+            benefit_tags: ing.benefit_tags ?? [],
+            tier_active: nextVal,
+            source: 'admin_tier_toggle',
+          });
+          if (error) throw error;
+        }
+        const raw = sku.ingredients_json as unknown[] | null | undefined;
+        if (Array.isArray(raw)) {
+          const patched = raw.map((x) => {
+            if (!x || typeof x !== 'object') return x;
+            const o = x as Record<string, unknown>;
+            const name = typeof o.name === 'string' ? o.name : '';
+            if (!name.trim()) return x;
+            const nl = typeof o.name_lower === 'string' ? o.name_lower : name.toLowerCase();
+            if (normalizeInciKey(name, nl) !== nk) return x;
+            return { ...o, tier_active: nextVal };
+          });
+          const { error: uerr } = await supabase
+            .from('sku_items')
+            .update({ ingredients_json: patched })
+            .eq('id', sku.id);
+          if (uerr) throw uerr;
+        }
+        showToast(nextVal ? '티어 액티브로 저장했습니다.' : '티어를 해제했습니다.', 'success');
+        await loadSkus();
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : '저장 실패', 'error');
+      } finally {
+        setTierToggleBusyKey(null);
+      }
+    },
+    [supabase, showToast, loadSkus],
+  );
 
   /* ── 이미지 업로드 ── */
   const handleImageUpload = async (file: File) => {
@@ -2211,7 +2300,7 @@ export function InventoryTab() {
         <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
           <button
             type="button"
-            onClick={() => setStockSummaryOpen((v) => !v)}
+            onClick={toggleStockSummaryOpen}
             className="mb-3 flex w-full items-center justify-between"
           >
             <p className="text-xs font-medium uppercase tracking-wider text-slate-500">재고 현황</p>
@@ -2387,14 +2476,10 @@ export function InventoryTab() {
                                     const a2Cnt =
                                       ar?.details.filter((d) => d.axisLabel === a2 && d.contribution === 'benefit').length ?? 0;
                                     const penCnt = ar?.details.filter((d) => d.contribution === 'penalty').length ?? 0;
-                                    const pairHint = ar
-                                      ? `${AXIS_KO[a1]} ${p1}% · ${AXIS_KO[a2]} ${p2}% (한 쌍의 합 100%)`
-                                      : '';
                                     return (
                                       <span key={letter} className="relative group/axend">
                                         <span
                                           className={`cursor-default rounded border px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${cls}`}
-                                          title={pairHint}
                                         >
                                           {letter} {AXIS_KO[letter]} {pct ?? '—'}%
                                         </span>
@@ -2716,6 +2801,8 @@ export function InventoryTab() {
                               });
                               const koLabel = toKoName(ing.name);
                               const checked = picked.includes(ing.name_lower);
+                              const tierOn = Boolean(libRow?.tier_active ?? ing.tier_active);
+                              const tierBusy = tierToggleBusyKey === `${sku.id}:${nk}`;
                               return (
                                 <li
                                   key={`${sku.id}-${ing.position}-${ing.name_lower}`}
@@ -2751,6 +2838,21 @@ export function InventoryTab() {
                                       <p className="mt-1 truncate text-[10px] text-slate-600" title={effectLine}>
                                         {effectLine}
                                       </p>
+                                    </span>
+                                  </label>
+                                  <label className="flex shrink-0 cursor-pointer flex-col items-end gap-0.5 border-l border-slate-100 pl-2 text-[9px] text-slate-500">
+                                    <span className="flex items-center gap-1 whitespace-nowrap">
+                                      <input
+                                        type="checkbox"
+                                        checked={tierOn}
+                                        disabled={tierBusy}
+                                        onChange={() => void handleToggleIngredientTierActive(sku, ing, libRow)}
+                                        className="h-3.5 w-3.5 rounded border-slate-300 text-brand focus:ring-brand"
+                                      />
+                                      티어 액티브
+                                    </span>
+                                    <span className="max-w-[7rem] text-right text-[8px] leading-tight text-slate-400" title="뒤 순번이어도 점수에서 앞쪽처럼 반영">
+                                      순서 가중 보정
                                     </span>
                                   </label>
                                 </li>
