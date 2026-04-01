@@ -194,7 +194,7 @@ function parseAiAnalysisApiPayload(payload: {
   sections?: unknown;
   output_lang?: unknown;
 }): AiAnalysisSections | null {
-  if (!payload.success) return null;
+  if (payload.success === false) return null;
   const normLang = (v: unknown): AiAnalysisSection[] => {
     if (Array.isArray(v)) {
       const out: AiAnalysisSection[] = [];
@@ -217,6 +217,7 @@ function parseAiAnalysisApiPayload(payload: {
   const single = normLang(payload.sections);
   if (single.length > 0) {
     if (outputLang === 'en') en = single;
+    else if (outputLang === 'ko') ko = single;
     else ru = single;
   }
   if (ko.length === 0 && ru.length === 0 && en.length === 0) return null;
@@ -391,7 +392,7 @@ export const SkinTest: React.FC = () => {
     return `${base} ${tolerance} ${tone} ${aging}`;
   };
 
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const skinTypeQueryParam = searchParams.get('type')?.trim().toUpperCase() ?? '';
   const resultRowIdQueryParam = searchParams.get('id')?.trim() ?? '';
   const resultRowIdFromQueryOk = SKIN_TEST_RESULT_ROW_UUID_RE.test(resultRowIdQueryParam);
@@ -505,26 +506,84 @@ export const SkinTest: React.FC = () => {
 
     const queuedSelfie = pendingSelfiePersistRef.current;
     if (queuedSelfie) {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('skin_test_results')
         .update({ selfie_analysis: queuedSelfie })
         .eq('id', rowId)
-        .eq('user_id', userId);
-      if (!error) pendingSelfiePersistRef.current = null;
-      else console.error('[SkinTest] queued selfie_analysis retry flush:', error);
+        .eq('user_id', userId)
+        .select('id')
+        .maybeSingle();
+      if (!error && data?.id) pendingSelfiePersistRef.current = null;
+      else console.error('[SkinTest] queued selfie_analysis retry flush:', error ?? '0 rows');
     }
 
     const queuedAi = pendingAiPersistRef.current;
     if (queuedAi) {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('skin_test_results')
         .update({ ai_analysis: queuedAi })
         .eq('id', rowId)
-        .eq('user_id', userId);
-      if (!error) pendingAiPersistRef.current = null;
-      else console.error('[SkinTest] queued ai_analysis retry flush:', error);
+        .eq('user_id', userId)
+        .select('id')
+        .maybeSingle();
+      if (!error && data?.id) pendingAiPersistRef.current = null;
+      else console.error('[SkinTest] queued ai_analysis retry flush:', error ?? '0 rows');
     }
   }, [supabase, userId]);
+
+  /** AI 분석 JSON을 현재 결과 행에 저장 — insert 지연 시 잠시 대기, 실패 시 큐 + flush */
+  const persistAiAnalysisToRow = useCallback(
+    async (aiPersist: Record<string, unknown>): Promise<boolean> => {
+      if (!supabase || !userId) {
+        pendingAiPersistRef.current = aiPersist;
+        return false;
+      }
+      const tryUpdate = async (rowId: string) => {
+        const { data, error } = await supabase
+          .from('skin_test_results')
+          .update({ ai_analysis: aiPersist })
+          .eq('id', rowId)
+          .eq('user_id', userId)
+          .select('id')
+          .maybeSingle();
+        if (error) {
+          console.error('[SkinTest] ai_analysis update:', error.message, error);
+          return false;
+        }
+        if (!data?.id) {
+          console.error('[SkinTest] ai_analysis update: 0 rows (RLS/id mismatch?)', { rowId });
+          return false;
+        }
+        return true;
+      };
+
+      let rowId = pendingSkinTestResultRowIdRef.current;
+      if (rowId && (await tryUpdate(rowId))) return true;
+
+      for (let i = 0; i < 50; i++) {
+        await new Promise((r) => setTimeout(r, 100));
+        rowId = pendingSkinTestResultRowIdRef.current;
+        if (!rowId) {
+          try {
+            const sid = sessionStorage.getItem(SKIN_RESULT_ROW_STORAGE);
+            if (sid && SKIN_TEST_RESULT_ROW_UUID_RE.test(sid)) {
+              pendingSkinTestResultRowIdRef.current = sid;
+              rowId = sid;
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+        if (rowId && (await tryUpdate(rowId))) return true;
+      }
+
+      console.error('[SkinTest] ai_analysis: row id not ready or update failed; queueing for flush');
+      pendingAiPersistRef.current = aiPersist;
+      void flushQueuedPersists();
+      return false;
+    },
+    [supabase, userId, flushQueuedPersists],
+  );
 
   /** 프로필 «Посмотреть результат теста» → ?type=DSNW[&id=uuid]: 동일 결과지 UI
    *  id가 있으면 해당 skin_test_results 행(셀피·점수) 로드에 쓰도록 sessionStorage·pending ref 설정.
@@ -1119,15 +1178,8 @@ export const SkinTest: React.FC = () => {
             ru: parsed.ru,
             ko: parsed.ko,
           };
-          const rowId = pendingSkinTestResultRowIdRef.current;
-          if (supabase && userId && rowId) {
-            void supabase
-              .from('skin_test_results')
-              .update({
-                ai_analysis: aiPersist,
-              })
-              .eq('id', rowId)
-              .eq('user_id', userId);
+          if (supabase && userId) {
+            await persistAiAnalysisToRow(aiPersist);
           } else {
             pendingAiPersistRef.current = aiPersist;
           }
@@ -1159,6 +1211,7 @@ export const SkinTest: React.FC = () => {
     recommendedProductPreview?.status,
     recommendedProductPreview?.name,
     recommendedProductPreview?.composition,
+    persistAiAnalysisToRow,
   ]);
 
   const canAddRecommendedToCart =
@@ -1267,6 +1320,12 @@ export const SkinTest: React.FC = () => {
         profileCode: String(profileData.concern ?? '').trim(),
         freeText: String(concernText ?? '').trim(),
       });
+      /* 프로필 링크 등으로 남아 있던 ?type=&id= 가 있으면 AI effect가 «저장 결과만» 분기로 막혀 analyze-text·DB 저장이 안 됨 */
+      try {
+        setSearchParams(new URLSearchParams(), { replace: true });
+      } catch {
+        /* ignore */
+      }
       setResult({ type, info, scores });
       persistedSkinLoadKeyRef.current = '';
       setSelfieAnalyzeError(null);
@@ -1322,8 +1381,13 @@ export const SkinTest: React.FC = () => {
                     .update({ selfie_analysis: queued })
                     .eq('id', data.id)
                     .eq('user_id', userId)
-                    .then(({ error: upErr }) => {
-                      if (upErr) console.error('[SkinTest] queued selfie_analysis flush:', upErr);
+                    .select('id')
+                    .maybeSingle()
+                    .then(({ data: upRow, error: upErr }) => {
+                      if (upErr || !upRow?.id) {
+                        console.error('[SkinTest] queued selfie_analysis flush:', upErr ?? '0 rows');
+                        pendingSelfiePersistRef.current = queued;
+                      }
                     });
                 }
                 const queuedAi = pendingAiPersistRef.current;
@@ -1334,8 +1398,13 @@ export const SkinTest: React.FC = () => {
                     .update({ ai_analysis: queuedAi })
                     .eq('id', data.id)
                     .eq('user_id', userId)
-                    .then(({ error: upErr }) => {
-                      if (upErr) console.error('[SkinTest] queued ai_analysis flush:', upErr);
+                    .select('id')
+                    .maybeSingle()
+                    .then(({ data: upRow, error: upErr }) => {
+                      if (upErr || !upRow?.id) {
+                        console.error('[SkinTest] queued ai_analysis flush:', upErr ?? '0 rows');
+                        pendingAiPersistRef.current = queuedAi;
+                      }
                     });
                 }
                 setResultSyncNonce((n) => n + 1);
@@ -1414,7 +1483,11 @@ export const SkinTest: React.FC = () => {
       fd.append('skin_concern', concernText || '');
       let res: Response;
       try {
-        res = await fetch(`${skinApiBase}/analyze`, { method: 'POST', body: fd });
+        res = await fetch(`${skinApiBase}/analyze`, {
+          method: 'POST',
+          headers: { 'ngrok-skip-browser-warning': 'true' },
+          body: fd,
+        });
       } catch {
         throw new Error(
           isEn
@@ -1479,12 +1552,17 @@ export const SkinTest: React.FC = () => {
 
       const rowIdSelfie = await resolveRowIdForSelfie();
       if (supabase && userId && rowIdSelfie) {
-        const { error: selfieUpErr } = await supabase
+        const { data: selfieRow, error: selfieUpErr } = await supabase
           .from('skin_test_results')
           .update({ selfie_analysis: selfiePersist })
           .eq('id', rowIdSelfie)
-          .eq('user_id', userId);
-        if (selfieUpErr) console.error('[SkinTest] selfie_analysis update:', selfieUpErr);
+          .eq('user_id', userId)
+          .select('id')
+          .maybeSingle();
+        if (selfieUpErr || !selfieRow?.id) {
+          console.error('[SkinTest] selfie_analysis update:', selfieUpErr ?? '0 rows');
+          pendingSelfiePersistRef.current = selfiePersist;
+        }
       } else if (supabase && userId) {
         pendingSelfiePersistRef.current = selfiePersist;
       }
@@ -1570,15 +1648,8 @@ export const SkinTest: React.FC = () => {
             ru: uniParsed.ru,
             ko: uniParsed.ko,
           };
-          const rowId = pendingSkinTestResultRowIdRef.current;
-          if (supabase && userId && rowId) {
-            void supabase
-              .from('skin_test_results')
-              .update({
-                ai_analysis: aiPersist,
-              })
-              .eq('id', rowId)
-              .eq('user_id', userId);
+          if (supabase && userId) {
+            await persistAiAnalysisToRow(aiPersist);
           } else {
             pendingAiPersistRef.current = aiPersist;
           }

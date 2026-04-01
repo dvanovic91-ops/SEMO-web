@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart, ResponsiveContainer, Tooltip } from 'recharts';
+import { lineHasEffectiveDospwAxisSignalForCoverage } from '../../lib/ingredientLibrary';
 import { supabase } from '../../lib/supabase';
 import { formatSkinApiNetworkError, getSkinApiBaseUrl, skinApiHeaders } from '../../lib/skinApiBaseUrl';
 
@@ -276,6 +277,88 @@ const INGREDIENT_AXIS_FALLBACK: Record<string, Array<{ key: string; label: strin
   ],
 };
 
+type IngredientSignalCoverage = {
+  total: number;
+  both: number;
+  axisOnly: number;
+  tagsOnly: number;
+  neither: number;
+};
+
+function lineHasBenefitTags(ing: Record<string, unknown>): boolean {
+  const tags = ing['benefit_tags'];
+  if (!Array.isArray(tags)) return false;
+  return tags.some((t) => typeof t === 'string' && t.trim().length > 0);
+}
+
+function summarizeIngredientJsonLines(raw: unknown): IngredientSignalCoverage {
+  const lines = Array.isArray(raw)
+    ? raw.filter((x): x is Record<string, unknown> => Boolean(x) && typeof x === 'object' && !Array.isArray(x))
+    : [];
+  let both = 0;
+  let axisOnly = 0;
+  let tagsOnly = 0;
+  let neither = 0;
+  for (const ing of lines) {
+    const ax = lineHasEffectiveDospwAxisSignalForCoverage(ing);
+    const tg = lineHasBenefitTags(ing);
+    if (ax && tg) both += 1;
+    else if (ax) axisOnly += 1;
+    else if (tg) tagsOnly += 1;
+    else neither += 1;
+  }
+  return { total: lines.length, both, axisOnly, tagsOnly, neither };
+}
+
+function formatCoveragePct(n: number, d: number): string {
+  if (d <= 0) return '—';
+  return `${Math.round((100 * n) / d)}%`;
+}
+
+function IngredientCoverageNote({
+  coverage,
+  loading,
+  tone,
+}: {
+  coverage: IngredientSignalCoverage | undefined;
+  loading: boolean;
+  tone: 'blue' | 'rose';
+}) {
+  const border = tone === 'blue' ? 'border-blue-100' : 'border-rose-100';
+  const label = tone === 'blue' ? 'text-blue-800' : 'text-rose-800';
+  if (loading) {
+    return (
+      <div className={`mt-2 rounded-lg border ${border} bg-white/60 px-2 py-1.5 text-[10px] text-slate-500`}>
+        성분 줄 신호 불러오는 중…
+      </div>
+    );
+  }
+  if (!coverage) return null;
+  if (coverage.total === 0) {
+    return (
+      <div className={`mt-2 rounded-lg border ${border} bg-white/60 px-2 py-1.5 text-[10px] text-slate-600`}>
+        <span className={`font-semibold ${label}`}>성분 줄 신호</span>
+        <span className="mt-0.5 block">저장된 전성분 줄이 없습니다.</span>
+      </div>
+    );
+  }
+  const withAxis = coverage.both + coverage.axisOnly;
+  const withTags = coverage.both + coverage.tagsOnly;
+  const warnNeither = coverage.neither / coverage.total >= 0.35;
+  return (
+    <div className={`mt-2 rounded-lg border ${border} bg-white/60 px-2 py-1.5 text-[10px] leading-snug text-slate-700`}>
+      <span className={`font-semibold ${label}`}>성분 줄 신호</span>
+      <p className="mt-0.5">
+        총 {coverage.total}줄 · 축값(D/O/S/P/W) {formatCoveragePct(withAxis, coverage.total)} · 태그 {formatCoveragePct(withTags, coverage.total)} · 둘 다
+        없음{' '}
+        <span className={warnNeither ? 'font-semibold text-amber-700' : ''}>
+          {formatCoveragePct(coverage.neither, coverage.total)}
+        </span>
+      </p>
+    </div>
+  );
+}
+
 function normalizeCompareResult(r: CompareResult): CompareResult {
   const axes = r.ingredient_axes;
   if (axes && axes.length > 0) {
@@ -400,7 +483,6 @@ function renderAxisGauges(r: CompareResult, tone: 'blue' | 'red') {
             </div>
             <div
               className="group/bar relative h-2 w-full cursor-default rounded-full bg-slate-200"
-              title={barTitle}
               role="img"
               aria-label={barTitle}
             >
@@ -412,7 +494,7 @@ function renderAxisGauges(r: CompareResult, tone: 'blue' | 'red') {
                 <div
                   className="pointer-events-none absolute top-0 z-[1] h-2 w-0 -translate-x-1/2 border-l-2 border-slate-600"
                   style={{ left: `${Math.max(0, Math.min(100, avg))}%` }}
-                  title={`같은 유형 평균 ${avg}/100`}
+                  aria-hidden
                 />
               ) : null}
               <div className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center opacity-0 transition-opacity group-hover/bar:opacity-100">
@@ -526,6 +608,8 @@ export default function ProductPlanningTab() {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<CompareResult[]>([]);
+  const [ingredientCoverage, setIngredientCoverage] = useState<Record<string, IngredientSignalCoverage>>({});
+  const [ingredientCoverageLoading, setIngredientCoverageLoading] = useState(false);
   const [axisHoverTip, setAxisHoverTip] = useState<{
     x: number;
     y: number;
@@ -581,6 +665,36 @@ export default function ProductPlanningTab() {
       /* ignore quota / private mode */
     }
   }, [category, query, axis, selectedIds]);
+
+  /** 선택된 후보의 ingredients_json 으로 축·태그 커버리지 (축값=저장 axis_scores 또는 태그 기반 D~W 추정, 서버 병합과 동일) */
+  useEffect(() => {
+    if (selectedIds.length < 2) {
+      setIngredientCoverage({});
+      setIngredientCoverageLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setIngredientCoverageLoading(true);
+    void (async () => {
+      const { data, error: qErr } = await supabase.from('sku_items').select('id, ingredients_json').in('id', selectedIds);
+      if (cancelled) return;
+      setIngredientCoverageLoading(false);
+      if (qErr) {
+        setIngredientCoverage({});
+        return;
+      }
+      const next: Record<string, IngredientSignalCoverage> = {};
+      for (const row of data ?? []) {
+        const id = typeof row.id === 'string' ? row.id : '';
+        if (!id) continue;
+        next[id] = summarizeIngredientJsonLines(row.ingredients_json);
+      }
+      setIngredientCoverage(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedIds]);
 
   /** 이전에 저장된 후보가 있으면 SKU 목록을 한 번 불러 체크박스·비교가 바로 동작하게 함 */
   useEffect(() => {
@@ -940,6 +1054,11 @@ export default function ProductPlanningTab() {
                       {results[0].brand ? `${results[0].brand} ` : ''}{results[0].product_name} 근거
                     </p>
                     <p className="mt-1 text-[11px] leading-snug text-slate-700">{productReasonSummary(results[0])}</p>
+                    <IngredientCoverageNote
+                      coverage={ingredientCoverage[results[0].sku_id]}
+                      loading={ingredientCoverageLoading}
+                      tone="blue"
+                    />
                     <p className="mt-2 text-[11px] font-semibold text-blue-700">하위 성분축</p>
                     <div className="mt-1">{renderAxisGauges(results[0], 'blue')}</div>
                   </aside>
@@ -1012,10 +1131,20 @@ export default function ProductPlanningTab() {
                       {results[1].brand ? `${results[1].brand} ` : ''}{results[1].product_name} 근거
                     </p>
                     <p className="mt-1 text-[11px] leading-snug text-slate-700">{productReasonSummary(results[1])}</p>
+                    <IngredientCoverageNote
+                      coverage={ingredientCoverage[results[1].sku_id]}
+                      loading={ingredientCoverageLoading}
+                      tone="rose"
+                    />
                     <p className="mt-2 text-[11px] font-semibold text-rose-700">하위 성분축</p>
                     <div className="mt-1">{renderAxisGauges(results[1], 'red')}</div>
                   </aside>
                 </div>
+                <p className="mt-2 text-[9px] leading-snug text-slate-500">
+                  「축값」은 줄에 저장된 <code className="rounded bg-slate-100 px-1">axis_scores</code>가 있거나,{' '}
+                  <code className="rounded bg-slate-100 px-1">benefit_tags</code>로 D~W를 추정할 수 있으면 집계합니다(하위 성분축·서버 병합과 같은
+                  방향). 라이브러리/Gemini 축만 있고 줄에 안 박힌 경우는 전성분 재수집·재고 저장 병합 후 DB가 갱신되면 반영됩니다.
+                </p>
               </section>
             ) : (
               <p className="text-xs text-slate-500">비교 그래프는 후보 2개 이상에서 표시됩니다.</p>
