@@ -211,7 +211,7 @@ function parseAiAnalysisApiPayload(payload: {
     return [];
   };
   const outputLang = String(payload.output_lang ?? '').toLowerCase();
-  const ko = normLang(payload.ko);
+  let ko = normLang(payload.ko);
   let ru = normLang(payload.ru);
   let en = normLang(payload.en);
   const single = normLang(payload.sections);
