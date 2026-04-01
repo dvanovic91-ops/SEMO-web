@@ -719,10 +719,7 @@ export default function ProductPlanningTab() {
     return (
       <g
         onMouseEnter={showTip}
-        onMouseMove={showTip}
         onMouseLeave={() => setAxisHoverTip(null)}
-        onMouseOver={showTip}
-        onMouseOut={() => setAxisHoverTip(null)}
         style={{ cursor: 'default' }}
       >
         <rect x={x - 22} y={y - 14} width={44} height={26} fill="transparent" pointerEvents="all" />
@@ -757,10 +754,7 @@ export default function ProductPlanningTab() {
     return (
       <g
         onMouseEnter={showTip}
-        onMouseMove={showTip}
         onMouseLeave={() => setAxisHoverTip(null)}
-        onMouseOut={() => setAxisHoverTip(null)}
-        onMouseOver={showTip}
         style={{ cursor: 'default' }}
       >
         <rect x={x - 20} y={y - 10} width={40} height={20} fill="transparent" pointerEvents="all" />
@@ -929,9 +923,6 @@ export default function ProductPlanningTab() {
             })()}
           </div>
         ) : null}
-        <p className="mb-3 text-[11px] leading-relaxed text-slate-500">
-          파란색(1번)과 빨간색(2번)을 겹쳐 비교합니다. 그래프 툴팁은 커서 아래에 뜨도록 옮겼습니다.
-        </p>
         {results.length === 0 ? (
           <p className="text-xs text-slate-500">비교 결과가 여기에 표시됩니다.</p>
         ) : (
@@ -942,7 +933,6 @@ export default function ProductPlanningTab() {
                   <span className="inline-flex items-center gap-1"><span className="h-0.5 w-4 bg-blue-600" />파란 실선: 1번 제품</span>
                   <span className="inline-flex items-center gap-1"><span className="h-0.5 w-4 bg-rose-600" />빨간 실선: 2번 제품</span>
                   <span className="inline-flex items-center gap-1"><span className="h-0.5 w-4 bg-yellow-500" />노란 실선: 같은 유형 평균</span>
-                  <span className="text-slate-500">모든 축은 100점 만점</span>
                 </div>
                 <div className="grid gap-3 xl:grid-cols-[1fr_2fr_1fr]">
                   <aside className="rounded-lg border border-blue-100 bg-blue-50/40 p-2.5">
@@ -953,59 +943,67 @@ export default function ProductPlanningTab() {
                     <p className="mt-2 text-[11px] font-semibold text-blue-700">하위 성분축</p>
                     <div className="mt-1">{renderAxisGauges(results[0], 'blue')}</div>
                   </aside>
-                  <div className="grid gap-3">
-                    <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-2.5">
-                      <p className="mb-1 text-[11px] font-semibold text-slate-700">적합도 (제품 2종 비교)</p>
-                      <p className="mb-2 text-[10px] leading-snug text-slate-500">
-                        꼭짓점 점수는 각 쌍에서 <strong className="text-slate-700">D·S·P·W</strong> 쪽 비율(0~100)입니다. 높을수록
-                        건성·민감·색소·주름 쪽, 낮을수록 지성·저항·비색소·탄탄 쪽입니다.
-                      </p>
-                      <div className="h-[420px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <RadarChart
-                            margin={{ top: 24, right: 28, bottom: 24, left: 28 }}
-                            data={buildDualSuitabilityRadarData(axis, results[0], results[1])}
-                          >
-                            <PolarGrid stroke="#374151" strokeOpacity={0.6} />
-                            <PolarAngleAxis dataKey="axis" tick={renderSuitabilityAxisTick} />
-                            <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
-                            <Tooltip
-                              content={(props) => <DualSuitabilityRadarTooltip {...props} />}
-                              cursor={{ stroke: 'rgba(71, 85, 105, 0.35)', strokeWidth: 1 }}
-                              allowEscapeViewBox={{ x: true, y: true }}
-                              wrapperStyle={{ outline: 'none', zIndex: 30 }}
-                            />
-                            <Radar dataKey="avg" name="유형평균" stroke="#eab308" fill="#eab308" fillOpacity={0.05} dot={{ r: 2 }} activeDot={{ r: 4 }} />
-                            <Radar dataKey="p1" name="제품1" stroke="#2563eb" fill="#2563eb" fillOpacity={0.18} dot={{ r: 2 }} activeDot={{ r: 4 }} />
-                            <Radar dataKey="p2" name="제품2" stroke="#dc2626" fill="#dc2626" fillOpacity={0.14} dot={{ r: 2 }} activeDot={{ r: 4 }} />
-                          </RadarChart>
-                        </ResponsiveContainer>
+                  <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50/70 p-2.5">
+                    <p className="mb-2 text-[10px] leading-tight text-slate-500 whitespace-nowrap overflow-x-auto [scrollbar-width:thin]">
+                      꼭짓점 점수는 각 쌍에서 <strong className="text-slate-700">D·S·P·W</strong> 쪽 비율(0~100)입니다. 높을수록
+                      건성·민감·색소·주름 쪽, 낮을수록 지성·저항·비색소·탄탄 쪽입니다. (기준 : 50점)
+                    </p>
+                    <div className="grid min-w-0 gap-3 md:grid-cols-2">
+                      <div className="min-w-0">
+                        <p className="mb-1 text-[11px] font-semibold text-slate-700">적합도 (제품 2종 비교)</p>
+                        <div
+                          className="h-[320px]"
+                          onPointerLeave={() => setAxisHoverTip(null)}
+                        >
+                          <ResponsiveContainer width="100%" height="100%">
+                            <RadarChart
+                              margin={{ top: 24, right: 28, bottom: 24, left: 28 }}
+                              data={buildDualSuitabilityRadarData(axis, results[0], results[1])}
+                            >
+                              <PolarGrid stroke="#374151" strokeOpacity={0.6} />
+                              <PolarAngleAxis dataKey="axis" tick={renderSuitabilityAxisTick} />
+                              <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
+                              <Tooltip
+                                content={(props) => <DualSuitabilityRadarTooltip {...props} />}
+                                cursor={{ stroke: 'rgba(71, 85, 105, 0.35)', strokeWidth: 1 }}
+                                allowEscapeViewBox={{ x: true, y: true }}
+                                wrapperStyle={{ outline: 'none', zIndex: 30 }}
+                              />
+                              <Radar dataKey="avg" name="유형평균" stroke="#eab308" fill="#eab308" fillOpacity={0.05} dot={{ r: 2 }} activeDot={{ r: 4 }} />
+                              <Radar dataKey="p1" name="제품1" stroke="#2563eb" fill="#2563eb" fillOpacity={0.18} dot={{ r: 2 }} activeDot={{ r: 4 }} />
+                              <Radar dataKey="p2" name="제품2" stroke="#dc2626" fill="#dc2626" fillOpacity={0.14} dot={{ r: 2 }} activeDot={{ r: 4 }} />
+                            </RadarChart>
+                          </ResponsiveContainer>
+                        </div>
                       </div>
-                    </div>
-                    <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-2.5">
-                      <p className="mb-1 text-[11px] font-semibold text-slate-700">
-                        성분축 비교 ({results[0].planning_evaluation?.product_type_key ?? '유형'} 기준)
-                      </p>
-                      <div className="h-[420px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <RadarChart
-                            margin={{ top: 24, right: 28, bottom: 24, left: 28 }}
-                            data={buildDualIngredientRadarData(results[0], results[1])}
-                          >
-                            <PolarGrid stroke="#374151" strokeOpacity={0.6} />
-                            <PolarAngleAxis dataKey="axis" tick={renderIngredientAxisTick} />
-                            <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
-                            <Tooltip
-                              content={(props) => <DualIngredientRadarTooltip {...props} />}
-                              cursor={{ stroke: 'rgba(71, 85, 105, 0.35)', strokeWidth: 1 }}
-                              allowEscapeViewBox={{ x: true, y: true }}
-                              wrapperStyle={{ outline: 'none', zIndex: 30 }}
-                            />
-                            <Radar dataKey="avg" name="유형평균" stroke="#eab308" fill="#eab308" fillOpacity={0.05} dot={{ r: 2 }} activeDot={{ r: 4 }} />
-                            <Radar dataKey="p1" name="제품1" stroke="#2563eb" fill="#2563eb" fillOpacity={0.18} dot={{ r: 2 }} activeDot={{ r: 4 }} />
-                            <Radar dataKey="p2" name="제품2" stroke="#dc2626" fill="#dc2626" fillOpacity={0.14} dot={{ r: 2 }} activeDot={{ r: 4 }} />
-                          </RadarChart>
-                        </ResponsiveContainer>
+                      <div className="min-w-0">
+                        <p className="mb-1 text-[11px] font-semibold text-slate-700">
+                          성분축 비교 ({results[0].planning_evaluation?.product_type_key ?? '유형'} 기준)
+                        </p>
+                        <div
+                          className="h-[320px]"
+                          onPointerLeave={() => setAxisHoverTip(null)}
+                        >
+                          <ResponsiveContainer width="100%" height="100%">
+                            <RadarChart
+                              margin={{ top: 24, right: 28, bottom: 24, left: 28 }}
+                              data={buildDualIngredientRadarData(results[0], results[1])}
+                            >
+                              <PolarGrid stroke="#374151" strokeOpacity={0.6} />
+                              <PolarAngleAxis dataKey="axis" tick={renderIngredientAxisTick} />
+                              <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
+                              <Tooltip
+                                content={(props) => <DualIngredientRadarTooltip {...props} />}
+                                cursor={{ stroke: 'rgba(71, 85, 105, 0.35)', strokeWidth: 1 }}
+                                allowEscapeViewBox={{ x: true, y: true }}
+                                wrapperStyle={{ outline: 'none', zIndex: 30 }}
+                              />
+                              <Radar dataKey="avg" name="유형평균" stroke="#eab308" fill="#eab308" fillOpacity={0.05} dot={{ r: 2 }} activeDot={{ r: 4 }} />
+                              <Radar dataKey="p1" name="제품1" stroke="#2563eb" fill="#2563eb" fillOpacity={0.18} dot={{ r: 2 }} activeDot={{ r: 4 }} />
+                              <Radar dataKey="p2" name="제품2" stroke="#dc2626" fill="#dc2626" fillOpacity={0.14} dot={{ r: 2 }} activeDot={{ r: 4 }} />
+                            </RadarChart>
+                          </ResponsiveContainer>
+                        </div>
                       </div>
                     </div>
                   </div>
