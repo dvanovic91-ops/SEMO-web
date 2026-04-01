@@ -2179,29 +2179,48 @@ export const SkinTest: React.FC = () => {
             {aiAnalysisText && aiDisplaySections.length > 0 ? (
               <>
                 {aiDisplaySections.map((sec, idx) => {
-                  const isLast = idx === aiDisplaySections.length - 1;
-                  const KICKERS_RU = ['\u0412\u0430\u0448\u0430 \u043a\u043e\u0436\u0430 \u0441\u0435\u0439\u0447\u0430\u0441', '\u0420\u0435\u043a\u043e\u043c\u0435\u043d\u0434\u0443\u0435\u043c\u044b\u0439 \u0443\u0445\u043e\u0434', '\u041e\u0436\u0438\u0434\u0430\u0435\u043c\u044b\u0439 \u044d\u0444\u0444\u0435\u043a\u0442 \u043e\u0442 \u0441\u0440\u0435\u0434\u0441\u0442\u0432'];
+                  const KICKERS_RU = ['Ваша кожа сейчас', 'Рекомендуемый уход', 'Ожидаемый эффект от средств'];
                   const KICKERS_EN = ['Your skin right now', 'Recommended routine', 'Expected results'];
                   const kicker = (isEn ? KICKERS_EN : KICKERS_RU)[idx] ?? (isEn ? KICKERS_EN[KICKERS_EN.length - 1] : KICKERS_RU[KICKERS_RU.length - 1]);
+                  const hasSelfie = !!selfieAnalyzeResult;
+                  // 섹션별 문단 소제목 (인덱스 순서 = AI가 쓰는 순서와 동일)
+                  const PARA_LABELS_EN: Record<number, string[]> = {
+                    0: hasSelfie
+                      ? ['What your questionnaire reveals', 'What your photo caught today', 'About your concern']
+                      : ['What your questionnaire reveals', 'About your concern'],
+                    1: ['The shift ahead', "What's in your box"],
+                    2: ["What you'll feel first", 'By the time your next box arrives'],
+                  };
+                  const PARA_LABELS_RU: Record<number, string[]> = {
+                    0: hasSelfie
+                      ? ['Что показывает анкета', 'Что показало фото', 'О вашем запросе']
+                      : ['Что показывает анкета', 'О вашем запросе'],
+                    1: ['Что меняется впереди', 'Что в вашем боксе'],
+                    2: ['Что вы почувствуете сначала', 'К моменту следующего бокса'],
+                  };
+                  const paraLabels = (isEn ? PARA_LABELS_EN : PARA_LABELS_RU)[idx] ?? [];
+                  const paragraphs = String(sec.body || '')
+                    .split(/\n\s*\n/g)
+                    .map((p) => p.trim())
+                    .filter(Boolean);
                   return (
                     <div
                       key={`ai-sec-${idx}-${String(sec.title ?? '').slice(0, 12)}`}
                       className="rounded-xl border border-slate-100 bg-slate-50/90 px-3 py-3 sm:px-4 sm:py-4"
                     >
                       <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{kicker}</p>
-                      <div className="mt-2 space-y-2">
-                        {String(sec.body || '')
-                          .split(/\n\s*\n/g)
-                          .map((para) => para.trim())
-                          .filter(Boolean)
-                          .map((para, pIdx) => (
-                            <p key={`sec-${idx}-p-${pIdx}`} className="text-sm leading-relaxed text-slate-700">
-                              {para}
-                            </p>
-                          ))}
+                      <div className="mt-2 space-y-4">
+                        {paragraphs.map((para, pIdx) => (
+                          <div key={`sec-${idx}-p-${pIdx}`}>
+                            {paraLabels[pIdx] && (
+                              <p className="mb-1 text-[11px] font-semibold text-slate-500">{paraLabels[pIdx]}</p>
+                            )}
+                            <p className="text-sm leading-relaxed text-slate-700">{para}</p>
+                          </div>
+                        ))}
                       </div>
                       {idx === 0 && (
-                        <p className="mt-2 text-[11px] leading-snug text-slate-400">
+                        <p className="mt-3 text-[11px] leading-snug text-slate-400">
                           {isEn
                             ? 'This reflects skin tendencies, not a medical diagnosis.'
                             : 'Это профиль тенденций, а не медицинский диагноз.'}
