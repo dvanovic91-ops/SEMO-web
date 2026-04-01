@@ -18,19 +18,28 @@ function json(res: object, status = 200) {
   });
 }
 
-function normalizePhoneRu(raw: string | null): string | null {
+/** RU 11자리(7/8로 시작)만 공백 포맷; 그 외 국가는 +국번 그대로(7 강제 없음). */
+function normalizePhoneForProfile(raw: string | null): string | null {
   if (!raw) return null;
-  let digits = raw.replace(/\D/g, '');
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  let digits = trimmed.replace(/\D/g, '');
   if (!digits) return null;
-  if (digits.startsWith('8')) digits = `7${digits.slice(1)}`;
-  if (!digits.startsWith('7')) digits = `7${digits}`;
-  digits = digits.slice(0, 11);
-  if (digits.length < 10) return null;
-  const a = digits.slice(0, 1);
-  const b = digits.slice(1, 4);
-  const c = digits.slice(4, 7);
-  const d = digits.slice(7, 11);
-  return d.length > 0 ? `+${a} ${b} ${c} ${d}` : `+${a} ${b} ${c}`;
+
+  if (digits.length === 11 && (digits.startsWith('8') || digits.startsWith('7'))) {
+    if (digits.startsWith('8')) digits = `7${digits.slice(1)}`;
+    const a = digits.slice(0, 1);
+    const b = digits.slice(1, 4);
+    const c = digits.slice(4, 7);
+    const d = digits.slice(7, 11);
+    return `+${a} ${b} ${c} ${d}`;
+  }
+
+  if (digits.length >= 10 && digits.length <= 15) {
+    return `+${digits}`;
+  }
+
+  return null;
 }
 
 Deno.serve(async (req) => {
@@ -62,9 +71,9 @@ Deno.serve(async (req) => {
   if (!token?.trim()) return json({ error: 'token required' }, 400);
   if (!telegram_id?.trim()) return json({ error: 'telegram_id required' }, 400);
 
-  const normalizedPhone = normalizePhoneRu(phone);
+  const normalizedPhone = normalizePhoneForProfile(phone);
   if (!normalizedPhone) {
-    return json({ error: 'phone required (share Telegram contact)' }, 400);
+    return json({ error: 'phone invalid or too short (use Telegram contact share)' }, 400);
   }
 
   const { data: linkRow, error: linkErr } = await supabase

@@ -19,11 +19,20 @@ const LANG_KEY = 'semo_lang';
 const CURRENCY_KEY = 'semo_currency';
 const COUNTRY_KEY = 'semo_country';
 
+/**
+ * 도메인 리다이렉트와 연동 (semo-box.ru → semo-box.com):
+ * - 등록대행사/서버에서 `https://semo-box.com/?semo_entry=ru` 로내면 러시아 루트(러시아·루블·회원가입 국가 기본 RU).
+ * - 명시적 글로벌 진입: `?semo_entry=intl` 또는 `?semo_entry=com` → 영어·달러·배송국 AE 기본(변경 가능).
+ * 쿼리는 읽은 뒤 주소창에서 제거(replaceState)한다.
+ */
+const ENTRY_PARAM = 'semo_entry';
+
 export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [country, setCountry] = useState<AppCountry>('RU');
-  const [language, setLanguage] = useState<AppLanguage>('ru');
-  const [currency, setCurrency] = useState<AppCurrency>('RUB');
-  /** localStorage 초기 읽기가 끝나기 전에는 저장 effect가 돌면 안 됨 — 기본값 ru/RUB 로 덮어쓰는 레이스 방지 */
+  /** 첫 페인트: 글로벌(.com) 기본 — IP·저장값·semo_entry가 덮어씀 */
+  const [country, setCountry] = useState<AppCountry>('AE');
+  const [language, setLanguage] = useState<AppLanguage>('en');
+  const [currency, setCurrency] = useState<AppCurrency>('USD');
+  /** localStorage 초기 읽기가 끝나기 전에는 저장 effect가 돌면 안 됨 */
   const [storageLoaded, setStorageLoaded] = useState(false);
   // 사용자가 직접 언어/통화를 변경한 뒤에는, IP 기반 자동설정이 늦게 도착해 값을 덮어쓰지 않도록 막는다.
   const userInteractedRef = useRef(false);
@@ -45,6 +54,40 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     try {
+      const params = new URLSearchParams(window.location.search);
+      const entryRaw = (params.get(ENTRY_PARAM) ?? '').trim().toLowerCase();
+      if (entryRaw === 'ru') {
+        userInteractedRef.current = true;
+        setCountry('RU');
+        setLanguage('ru');
+        setCurrency('RUB');
+        try {
+          localStorage.setItem(LANG_KEY, 'ru');
+          localStorage.setItem(CURRENCY_KEY, 'RUB');
+          localStorage.setItem(COUNTRY_KEY, 'RU');
+        } catch {
+          /* ignore */
+        }
+        params.delete(ENTRY_PARAM);
+        const qs = params.toString();
+        window.history.replaceState(null, '', `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`);
+      } else if (entryRaw === 'intl' || entryRaw === 'com' || entryRaw === 'global') {
+        userInteractedRef.current = true;
+        setCountry('AE');
+        setLanguage('en');
+        setCurrency('USD');
+        try {
+          localStorage.setItem(LANG_KEY, 'en');
+          localStorage.setItem(CURRENCY_KEY, 'USD');
+          localStorage.setItem(COUNTRY_KEY, 'AE');
+        } catch {
+          /* ignore */
+        }
+        params.delete(ENTRY_PARAM);
+        const qs = params.toString();
+        window.history.replaceState(null, '', `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`);
+      }
+
       const savedLang = localStorage.getItem(LANG_KEY);
       const savedCurrency = localStorage.getItem(CURRENCY_KEY);
       const savedCountry = localStorage.getItem(COUNTRY_KEY);
@@ -89,8 +132,9 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
               setCurrency('USD');
               return;
             }
-            // 기타 국가는 영어/달러로 시작
+            // 기타 국가는 영어/달러·배송국 AE(미등록 기본)로 시작
             if (userInteractedRef.current) return;
+            setCountry('AE');
             setLanguage('en');
             setCurrency('USD');
           })

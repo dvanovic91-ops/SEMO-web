@@ -39,8 +39,11 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-/** 가입 직후 auth에 자동으로 찍힌 확인(Confirm email OFF 등)과, 나중에 메일 링크로 확인한 경우를 구분 */
-const AUTH_EMAIL_SYNC_MIN_MS = 4000;
+/**
+ * Confirm email OFF일 때 created_at과 email_confirmed_at이 같은 요청 안에서 거의 동시에 찍힘 → 이 간격보다 짧으면
+ * “가짜 인증”으로 보고 프로필에 복사하지 않음. 4초는 빠른 메일 클라이언트가 링크를 연 경우까지 막을 수 있어 1.5초로 조정.
+ */
+const AUTH_EMAIL_SYNC_MIN_MS = 1500;
 
 /**
  * auth.email_confirmed_at 은 있으나 profile.email_verified_at 이 비어 있을 때만,

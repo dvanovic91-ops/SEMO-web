@@ -28,6 +28,16 @@ function bufToHex(buf: ArrayBuffer): string {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+/** 트리거(handle_new_user)가 google/yandex만 자동 인증 처리 — Admin createUser는 provider 미지정 시 email로 분류될 수 있어 이중으로 채움 */
+async function ensureProfileEmailVerifiedForYandex(
+  supabase: ReturnType<typeof createClient>,
+  userId: string | null | undefined,
+): Promise<void> {
+  if (!userId) return;
+  const now = new Date().toISOString();
+  await supabase.from('profiles').update({ email_verified_at: now }).eq('id', userId).is('email_verified_at', null);
+}
+
 // ── Main handler ──
 
 Deno.serve(async (req) => {
@@ -102,13 +112,6 @@ Deno.serve(async (req) => {
     let userEmail: string;
     let isNew = false;
 
-    // 이메일로 auth.users 검색
-    const { data: existingUsers } = await supabase.auth.admin.listUsers({
-      page: 1,
-      perPage: 1,
-    });
-
-    // 이메일로 직접 검색 (admin API)
     const { data: userByEmail } = await supabase
       .from('profiles')
       .select('id, email')
@@ -129,6 +132,10 @@ Deno.serve(async (req) => {
         email: userEmail,
         password: randomPwd,
         email_confirm: true,
+        app_metadata: {
+          provider: 'yandex',
+          providers: ['yandex'],
+        },
         user_metadata: {
           nickname: displayName || [firstName, lastName].filter(Boolean).join(' ').trim(),
           yandex_id: yandexId,
@@ -151,13 +158,14 @@ Deno.serve(async (req) => {
         const tokenHash = linkAttempt.properties?.hashed_token;
         if (!tokenHash) return fail('no_token_hash');
 
-        // 프로필에 이름 업데이트
-        const { data: authUser } = await supabase.auth.admin.getUserById(linkAttempt.user?.id ?? '');
+        const existingId = linkAttempt.user?.id;
+        const { data: authUser } = await supabase.auth.admin.getUserById(existingId ?? '');
         if (authUser?.user?.id) {
           await supabase.from('profiles').update({
             name: [firstName, lastName].filter(Boolean).join(' ').trim() || null,
           }).eq('id', authUser.user.id).is('name', null);
         }
+        await ensureProfileEmailVerifiedForYandex(supabase, existingId);
 
         return json({
           ok: true,
@@ -170,11 +178,11 @@ Deno.serve(async (req) => {
 
       if (newUser?.user?.id) {
         userId = newUser.user.id;
-        // 프로필 업데이트
         await supabase.from('profiles').update({
           email: yandexEmail,
           name: [firstName, lastName].filter(Boolean).join(' ').trim() || null,
         }).eq('id', userId);
+        await ensureProfileEmailVerifiedForYandex(supabase, userId);
       }
     }
 
@@ -190,6 +198,9 @@ Deno.serve(async (req) => {
 
     const tokenHash = linkData.properties?.hashed_token;
     if (!tokenHash) return fail('no_token_hash');
+
+    const sessionUserId = linkData.user?.id ?? userId;
+    await ensureProfileEmailVerifiedForYandex(supabase, sessionUserId);
 
     return json({
       ok: true,
