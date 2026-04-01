@@ -784,7 +784,8 @@ function parseIngredientsJson(raw: unknown[] | null | undefined): IngredientItem
     const o = x as Record<string, unknown>;
     const name = typeof o.name === 'string' ? o.name : '';
     if (!name.trim() || isProbableInciScraperJunk(name)) continue;
-    const name_lower = typeof o.name_lower === 'string' ? o.name_lower : name.toLowerCase();
+    const rawNl = typeof o.name_lower === 'string' ? o.name_lower.trim() : '';
+    const name_lower = rawNl ? rawNl.toLowerCase() : name.trim().toLowerCase();
     const position = typeof o.position === 'number' ? o.position : out.length + 1;
     const benefit_tags = Array.isArray(o.benefit_tags)
       ? (o.benefit_tags.filter((t) => typeof t === 'string') as string[])

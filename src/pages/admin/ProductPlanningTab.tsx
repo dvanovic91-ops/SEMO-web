@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { PolarAngleAxis, PolarGrid, Radar, RadarChart, ResponsiveContainer, Tooltip } from 'recharts';
+import { PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart, ResponsiveContainer, Tooltip } from 'recharts';
 import { supabase } from '../../lib/supabase';
-import { getSkinApiBaseUrl, skinApiHeaders } from '../../lib/skinApiBaseUrl';
+import { formatSkinApiNetworkError, getSkinApiBaseUrl, skinApiHeaders } from '../../lib/skinApiBaseUrl';
 
 const SKIN_API_URL = getSkinApiBaseUrl();
 
@@ -68,6 +68,19 @@ const axisPairTooltipLabels: Array<{ left: AxisKey; right: AxisKey; key: string 
   { left: 'W', right: 'T', key: 'W/T' },
 ];
 
+/** 0~100, API 누락·NaN 시 50 */
+function clampAxisFitPct(v: unknown): number {
+  const n = typeof v === 'number' ? v : Number(v);
+  if (!Number.isFinite(n)) return 50;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+function axisFitRow(fit: CompareResult['axis_fit'] | undefined): Record<AxisKey, number> {
+  const keys: AxisKey[] = ['D', 'O', 'S', 'R', 'P', 'N', 'W', 'T'];
+  const raw = fit ?? ({} as Partial<Record<AxisKey, unknown>>);
+  return Object.fromEntries(keys.map((k) => [k, clampAxisFitPct(raw[k])])) as Record<AxisKey, number>;
+}
+
 function buildMatchTooltip(r: CompareResult): string {
   const axisSummary = axisPairTooltipLabels
     .map(({ left, right, key }) => `${key} ${r.axis_fit[left]}/${r.axis_fit[right]}`)
@@ -108,11 +121,14 @@ function buildDualSuitabilityRadarData(
 ) {
   const sameType = left.planning_evaluation?.product_type_key && left.planning_evaluation?.product_type_key === right.planning_evaluation?.product_type_key;
   const avg = sameType ? left.benchmarks?.axis_fit_avg : undefined;
+  const a = axisFitRow(left.axis_fit);
+  const b = axisFitRow(right.axis_fit);
+  /** Recharts에서 `dataKey="right"` 등이 레이아웃 속성과 충돌할 수 있어 `p1`/`p2` 사용 */
   return [
-    { axis: 'DO', desc: '건성(D) vs 지성(O) 성향 축입니다.', target: targetAxis.D, left: left.axis_fit.D, right: right.axis_fit.D, avg: avg?.D ?? null },
-    { axis: 'SR', desc: '민감(S) vs 저항(R) 성향 축입니다.', target: targetAxis.S, left: left.axis_fit.S, right: right.axis_fit.S, avg: avg?.S ?? null },
-    { axis: 'PN', desc: '색소(P) vs 비색소(N) 성향 축입니다.', target: targetAxis.P, left: left.axis_fit.P, right: right.axis_fit.P, avg: avg?.P ?? null },
-    { axis: 'WT', desc: '주름(W) vs 탄탄(T) 성향 축입니다.', target: targetAxis.W, left: left.axis_fit.W, right: right.axis_fit.W, avg: avg?.W ?? null },
+    { axis: 'DO', desc: '건성(D) vs 지성(O) 성향 축입니다.', target: targetAxis.D, p1: a.D, p2: b.D, avg: avg?.D != null ? clampAxisFitPct(avg.D) : null },
+    { axis: 'SR', desc: '민감(S) vs 저항(R) 성향 축입니다.', target: targetAxis.S, p1: a.S, p2: b.S, avg: avg?.S != null ? clampAxisFitPct(avg.S) : null },
+    { axis: 'PN', desc: '색소(P) vs 비색소(N) 성향 축입니다.', target: targetAxis.P, p1: a.P, p2: b.P, avg: avg?.P != null ? clampAxisFitPct(avg.P) : null },
+    { axis: 'WT', desc: '주름(W) vs 탄탄(T) 성향 축입니다.', target: targetAxis.W, p1: a.W, p2: b.W, avg: avg?.W != null ? clampAxisFitPct(avg.W) : null },
   ];
 }
 
@@ -122,12 +138,12 @@ function buildDualIngredientRadarData(left: CompareResult, right: CompareResult)
   const keys = Array.from(new Set([...leftAxes.map((a) => a.key), ...rightAxes.map((a) => a.key)]));
   if (keys.length === 0) {
     return [
-      { axis: '보습', left: 50, right: 50 },
-      { axis: '유분', left: 50, right: 50 },
-      { axis: '진정', left: 50, right: 50 },
-      { axis: '장벽', left: 50, right: 50 },
-      { axis: '톤케어', left: 50, right: 50 },
-      { axis: '탄력', left: 50, right: 50 },
+      { axis: '보습', p1: 50, p2: 50 },
+      { axis: '유분', p1: 50, p2: 50 },
+      { axis: '진정', p1: 50, p2: 50 },
+      { axis: '장벽', p1: 50, p2: 50 },
+      { axis: '톤케어', p1: 50, p2: 50 },
+      { axis: '탄력', p1: 50, p2: 50 },
     ];
   }
   const leftMap = new Map(leftAxes.map((a) => [a.key, a]));
@@ -137,9 +153,9 @@ function buildDualIngredientRadarData(left: CompareResult, right: CompareResult)
   return keys.map((k) => ({
     axis: leftMap.get(k)?.label ?? rightMap.get(k)?.label ?? k,
     key: k,
-    left: leftMap.get(k)?.value ?? 50,
-    right: rightMap.get(k)?.value ?? 50,
-    avg: sameType ? (avgMap.get(k) ?? null) : null,
+    p1: clampAxisFitPct(leftMap.get(k)?.value ?? 50),
+    p2: clampAxisFitPct(rightMap.get(k)?.value ?? 50),
+    avg: sameType ? (avgMap.get(k) != null ? clampAxisFitPct(avgMap.get(k)) : null) : null,
   }));
 }
 
@@ -641,7 +657,7 @@ export default function ProductPlanningTab() {
     } catch (e: unknown) {
       const name = e && typeof e === 'object' && 'name' in e ? String((e as { name: string }).name) : '';
       if (name === 'AbortError') return;
-      setError(e instanceof Error ? e.message : '비교 실패');
+      setError(formatSkinApiNetworkError(e, SKIN_API_URL));
       setResults([]);
     } finally {
       setRunning(false);
@@ -952,6 +968,7 @@ export default function ProductPlanningTab() {
                           >
                             <PolarGrid stroke="#374151" strokeOpacity={0.6} />
                             <PolarAngleAxis dataKey="axis" tick={renderSuitabilityAxisTick} />
+                            <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
                             <Tooltip
                               content={(props) => <DualSuitabilityRadarTooltip {...props} />}
                               cursor={{ stroke: 'rgba(71, 85, 105, 0.35)', strokeWidth: 1 }}
@@ -959,8 +976,8 @@ export default function ProductPlanningTab() {
                               wrapperStyle={{ outline: 'none', zIndex: 30 }}
                             />
                             <Radar dataKey="avg" name="유형평균" stroke="#eab308" fill="#eab308" fillOpacity={0.05} dot={{ r: 2 }} activeDot={{ r: 4 }} />
-                            <Radar dataKey="left" name="제품1" stroke="#2563eb" fill="#2563eb" fillOpacity={0.18} dot={{ r: 2 }} activeDot={{ r: 4 }} />
-                            <Radar dataKey="right" name="제품2" stroke="#dc2626" fill="#dc2626" fillOpacity={0.14} dot={{ r: 2 }} activeDot={{ r: 4 }} />
+                            <Radar dataKey="p1" name="제품1" stroke="#2563eb" fill="#2563eb" fillOpacity={0.18} dot={{ r: 2 }} activeDot={{ r: 4 }} />
+                            <Radar dataKey="p2" name="제품2" stroke="#dc2626" fill="#dc2626" fillOpacity={0.14} dot={{ r: 2 }} activeDot={{ r: 4 }} />
                           </RadarChart>
                         </ResponsiveContainer>
                       </div>
@@ -977,6 +994,7 @@ export default function ProductPlanningTab() {
                           >
                             <PolarGrid stroke="#374151" strokeOpacity={0.6} />
                             <PolarAngleAxis dataKey="axis" tick={renderIngredientAxisTick} />
+                            <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
                             <Tooltip
                               content={(props) => <DualIngredientRadarTooltip {...props} />}
                               cursor={{ stroke: 'rgba(71, 85, 105, 0.35)', strokeWidth: 1 }}
@@ -984,8 +1002,8 @@ export default function ProductPlanningTab() {
                               wrapperStyle={{ outline: 'none', zIndex: 30 }}
                             />
                             <Radar dataKey="avg" name="유형평균" stroke="#eab308" fill="#eab308" fillOpacity={0.05} dot={{ r: 2 }} activeDot={{ r: 4 }} />
-                            <Radar dataKey="left" name="제품1" stroke="#2563eb" fill="#2563eb" fillOpacity={0.18} dot={{ r: 2 }} activeDot={{ r: 4 }} />
-                            <Radar dataKey="right" name="제품2" stroke="#dc2626" fill="#dc2626" fillOpacity={0.14} dot={{ r: 2 }} activeDot={{ r: 4 }} />
+                            <Radar dataKey="p1" name="제품1" stroke="#2563eb" fill="#2563eb" fillOpacity={0.18} dot={{ r: 2 }} activeDot={{ r: 4 }} />
+                            <Radar dataKey="p2" name="제품2" stroke="#dc2626" fill="#dc2626" fillOpacity={0.14} dot={{ r: 2 }} activeDot={{ r: 4 }} />
                           </RadarChart>
                         </ResponsiveContainer>
                       </div>
