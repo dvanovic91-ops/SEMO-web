@@ -1485,7 +1485,6 @@ export const SkinTest: React.FC = () => {
       try {
         res = await fetch(`${skinApiBase}/analyze`, {
           method: 'POST',
-          headers: { 'ngrok-skip-browser-warning': 'true' },
           body: fd,
         });
       } catch {
