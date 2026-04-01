@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  applyAxisScoresFromLibraryToIngredientsJson,
   fetchIngredientLibraryMap,
   normalizeInciKey,
   upsertIngredientLibraryFromJson,
@@ -1625,6 +1626,12 @@ export function InventoryTab() {
           ? ((dbSnap?.ingredients_status as IngredientsStatus) ?? 'pending')
           : 'pending';
 
+      let ijForPayload = mergedIj;
+      if (supabase && hasParsedIngredients && Array.isArray(mergedIj) && mergedIj.length > 0) {
+        const enriched = await applyAxisScoresFromLibraryToIngredientsJson(supabase, mergedIj as unknown[]);
+        if (enriched) ijForPayload = enriched;
+      }
+
       const payload = isInsert
         ? {
             name: editingSku.name.trim(),
@@ -1645,7 +1652,7 @@ export function InventoryTab() {
             ingredients_raw:
               typeof p.ingredients_raw === 'string' ? p.ingredients_raw.trim() || null : p.ingredients_raw ?? null,
             ingredient_search_query_ko: searchQueryKo.trim() || null,
-            ingredients_json: mergedIj,
+            ingredients_json: ijForPayload,
             ingredients_status: ingredientsStatus,
             volume_label: p.volume_label?.trim() || null,
             country_of_origin: p.country_of_origin?.trim() || null,
@@ -1677,7 +1684,7 @@ export function InventoryTab() {
             inci_product_url: inciUrlVal,
             ingredients_raw: mergeTextFieldForSkuUpdate(p.ingredients_raw, dbSnap?.ingredients_raw),
             ingredient_search_query_ko: searchQueryKo.trim() || null,
-            ingredients_json: mergedIj,
+            ingredients_json: ijForPayload,
             ingredients_status: ingredientsStatus,
             volume_label: mergeTextFieldForSkuUpdate(p.volume_label, dbSnap?.volume_label),
             country_of_origin: mergeTextFieldForSkuUpdate(p.country_of_origin, dbSnap?.country_of_origin),
@@ -1708,8 +1715,8 @@ export function InventoryTab() {
         savedId = inserted?.id ?? null;
       }
 
-      if (supabase && hasParsedIngredients && mergedIj) {
-        await upsertIngredientLibraryFromJson(supabase, mergedIj);
+      if (supabase && hasParsedIngredients && ijForPayload) {
+        await upsertIngredientLibraryFromJson(supabase, ijForPayload);
       }
 
       /* 전성분 JSON이 이미 있으면 INCI 재수집을 하지 않음 — 실패 토스트·상태 꼬임 방지 */

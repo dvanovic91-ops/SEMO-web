@@ -147,7 +147,7 @@ function HeroCarousel({ slides }: { slides: HeroSlide[] | null }) {
                 className={`${heroImgBlockClass} object-cover object-center ${slide.mobile_image_url ? 'hidden md:block' : ''}`}
                 draggable={false}
                 decoding="async"
-                fetchPriority={isLcp ? 'high' : 'low'}
+                fetchpriority={isLcp ? 'high' : 'low'}
               />
               {slide.mobile_image_url && (
                 <img
@@ -156,7 +156,7 @@ function HeroCarousel({ slides }: { slides: HeroSlide[] | null }) {
                   className={`${heroImgBlockClass} object-cover object-center md:hidden`}
                   draggable={false}
                   decoding="async"
-                  fetchPriority={isLcp ? 'high' : 'low'}
+                  fetchpriority={isLcp ? 'high' : 'low'}
                 />
               )}
             </>

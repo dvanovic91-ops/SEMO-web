@@ -436,7 +436,7 @@ export const Profile: React.FC = () => {
     window.location.href = '/login';
   };
 
-  const handleStartTelegramLink = useCallback(async () => {
+  const handleStartTelegramLink = async () => {
     if (!supabase || !userId) return;
     setTelegramLinkError(null);
     setTelegramLinkLoading(true);
@@ -462,7 +462,7 @@ export const Profile: React.FC = () => {
     } finally {
       setTelegramLinkLoading(false);
     }
-  }, [userId, refreshProfile]);
+  };
 
   return (
     <main className="mx-auto w-full max-w-3xl px-3 py-5 sm:px-6 sm:py-10 md:py-14">

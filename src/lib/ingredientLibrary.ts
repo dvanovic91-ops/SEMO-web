@@ -36,6 +36,70 @@ export function lookupIngredientLibraryRow(
   return map.get(k) ?? map.get(bareInciKey(k));
 }
 
+/** Gemini 라이브러리 5축 (0–10) — ingredients_json 한 줄에 채울 때 사용 */
+const LIB_AXIS_KEYS = ['D', 'O', 'S', 'P', 'W'] as const;
+
+function lineHasLibraryAxisScores(axisScores: unknown): boolean {
+  if (!axisScores || typeof axisScores !== 'object' || Array.isArray(axisScores)) return false;
+  const o = axisScores as Record<string, unknown>;
+  for (const k of LIB_AXIS_KEYS) {
+    const v = o[k];
+    if (typeof v === 'number' && Number.isFinite(v)) return true;
+    if (typeof v === 'string' && v.trim() !== '') {
+      const n = Number(v);
+      if (Number.isFinite(n)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * ingredient_library에만 있는 axis_scores를 ingredients_json 각 줄에 붙입니다.
+ * 이미 D/O/S/P/W 중 하나라도 숫자가 있으면 해당 줄은 건드리지 않습니다.
+ */
+export function mergeAxisScoresFromLibraryIntoIngredientsJson(
+  ingredientsJson: unknown[],
+  libMap: Map<string, IngredientLibraryRow>,
+): { merged: unknown[]; linesFilled: number } {
+  let linesFilled = 0;
+  const merged = ingredientsJson.map((item) => {
+    if (!item || typeof item !== 'object') return item;
+    const o = item as Record<string, unknown>;
+    const name = typeof o.name === 'string' ? o.name : '';
+    if (!name.trim()) return item;
+    const nameLower = typeof o.name_lower === 'string' ? o.name_lower : name.toLowerCase();
+    if (lineHasLibraryAxisScores(o.axis_scores)) return item;
+    const lib = lookupIngredientLibraryRow(libMap, name, nameLower);
+    const ax = lib?.axis_scores;
+    if (!ax || Object.keys(ax).length === 0) return item;
+    linesFilled += 1;
+    return { ...o, axis_scores: { ...ax } };
+  });
+  return { merged, linesFilled };
+}
+
+/** 저장 직전: 라이브러리에서 조회해 병합. 변경이 없으면 null */
+export async function applyAxisScoresFromLibraryToIngredientsJson(
+  client: SupabaseClient,
+  ingredientsJson: unknown[],
+): Promise<unknown[] | null> {
+  const keys = ingredientsJson
+    .map((x) => {
+      if (!x || typeof x !== 'object') return '';
+      const o = x as Record<string, unknown>;
+      const name = typeof o.name === 'string' ? o.name : '';
+      if (!name.trim()) return '';
+      const nl = typeof o.name_lower === 'string' ? o.name_lower : name.toLowerCase();
+      return normalizeInciKey(name, nl);
+    })
+    .filter((k) => k.length > 0);
+  if (keys.length === 0) return null;
+  const libMap = await fetchIngredientLibraryMap(client, keys);
+  const { merged, linesFilled } = mergeAxisScoresFromLibraryIntoIngredientsJson(ingredientsJson, libMap);
+  if (linesFilled === 0) return null;
+  return merged;
+}
+
 function parseBenefitTags(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   return raw.filter((t): t is string => typeof t === 'string');
