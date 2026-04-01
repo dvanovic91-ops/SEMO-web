@@ -14,6 +14,19 @@ const getEnv = (key: string): string => {
   return typeof v === 'string' ? v : '';
 };
 
+/**
+ * 얀덱스 OAuth redirect_uri — 콘솔 "Callback URL"과 바이트 단위로 동일해야 함.
+ * 프로덕션에서는 VITE_YANDEX_REDIRECT_URI 를 꼭 넣는 것을 권장(www / 비-www 혼선 방지).
+ */
+export function getYandexOAuthRedirectUri(): string {
+  const fixed = getEnv('VITE_YANDEX_REDIRECT_URI').trim();
+  if (fixed) return fixed.replace(/\/$/, '');
+  if (typeof window !== 'undefined') {
+    return `${window.location.origin}/auth/yandex/callback`;
+  }
+  return '';
+}
+
 export function getGoogleAuthUrl(): string {
   const clientId = getEnv('VITE_GOOGLE_CLIENT_ID');
   const redirectUri = getEnv('VITE_GOOGLE_REDIRECT_URI');

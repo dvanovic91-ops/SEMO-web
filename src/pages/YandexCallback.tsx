@@ -5,9 +5,8 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { getYandexOAuthRedirectUri } from '../lib/auth';
 import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../components/SemoPageSpinner';
-
-const YANDEX_REDIRECT_URI = `${window.location.origin}/auth/yandex/callback`;
 
 export const YandexCallback: React.FC = () => {
   const navigate = useNavigate();
@@ -34,10 +33,15 @@ export const YandexCallback: React.FC = () => {
     }
 
     (async () => {
+      const redirectUri = getYandexOAuthRedirectUri();
+      if (!redirectUri) {
+        setError('Не настроен redirect URI (VITE_YANDEX_REDIRECT_URI).');
+        return;
+      }
       try {
-        // Edge Function 호출
+        // Edge Function 호출 — redirect_uri 는 authorize 요청과 동일해야 토큰 교환 성공
         const { data: result, error: invokeErr } = await supabase.functions.invoke('yandex-auth', {
-          body: { code, redirect_uri: YANDEX_REDIRECT_URI },
+          body: { code, redirect_uri: redirectUri },
         });
 
         if (invokeErr) {
