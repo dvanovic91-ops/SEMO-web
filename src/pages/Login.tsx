@@ -44,8 +44,8 @@ export const Login: React.FC = () => {
     forgotSending: language === 'en' ? 'Sending…' : 'Отправка…',
     forgotSent:
       language === 'en'
-        ? 'If this email is registered, you will receive a message with a link shortly.'
-        : 'Если email зарегистрирован, мы отправим письмо со ссылкой.',
+        ? 'Reset link sent — check your inbox.'
+        : 'Ссылка отправлена — проверьте почту.',
     forgotFail: language === 'en' ? 'Could not send. Try again later.' : 'Не удалось отправить. Попробуйте позже.',
     forgotResend: language === 'en' ? 'Resend email' : 'Отправить снова',
     emailNotRegistered:
