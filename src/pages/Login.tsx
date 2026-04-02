@@ -361,14 +361,16 @@ export const Login: React.FC = () => {
                   {forgotMessage && (
                     <p className="text-xs font-medium text-brand" role="status">{forgotMessage}</p>
                   )}
-                  <button
-                    type="button"
-                    disabled={forgotLoading || forgotCooldownSeconds > 0}
-                    onClick={() => void handleForgotReset()}
-                    className="min-h-11 w-full rounded-full bg-brand py-2.5 text-sm font-semibold text-white transition hover:bg-brand/90 disabled:pointer-events-none disabled:opacity-60"
-                  >
-                    {forgotLoading ? tt.forgotSending : tt.forgotSend}
-                  </button>
+                  <div className="flex justify-center">
+                    <button
+                      type="button"
+                      disabled={forgotLoading || forgotCooldownSeconds > 0}
+                      onClick={() => void handleForgotReset()}
+                      className="min-h-11 w-1/2 rounded-full border border-brand bg-white py-2.5 text-sm font-semibold text-brand transition hover:bg-brand-soft/30 disabled:pointer-events-none disabled:opacity-60"
+                    >
+                      {forgotLoading ? tt.forgotSending : tt.forgotSend}
+                    </button>
+                  </div>
                   {forgotEverSent && forgotCooldownSeconds > 0 && (
                     <p className="text-center text-xs text-slate-400" aria-live="polite">
                       {language === 'en' ? 'Resend available in' : 'Повторная отправка через'}{' '}
