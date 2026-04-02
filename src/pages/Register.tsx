@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { InnHelpTooltip } from '../components/InnHelpTooltip';
 import { supabase } from '../lib/supabase';
@@ -10,6 +10,7 @@ import { useI18n } from '../context/I18nContext';
 import { getRegisterFormStrings } from '../lib/registerFormCopy';
 import { useRegisterFormLang } from '../lib/registerFormLocale';
 import { accountPrimaryCtaClass } from '../lib/accountLinkUi';
+import { resendSignupConfirmationEmail } from '../lib/resendSignupConfirmationEmail';
 import {
   deliveryFormNoteRowClass,
   deliveryFormNoteScrollClass,
@@ -22,6 +23,8 @@ import { LegalDocLinksEn, LegalDocLinksRu } from '../components/LegalDocLinksRu'
 import { PhoneCountryCodeSelect } from '../components/PhoneCountryCodeSelect';
 import { CountrySelect } from '../components/CountrySelect';
 import { formatIntlPhoneByCountry, type PhoneCountry } from '../lib/phoneIntl';
+
+const REGISTER_EMAIL_RESEND_COOLDOWN_SEC = 60;
 
 /**
  * 회원가입 — 기본인적 / 배송(주소 세분화). 이메일 인증 구조, 전화 포맷, INN/우편 제한.
@@ -49,15 +52,12 @@ export const Register: React.FC = () => {
   const t = useMemo(() => getRegisterFormStrings(registerLang), [registerLang]);
   const [email, setEmail] = useState('');
   const [emailError, setEmailError] = useState(false);
-  const [codeSent, setCodeSent] = useState(false);
-  const [verificationCode, setVerificationCode] = useState('');
   const [phoneValue, setPhoneValue] = useState('');
   const [phoneCountry, setPhoneCountry] = useState<PhoneCountry>('RU');
   const [password, setPassword] = useState('');
   const [passwordError, setPasswordError] = useState(false);
   const [nickname, setNickname] = useState('');
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   /** Согласие с политикой / офертой / доставкой — обязательно перед отправкой формы */
@@ -68,6 +68,47 @@ export const Register: React.FC = () => {
   const [noPatronymic, setNoPatronymic] = useState(false);
   const [addressSearch, setAddressSearch] = useState('');
   const addressUi = useMemo(() => getAddressSuggestUiCopy(country, registerLang), [country, registerLang]);
+  const [signupResendCooldownSeconds, setSignupResendCooldownSeconds] = useState(0);
+  const [signupResendSending, setSignupResendSending] = useState(false);
+  const [signupResendMessage, setSignupResendMessage] = useState<string | null>(null);
+  const [signupResendError, setSignupResendError] = useState<string | null>(null);
+  /** Confirm email ON일 때 가입 직후 같은 화면에서 재발송 허용 */
+  const [awaitingEmailConfirm, setAwaitingEmailConfirm] = useState(false);
+
+  useEffect(() => {
+    if (signupResendCooldownSeconds <= 0) return undefined;
+    const id = window.setTimeout(() => {
+      setSignupResendCooldownSeconds((s) => Math.max(0, s - 1));
+    }, 1000);
+    return () => window.clearTimeout(id);
+  }, [signupResendCooldownSeconds]);
+
+  const handleResendConfirmationEmail = useCallback(async () => {
+    if (!awaitingEmailConfirm || signupResendCooldownSeconds > 0 || signupResendSending) return;
+    const addr = email.trim().toLowerCase();
+    if (!addr || !isValidEmailFormat(addr)) {
+      setSignupResendError(t.emailInvalid);
+      return;
+    }
+    if (!supabase) {
+      setSignupResendError(t.errService);
+      return;
+    }
+    setSignupResendSending(true);
+    setSignupResendError(null);
+    setSignupResendMessage(null);
+    try {
+      const result = await resendSignupConfirmationEmail(supabase, addr);
+      if (!result.ok) {
+        setSignupResendError(result.message || t.emailResendErr);
+        return;
+      }
+      setSignupResendCooldownSeconds(REGISTER_EMAIL_RESEND_COOLDOWN_SEC);
+      setSignupResendMessage(t.emailResendOk);
+    } finally {
+      setSignupResendSending(false);
+    }
+  }, [awaitingEmailConfirm, email, signupResendCooldownSeconds, signupResendSending, supabase, t]);
 
   const handleEmailBlur = () => {
     const trimmed = email.trim();
@@ -78,10 +119,6 @@ export const Register: React.FC = () => {
     setEmailError(!isValidEmailFormat(trimmed));
   };
 
-  const handleSendCode = () => {
-    // 이메일 인증 기능은 일단 비활성화 — 단순 로그인용 필드만 사용
-  };
-
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setPhoneValue(formatIntlPhoneByCountry(e.target.value, phoneCountry));
   };
@@ -89,7 +126,10 @@ export const Register: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitError(null);
-    setSubmitSuccess(null);
+    setAwaitingEmailConfirm(false);
+    setSignupResendMessage(null);
+    setSignupResendError(null);
+    setSignupResendCooldownSeconds(0);
 
     const trimmedEmail = email.trim().toLowerCase();
     let hasError = false;
@@ -184,7 +224,7 @@ export const Register: React.FC = () => {
       }
 
       // Confirm email ON в Supabase: вход только после ссылки в письме — подтверждение в личном кабинете
-      setSubmitSuccess(t.successBody);
+      setAwaitingEmailConfirm(true);
       setToastMessage(t.toastCheckEmail);
       window.setTimeout(() => setToastMessage(null), 3500);
     } finally {
@@ -225,28 +265,56 @@ export const Register: React.FC = () => {
               <label htmlFor="email" className={fieldLabelClass}>
                 Email <span className="text-brand">*</span>
               </label>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch sm:items-center">
                 <input
                   id="email"
                   type="email"
                   placeholder="example@mail.ru"
-                  className={`${inputClass} min-w-0 sm:flex-1 ${emailError ? 'border-red-400' : ''}`}
+                  className={`${inputClass} min-w-0 flex-1 ${emailError ? 'border-red-400' : ''}`}
                   value={email}
                   onChange={(e) => {
                     setEmail(e.target.value);
                     if (emailError) setEmailError(false);
                   }}
                   onBlur={handleEmailBlur}
-                />
-                <button
-                  type="button"
-                  disabled
                   title={t.emailVerifyTitle}
-                  className={`${accountPrimaryCtaClass} w-full sm:w-[13.5rem] sm:shrink-0`}
-                >
-                  {t.emailVerifyBtn}
-                </button>
+                />
+                {awaitingEmailConfirm && (
+                  <div className="flex shrink-0 items-stretch gap-2 sm:items-center">
+                    <button
+                      type="button"
+                      disabled={
+                        signupResendCooldownSeconds > 0 ||
+                        signupResendSending ||
+                        !email.trim() ||
+                        !isValidEmailFormat(email.trim())
+                      }
+                      onClick={() => void handleResendConfirmationEmail()}
+                      className={`${accountPrimaryCtaClass} w-full min-w-[8.5rem] sm:w-auto sm:px-5`}
+                    >
+                      {signupResendSending ? t.emailResendSending : t.emailResendAgain}
+                    </button>
+                    {signupResendCooldownSeconds > 0 && (
+                      <span
+                        className="flex min-h-11 min-w-[2.75rem] items-center justify-center tabular-nums text-sm font-semibold text-slate-600"
+                        aria-live="polite"
+                      >
+                        {signupResendCooldownSeconds}s
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
+              {awaitingEmailConfirm && signupResendError && (
+                <p className="text-xs text-red-500" role="alert">
+                  {signupResendError}
+                </p>
+              )}
+              {awaitingEmailConfirm && signupResendMessage && !signupResendError && (
+                <p className="text-xs text-emerald-700" role="status">
+                  {signupResendMessage}
+                </p>
+              )}
               {emailError && (
                 <p className="text-xs text-red-500">
                   {t.emailInvalid}
@@ -406,22 +474,24 @@ export const Register: React.FC = () => {
               </label>
               <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-stretch">
                 <PhoneCountryCodeSelect value={phoneCountry} onChange={setPhoneCountry} />
-                <input
-                  id="phone"
-                  type="tel"
-                  placeholder="+7 999 999 9999"
-                  className={`${inputClass} min-w-0 flex-1`}
-                  value={phoneValue}
-                  onChange={handlePhoneChange}
-                  maxLength={16}
-                />
-                <button
-                  type="button"
-                  disabled={phoneValue.replace(/\D/g, '').length < 10}
-                  className={`${accountPrimaryCtaClass} w-full shrink-0 sm:w-auto sm:px-5`}
-                >
-                  {t.verifyPhone}
-                </button>
+                <div className="flex w-full min-w-0 flex-1 flex-row items-stretch gap-2 sm:min-h-11">
+                  <input
+                    id="phone"
+                    type="tel"
+                    placeholder="+7 999 999 9999"
+                    className={`${inputClass} !w-auto min-h-11 max-w-full min-w-[10rem] flex-1 basis-0`}
+                    value={phoneValue}
+                    onChange={handlePhoneChange}
+                    maxLength={16}
+                  />
+                  <button
+                    type="button"
+                    disabled={phoneValue.replace(/\D/g, '').length < 10}
+                    className={`${accountPrimaryCtaClass} self-stretch sm:px-5`}
+                  >
+                    {t.verifyPhone}
+                  </button>
+                </div>
               </div>
               <div className={deliveryFormNoteRowClass} role="note">
                 <span aria-hidden className="shrink-0 select-none">*</span>
@@ -605,17 +675,6 @@ export const Register: React.FC = () => {
           <p className="mt-2 text-sm text-red-500">
             {submitError}
           </p>
-        )}
-        {submitSuccess && (
-          <div className="mt-3 text-sm leading-snug text-emerald-800" role="status">
-            <p>{submitSuccess}</p>
-            <Link
-              to="/login"
-              className="mt-2 inline-flex font-medium text-brand underline decoration-brand/30 underline-offset-2 hover:opacity-90"
-            >
-              {t.loginLink}
-            </Link>
-          </div>
         )}
       </form>
 
