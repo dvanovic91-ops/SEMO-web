@@ -9,7 +9,7 @@ import { useAuth } from '../context/AuthContext';
 import { useI18n } from '../context/I18nContext';
 import { getRegisterFormStrings } from '../lib/registerFormCopy';
 import { useRegisterFormLang } from '../lib/registerFormLocale';
-import { accountPrimaryCtaClass } from '../lib/accountLinkUi';
+import { accountPrimaryCtaClass, accountResendOutlineCtaClass } from '../lib/accountLinkUi';
 import { resendSignupConfirmationEmail } from '../lib/resendSignupConfirmationEmail';
 import {
   deliveryFormNoteRowClass,
@@ -83,24 +83,28 @@ export const Register: React.FC = () => {
     return () => window.clearTimeout(id);
   }, [signupResendCooldownSeconds]);
 
-  const handleResendConfirmationEmail = useCallback(async () => {
-    if (!awaitingEmailConfirm || signupResendCooldownSeconds > 0 || signupResendSending) return;
+  const handleVerifyEmailClick = useCallback(async () => {
+    if (signupResendCooldownSeconds > 0 || signupResendSending) return;
     const addr = email.trim().toLowerCase();
-    if (!addr || !isValidEmailFormat(addr)) {
-      setSignupResendError(t.emailInvalid);
+    if (!addr || !isValidEmailFormat(addr)) return;
+
+    if (!awaitingEmailConfirm) {
+      // First click: open the verification gate, start countdown — actual email sent by signUp
+      setAwaitingEmailConfirm(true);
+      setSignupResendCooldownSeconds(REGISTER_EMAIL_RESEND_COOLDOWN_SEC);
       return;
     }
-    if (!supabase) {
-      setSignupResendError(t.errService);
-      return;
-    }
+
+    // Resend click (after first submit sent the email): call resend API
+    if (!supabase) { setSignupResendError(t.errService); return; }
     setSignupResendSending(true);
     setSignupResendError(null);
     setSignupResendMessage(null);
     try {
       const result = await resendSignupConfirmationEmail(supabase, addr);
       if (!result.ok) {
-        setSignupResendError(result.message || t.emailResendErr);
+        // User may not exist yet (가입 not clicked yet) — just restart countdown silently
+        setSignupResendCooldownSeconds(REGISTER_EMAIL_RESEND_COOLDOWN_SEC);
         return;
       }
       setSignupResendCooldownSeconds(REGISTER_EMAIL_RESEND_COOLDOWN_SEC);
@@ -126,10 +130,8 @@ export const Register: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitError(null);
-    setAwaitingEmailConfirm(false);
     setSignupResendMessage(null);
     setSignupResendError(null);
-    setSignupResendCooldownSeconds(0);
 
     const trimmedEmail = email.trim().toLowerCase();
     let hasError = false;
@@ -275,35 +277,40 @@ export const Register: React.FC = () => {
                   onChange={(e) => {
                     setEmail(e.target.value);
                     if (emailError) setEmailError(false);
+                    if (awaitingEmailConfirm) {
+                      setAwaitingEmailConfirm(false);
+                      setSignupResendCooldownSeconds(0);
+                    }
                   }}
                   onBlur={handleEmailBlur}
                   title={t.emailVerifyTitle}
                 />
-                {awaitingEmailConfirm && (
-                  <div className="flex shrink-0 items-stretch gap-2 sm:items-center">
-                    <button
-                      type="button"
-                      disabled={
-                        signupResendCooldownSeconds > 0 ||
-                        signupResendSending ||
-                        !email.trim() ||
-                        !isValidEmailFormat(email.trim())
-                      }
-                      onClick={() => void handleResendConfirmationEmail()}
-                      className={`${accountPrimaryCtaClass} w-full min-w-[8.5rem] sm:w-auto sm:px-5`}
-                    >
-                      {signupResendSending ? t.emailResendSending : t.emailResendAgain}
-                    </button>
-                    {signupResendCooldownSeconds > 0 && (
-                      <span
-                        className="flex min-h-11 min-w-[2.75rem] items-center justify-center tabular-nums text-sm font-semibold text-slate-600"
-                        aria-live="polite"
-                      >
-                        {signupResendCooldownSeconds}s
-                      </span>
-                    )}
-                  </div>
-                )}
+                <div className="flex shrink-0 items-stretch sm:items-center">
+                  <button
+                    type="button"
+                    disabled={
+                      signupResendCooldownSeconds > 0 ||
+                      signupResendSending ||
+                      !email.trim() ||
+                      !isValidEmailFormat(email.trim())
+                    }
+                    onClick={() => void handleVerifyEmailClick()}
+                    className={`${
+                      awaitingEmailConfirm && signupResendCooldownSeconds > 0
+                        ? accountResendOutlineCtaClass
+                        : accountPrimaryCtaClass
+                    } w-full min-w-[8.5rem] sm:w-auto sm:px-5`}
+                    aria-live="polite"
+                  >
+                    {signupResendSending
+                      ? t.emailResendSending
+                      : awaitingEmailConfirm && signupResendCooldownSeconds > 0
+                        ? `${signupResendCooldownSeconds}s`
+                        : awaitingEmailConfirm
+                          ? t.emailResendAgain
+                          : t.emailResendBeforeSignup}
+                  </button>
+                </div>
               </div>
               {awaitingEmailConfirm && signupResendError && (
                 <p className="text-xs text-red-500" role="alert">
@@ -666,7 +673,7 @@ export const Register: React.FC = () => {
 
         <button
           type="submit"
-          disabled={submitting}
+          disabled={submitting || !awaitingEmailConfirm}
           className="min-h-11 w-full rounded-full bg-brand py-3 text-base font-semibold text-white transition hover:bg-brand/90 disabled:opacity-60"
         >
           {submitting ? t.submitting : t.submit}
