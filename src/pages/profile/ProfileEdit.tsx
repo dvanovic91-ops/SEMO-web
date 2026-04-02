@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { useAuth, ADMIN_DUMMY_USER_ID } from '../../context/AuthContext';
 import { useI18n } from '../../context/I18nContext';
-import { resendSignupConfirmationEmail } from '../../lib/authSignupResend';
+import { sendProfileEmailVerificationLink } from '../../lib/orderEmailVerification';
 import { InnHelpTooltip } from '../../components/InnHelpTooltip';
 import { AddressSuggest } from '../../components/AddressSuggest';
+import { getAddressSuggestUiCopy } from '../../lib/addressSuggestUiCopy';
 import { PhoneCountryCodeSelect } from '../../components/PhoneCountryCodeSelect';
 import { CountrySelect } from '../../components/CountrySelect';
 import { BackArrow } from '../../components/BackArrow';
@@ -26,6 +27,7 @@ import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../../compon
 import {
   accountLinkTwoColGridClass,
   accountPrimaryCtaClass,
+  accountResendOutlineCtaClass,
   accountStatusPillClass,
 } from '../../lib/accountLinkUi';
 import {
@@ -50,6 +52,8 @@ import {
  */
 /** Имя / пароль — mb-1 라벨 (delivery fieldLabelClass와 구분) */
 const labelClass = 'mb-1 block text-[length:calc(0.875rem-1pt)] font-medium text-slate-700';
+
+const VERIFY_EMAIL_COOLDOWN_SEC = 60;
 
 function normalizeLatin(value: string): string {
   return (value ?? '').replace(/[^A-Za-z\s-']/g, '');
@@ -113,6 +117,7 @@ class ProfileEditErrorBoundary extends React.Component<
 export const ProfileEdit: React.FC = () => {
   const { language, country, setCountry, setCurrency } = useI18n();
   const tr = useCallback((ru: string, en: string) => (language === 'en' ? en : ru), [language]);
+  const addressUi = useMemo(() => getAddressSuggestUiCopy(country, language), [country, language]);
   const [searchParams] = useSearchParams();
   const focusPhone = searchParams.get('focus') === 'phone';
   const phoneInputRef = useRef<HTMLInputElement>(null);
@@ -145,6 +150,8 @@ export const ProfileEdit: React.FC = () => {
   const [verifyEmailSending, setVerifyEmailSending] = useState(false);
   const [verifyEmailMessage, setVerifyEmailMessage] = useState<string | null>(null);
   const [verifyEmailError, setVerifyEmailError] = useState<string | null>(null);
+  const [verifyEmailEverSent, setVerifyEmailEverSent] = useState(false);
+  const [verifyEmailCooldownSeconds, setVerifyEmailCooldownSeconds] = useState(0);
 
   /** 페이지 진입 시 세션 재검사 — 없으면 로그인으로 보냄 */
   const [sessionChecked, setSessionChecked] = useState(false);
@@ -261,10 +268,26 @@ export const ProfileEdit: React.FC = () => {
   }, [userId, refreshEmailConfirmationFromServer]);
 
   useEffect(() => {
+    setVerifyEmailEverSent(false);
+    setVerifyEmailCooldownSeconds(0);
+    setVerifyEmailMessage(null);
+    setVerifyEmailError(null);
+  }, [userId]);
+
+  useEffect(() => {
+    if (verifyEmailCooldownSeconds <= 0) return undefined;
+    const id = window.setTimeout(() => {
+      setVerifyEmailCooldownSeconds((s) => Math.max(0, s - 1));
+    }, 1000);
+    return () => window.clearTimeout(id);
+  }, [verifyEmailCooldownSeconds]);
+
+  useEffect(() => {
     setPhoneCountry(detectCountryFromPhone(form?.phone ?? ''));
   }, [form?.phone]);
 
   const handleSendProfileVerifyEmail = useCallback(async () => {
+    if (verifyEmailCooldownSeconds > 0) return;
     if (!supabase || !userId || !safeUserEmail?.trim()) {
       setVerifyEmailError('Не удалось определить email. Войдите снова.');
       return;
@@ -273,18 +296,28 @@ export const ProfileEdit: React.FC = () => {
     setVerifyEmailMessage(null);
     setVerifyEmailError(null);
     try {
-      const result = await resendSignupConfirmationEmail(supabase, safeUserEmail.trim(), '/profile');
+      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      const result = await sendProfileEmailVerificationLink(supabase, {
+        userId,
+        email: safeUserEmail.trim(),
+        origin,
+      });
       if (!result.ok) {
         setVerifyEmailError(result.message);
         return;
       }
+      setVerifyEmailEverSent(true);
+      setVerifyEmailCooldownSeconds(VERIFY_EMAIL_COOLDOWN_SEC);
       setVerifyEmailMessage(
-        'Письмо отправлено. Перейдите по ссылке — после подтверждения обновите страницу.',
+        tr(
+          'Письмо со ссылкой отправлено. Откройте его в том же браузере, где вы вошли в аккаунт.',
+          'We sent a sign-in link. Open it in the same browser where you are logged in.',
+        ),
       );
     } finally {
       setVerifyEmailSending(false);
     }
-  }, [userId, safeUserEmail]);
+  }, [userId, safeUserEmail, verifyEmailCooldownSeconds, tr]);
 
   /** Telegram уведомления — profiles (секция «Основные данные» внизу) */
   const saveTelegramNotificationPrefs = useCallback(
@@ -315,6 +348,7 @@ export const ProfileEdit: React.FC = () => {
   // Telegram 링크 연 뒤 연동 완료될 때까지 폴링; 연동되면 토스트 표시 후 폴링 중단
   useEffect(() => {
     if (!pollingForTelegram || !supabase || !userId) return;
+    const sb = supabase;
     const maxUntil = Date.now() + 2 * 60 * 1000;
     const tick = () => {
       if (Date.now() > maxUntil) {
@@ -324,7 +358,7 @@ export const ProfileEdit: React.FC = () => {
         setPhoneError('Связать Telegram не удалось вовремя. Откройте бота и нажмите «Подтвердить» ещё раз.');
         return;
       }
-      supabase
+      sb
         .from('profiles')
         .select('telegram_id')
         .eq('id', userId)
@@ -801,7 +835,7 @@ export const ProfileEdit: React.FC = () => {
                       value={form?.email ?? safeUserEmail ?? ''}
                       aria-readonly
                     />
-                    {!isEmailConfirmed && (
+                    {!isEmailConfirmed && !verifyEmailEverSent && (
                       <button
                         type="button"
                         disabled={verifyEmailSending || !safeUserEmail?.trim()}
@@ -811,7 +845,22 @@ export const ProfileEdit: React.FC = () => {
                         {verifyEmailSending ? tr('Отправка…', 'Sending…') : tr('Подтвердить email', 'Verify email')}
                       </button>
                     )}
+                    {!isEmailConfirmed && verifyEmailEverSent && (
+                      <button
+                        type="button"
+                        disabled={verifyEmailSending || verifyEmailCooldownSeconds > 0 || !safeUserEmail?.trim()}
+                        onClick={() => void handleSendProfileVerifyEmail()}
+                        className={`${accountResendOutlineCtaClass} w-full shrink-0 sm:w-auto sm:px-5`}
+                      >
+                        {verifyEmailSending ? tr('Отправка…', 'Sending…') : tr('Отправить снова', 'Resend')}
+                      </button>
+                    )}
                   </div>
+                  {!isEmailConfirmed && verifyEmailEverSent && verifyEmailCooldownSeconds > 0 && (
+                    <p className="text-[length:calc(0.75rem-1pt)] font-medium tabular-nums text-slate-500" aria-live="polite">
+                      {tr('Повтор через', 'Resend in')} {verifyEmailCooldownSeconds}s
+                    </p>
+                  )}
                   {!isEmailConfirmed && (
                     <div className={deliveryFormNoteRowClass} role="note">
                       <span aria-hidden className="shrink-0 select-none">
@@ -931,21 +980,22 @@ export const ProfileEdit: React.FC = () => {
                   />
                 </div>
                 <AddressSuggest
-              country={country}
+                  country={country}
+                  mapsUiLanguage={language}
                   label={
                     <span className="inline-flex items-center gap-2">
-                      {tr('Адрес (поиск по базе)', 'Address (database search)')}
-                      <span className="group relative ml-0.5 inline-flex cursor-help" aria-label={tr('Подсказка', 'Hint')}>
+                      {addressUi.label}
+                      <span className="group relative ml-0.5 inline-flex cursor-help" aria-label={addressUi.tooltipAria}>
                         <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 text-xs font-medium transition hover:border-brand hover:text-brand">
                           ?
                         </span>
-                        <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 inline-block w-max -translate-x-1/2 whitespace-nowrap rounded border border-slate-100 bg-white px-2.5 py-1.5 text-left text-[length:calc(0.75rem-1pt)] font-medium leading-none text-brand shadow-md opacity-0 transition group-hover:opacity-100">
-                          {tr('При вводе адреса нижние поля заполнятся автоматически.', 'When you type an address, fields below fill automatically.')}
+                        <span className="pointer-events-none absolute bottom-full left-0 z-10 mb-1.5 w-72 rounded border border-slate-100 bg-white px-2.5 py-1.5 text-left text-[length:calc(0.75rem-1pt)] font-medium leading-snug text-brand shadow-md opacity-0 transition group-hover:opacity-100 sm:w-96">
+                          {addressUi.tooltip}
                         </span>
                       </span>
                     </span>
                   }
-                  placeholder={tr('Начните вводить адрес, затем выберите вариант из списка', 'Start typing address, then choose from the list')}
+                  placeholder={addressUi.placeholder}
                   value={addressSearch}
                   onChange={setAddressSearch}
                   onPartsChange={({ cityRegion, streetHouse, apartmentOffice, postcode }) => {

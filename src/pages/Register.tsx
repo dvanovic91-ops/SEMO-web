@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { InnHelpTooltip } from '../components/InnHelpTooltip';
 import { supabase } from '../lib/supabase';
 import { AddressSuggest } from '../components/AddressSuggest';
+import { getAddressSuggestUiCopy } from '../lib/addressSuggestUiCopy';
 import { BackArrow } from '../components/BackArrow';
 import { useAuth } from '../context/AuthContext';
 import { useI18n } from '../context/I18nContext';
@@ -66,6 +67,7 @@ export const Register: React.FC = () => {
   const [fioMiddle, setFioMiddle] = useState('');
   const [noPatronymic, setNoPatronymic] = useState(false);
   const [addressSearch, setAddressSearch] = useState('');
+  const addressUi = useMemo(() => getAddressSuggestUiCopy(country, registerLang), [country, registerLang]);
 
   const handleEmailBlur = () => {
     const trimmed = email.trim();
@@ -124,7 +126,7 @@ export const Register: React.FC = () => {
         password,
         options: {
           // Подтверждение по ссылке из письма — после перехода личный кабинет
-          emailRedirectTo: `${window.location.origin}/profile`,
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
           data: {
             nickname,
           },
@@ -442,20 +444,21 @@ export const Register: React.FC = () => {
             </div>
             <AddressSuggest
               country={country}
+              mapsUiLanguage={registerLang}
               label={
                 <span className="inline-flex items-center gap-2">
-                  {t.addressSearch}
-                  <span className="group relative ml-0.5 inline-flex cursor-help" aria-label={t.addressTooltipAria}>
+                  {addressUi.label}
+                  <span className="group relative ml-0.5 inline-flex cursor-help" aria-label={addressUi.tooltipAria}>
                     <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 text-xs font-medium transition hover:border-brand hover:text-brand">
                       ?
                     </span>
-                    <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 inline-block w-max -translate-x-1/2 whitespace-nowrap rounded border border-slate-100 bg-white px-2.5 py-1.5 text-left text-xs font-medium leading-none text-brand shadow-md opacity-0 transition group-hover:opacity-100">
-                      {t.addressTooltip}
+                    <span className="pointer-events-none absolute bottom-full left-0 z-10 mb-1.5 w-72 rounded border border-slate-100 bg-white px-2.5 py-1.5 text-left text-xs font-medium leading-snug text-brand shadow-md opacity-0 transition group-hover:opacity-100 sm:w-96">
+                      {addressUi.tooltip}
                     </span>
                   </span>
                 </span>
               }
-              placeholder={t.addressPh}
+              placeholder={addressUi.placeholder}
               value={addressSearch}
               onChange={setAddressSearch}
               onPartsChange={({ cityRegion, streetHouse, apartmentOffice, postcode }) => {
