@@ -335,7 +335,7 @@ export const Register: React.FC = () => {
                   </button>
                 </div>
               </div>
-              {awaitingEmailConfirm && signupResendError && (
+              {signupResendError && (
                 <p className="text-xs text-red-500" role="alert">
                   {signupResendError}
                 </p>

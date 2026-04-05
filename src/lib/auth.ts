@@ -70,3 +70,15 @@ export function redirectToYandex(): void {
   const url = getYandexAuthUrl();
   if (url) window.location.href = url;
 }
+
+/** Supabase `resetPasswordForEmail` — 메일 링크가 열릴 프론트 경로 (대시보드 Redirect URLs에도 등록) */
+export function getPasswordResetRedirectTo(): string {
+  if (typeof window === 'undefined') return '';
+  return `${window.location.origin}/auth/reset-password`;
+}
+
+/** 가입 확인 메일·`auth.resend` — OAuth와 동일하게 `/auth/callback`에서 세션 처리 (Redirect URLs에 등록) */
+export function getEmailConfirmationRedirectTo(): string {
+  if (typeof window === 'undefined') return '';
+  return `${window.location.origin}/auth/callback`;
+}

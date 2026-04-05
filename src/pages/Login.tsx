@@ -9,6 +9,7 @@ import { useI18n } from '../context/I18nContext';
 import { LOGIN_LEGAL_INTRO } from '../lib/registerFormCopy';
 import { isTelegramMiniApp } from '../lib/telegramAuth';
 import { getPasswordResetRedirectTo, getYandexOAuthRedirectUri } from '../lib/auth';
+import { isRecoveryAccessToken } from '../lib/authRecovery';
 
 const inputClass =
   'w-full min-h-[44px] rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-base text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand sm:min-h-0';
@@ -88,8 +89,26 @@ export const Login: React.FC = () => {
   const [forgotError, setForgotError] = useState<string | null>(null);
   const [forgotCooldownSeconds, setForgotCooldownSeconds] = useState(0);
   const [forgotEverSent, setForgotEverSent] = useState(false);
+  /** null = 아직 세션 확인 전 — 복구(recovery) JWT면 비밀번호 변경으로 보냄 */
+  const [recoveryRedirect, setRecoveryRedirect] = useState<boolean | null>(null);
 
   const isMiniApp = useMemo(() => (typeof window !== 'undefined' ? isTelegramMiniApp() : false), []);
+
+  useEffect(() => {
+    if (!isLoggedIn || !supabase) {
+      setRecoveryRedirect(null);
+      return;
+    }
+    let cancelled = false;
+    void supabase.auth.getSession().then(({ data: { session } }) => {
+      if (cancelled) return;
+      const t = session?.access_token;
+      setRecoveryRedirect(t ? isRecoveryAccessToken(t) : false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoggedIn]);
 
   useEffect(() => {
     if (forgotCooldownSeconds <= 0) return undefined;
@@ -106,7 +125,19 @@ export const Login: React.FC = () => {
       </main>
     );
   }
-  if (isLoggedIn) return <Navigate to="/" replace />;
+  if (isLoggedIn) {
+    if (recoveryRedirect === null) {
+      return (
+        <main className={SEMO_FULL_PAGE_LOADING_MAIN_CLASS}>
+          <SemoPageSpinner />
+        </main>
+      );
+    }
+    if (recoveryRedirect) {
+      return <Navigate to="/auth/reset-password" replace />;
+    }
+    return <Navigate to="/" replace />;
+  }
 
   const handleGoogleLogin = async () => {
     if (isMiniApp) return;

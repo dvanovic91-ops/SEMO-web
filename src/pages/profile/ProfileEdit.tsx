@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { useAuth, ADMIN_DUMMY_USER_ID } from '../../context/AuthContext';
 import { useI18n } from '../../context/I18nContext';
-import { sendProfileEmailVerificationLink } from '../../lib/orderEmailVerification';
+import { resendSignupConfirmationEmail } from '../../lib/resendSignupConfirmationEmail';
 import { InnHelpTooltip } from '../../components/InnHelpTooltip';
 import { AddressSuggest } from '../../components/AddressSuggest';
 import { getAddressSuggestUiCopy } from '../../lib/addressSuggestUiCopy';
@@ -24,12 +24,7 @@ import { clampDigits } from '../../lib/digitsOnly';
 import { detectCountryFromPhone, formatIntlPhoneByCountry, type PhoneCountry } from '../../lib/phoneIntl';
 import { CustomsPassportNotice } from '../../components/CustomsPassportNotice';
 import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../../components/SemoPageSpinner';
-import {
-  accountLinkTwoColGridClass,
-  accountPrimaryCtaClass,
-  accountResendOutlineCtaClass,
-  accountStatusPillClass,
-} from '../../lib/accountLinkUi';
+import { accountPrimaryCtaClass, accountResendOutlineCtaClass } from '../../lib/accountLinkUi';
 import {
   deliveryContactInputEditable as contactInputEditable,
   deliveryContactInputEmailPending as contactInputEmailPending,
@@ -53,7 +48,7 @@ import {
 /** Имя / пароль — mb-1 라벨 (delivery fieldLabelClass와 구분) */
 const labelClass = 'mb-1 block text-[length:calc(0.875rem-1pt)] font-medium text-slate-700';
 
-const VERIFY_EMAIL_COOLDOWN_SEC = 60;
+const SIGNUP_EMAIL_RESEND_COOLDOWN_SEC = 60;
 
 function normalizeLatin(value: string): string {
   return (value ?? '').replace(/[^A-Za-z\s-']/g, '');
@@ -146,12 +141,10 @@ export const ProfileEdit: React.FC = () => {
   const [phoneError, setPhoneError] = useState('');
   const [phoneCountry, setPhoneCountry] = useState<PhoneCountry>('RU');
   const [noPatronymic, setNoPatronymic] = useState(false);
-  /** Письмо подтверждения email (как на странице профиля) */
-  const [verifyEmailSending, setVerifyEmailSending] = useState(false);
-  const [verifyEmailMessage, setVerifyEmailMessage] = useState<string | null>(null);
-  const [verifyEmailError, setVerifyEmailError] = useState<string | null>(null);
-  const [verifyEmailEverSent, setVerifyEmailEverSent] = useState(false);
-  const [verifyEmailCooldownSeconds, setVerifyEmailCooldownSeconds] = useState(0);
+  const [signupResendSending, setSignupResendSending] = useState(false);
+  const [signupResendMessage, setSignupResendMessage] = useState<string | null>(null);
+  const [signupResendError, setSignupResendError] = useState<string | null>(null);
+  const [signupResendCooldownSeconds, setSignupResendCooldownSeconds] = useState(0);
 
   /** 페이지 진입 시 세션 재검사 — 없으면 로그인으로 보냄 */
   const [sessionChecked, setSessionChecked] = useState(false);
@@ -268,56 +261,50 @@ export const ProfileEdit: React.FC = () => {
   }, [userId, refreshEmailConfirmationFromServer]);
 
   useEffect(() => {
-    setVerifyEmailEverSent(false);
-    setVerifyEmailCooldownSeconds(0);
-    setVerifyEmailMessage(null);
-    setVerifyEmailError(null);
+    setSignupResendMessage(null);
+    setSignupResendError(null);
+    if (!userId) setSignupResendCooldownSeconds(0);
   }, [userId]);
 
   useEffect(() => {
-    if (verifyEmailCooldownSeconds <= 0) return undefined;
+    if (signupResendCooldownSeconds <= 0) return undefined;
     const id = window.setTimeout(() => {
-      setVerifyEmailCooldownSeconds((s) => Math.max(0, s - 1));
+      setSignupResendCooldownSeconds((s) => Math.max(0, s - 1));
     }, 1000);
     return () => window.clearTimeout(id);
-  }, [verifyEmailCooldownSeconds]);
+  }, [signupResendCooldownSeconds]);
 
   useEffect(() => {
     setPhoneCountry(detectCountryFromPhone(form?.phone ?? ''));
   }, [form?.phone]);
 
-  const handleSendProfileVerifyEmail = useCallback(async () => {
-    if (verifyEmailCooldownSeconds > 0) return;
-    if (!supabase || !userId || !safeUserEmail?.trim()) {
-      setVerifyEmailError('Не удалось определить email. Войдите снова.');
+  const handleResendSignupEmail = useCallback(async () => {
+    if (signupResendCooldownSeconds > 0) return;
+    if (!supabase || !safeUserEmail?.trim()) {
+      setSignupResendError(tr('Не удалось определить email. Войдите снова.', 'Could not detect your email. Please sign in again.'));
       return;
     }
-    setVerifyEmailSending(true);
-    setVerifyEmailMessage(null);
-    setVerifyEmailError(null);
+    setSignupResendSending(true);
+    setSignupResendMessage(null);
+    setSignupResendError(null);
     try {
-      const origin = typeof window !== 'undefined' ? window.location.origin : '';
-      const result = await sendProfileEmailVerificationLink(supabase, {
-        userId,
-        email: safeUserEmail.trim(),
-        origin,
-      });
+      const result = await resendSignupConfirmationEmail(supabase, safeUserEmail.trim());
       if (!result.ok) {
-        setVerifyEmailError(result.message);
+        setSignupResendError(result.message);
         return;
       }
-      setVerifyEmailEverSent(true);
-      setVerifyEmailCooldownSeconds(VERIFY_EMAIL_COOLDOWN_SEC);
-      setVerifyEmailMessage(
+      setSignupResendCooldownSeconds(SIGNUP_EMAIL_RESEND_COOLDOWN_SEC);
+      setSignupResendMessage(
         tr(
-          'Письмо со ссылкой отправлено. Откройте его в том же браузере, где вы вошли в аккаунт.',
-          'We sent a sign-in link. Open it in the same browser where you are logged in.',
+          'Письмо для подтверждения отправлено. Проверьте почту и папку «Спам».',
+          'Confirmation email sent. Check your inbox (and Spam).',
         ),
       );
+      void refreshEmailConfirmationFromServer();
     } finally {
-      setVerifyEmailSending(false);
+      setSignupResendSending(false);
     }
-  }, [userId, safeUserEmail, verifyEmailCooldownSeconds, tr]);
+  }, [safeUserEmail, signupResendCooldownSeconds, tr, refreshEmailConfirmationFromServer]);
 
   /** Telegram уведомления — profiles (секция «Основные данные» внизу) */
   const saveTelegramNotificationPrefs = useCallback(
@@ -592,68 +579,6 @@ export const ProfileEdit: React.FC = () => {
                   {...inputProps('name')}
                 />
               </div>
-              {/* Telegram + E-mail — иконка Telegram только #26A5E4; остальное — фирменный оранжевый */}
-              {userId && userId !== ADMIN_DUMMY_USER_ID && (
-                <div
-                  className={`overflow-hidden rounded-2xl border px-3 pt-3 pb-2 shadow-sm sm:px-5 sm:pt-5 sm:pb-3 ${
-                    isEmailConfirmed
-                      ? 'border-brand/35 bg-gradient-to-br from-brand-soft/95 via-brand-soft/70 to-brand-soft ring-1 ring-brand/15'
-                      : 'border-brand/25 bg-brand-soft/95 ring-1 ring-brand/10'
-                  }`}
-                >
-                  {/* Личный кабинет과 동일: 모바일도 2열(텔еграм | email) */}
-                  <div className={`${accountLinkTwoColGridClass} md:gap-x-0`}>
-                    <div className="flex min-h-0 min-w-0 flex-col border-r border-slate-200/60 pr-2 sm:pr-3 md:pr-5">
-                      <div className="flex items-center justify-center gap-2.5">
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/90 text-[#26A5E4] shadow-sm ring-1 ring-slate-200/80">
-                          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden>
-                            <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
-                          </svg>
-                        </span>
-                        <p className="text-[length:calc(0.875rem-1pt)] font-semibold tracking-tight text-slate-900">Telegram</p>
-                      </div>
-                      {/* Только статус привязки — действия (кнопки) в блоке «Доставка» */}
-                      <div className="mt-2.5">
-                        {!initialized ? (
-                          <div className="h-11 w-full animate-pulse rounded-xl bg-slate-200/70" aria-hidden />
-                        ) : (
-                          <div
-                            className={accountStatusPillClass}
-                            role="status"
-                            aria-label={telegramLinked ? tr('Telegram привязан', 'Telegram linked') : tr('Telegram не привязан', 'Telegram not linked')}
-                          >
-                            {telegramLinked ? tr('Telegram привязан ✓', 'Telegram linked ✓') : tr('Telegram не привязан', 'Telegram not linked')}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex min-h-0 min-w-0 flex-col pl-2 sm:pl-3 md:pl-5">
-                      <div className="flex items-center justify-center gap-2.5">
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/90 text-brand shadow-sm ring-1 ring-brand/25">
-                          <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" aria-hidden>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
-                          </svg>
-                        </span>
-                        <p className="text-[length:calc(0.875rem-1pt)] font-semibold tracking-tight text-slate-900">E-mail</p>
-                      </div>
-                      <div className="mt-2.5">
-                        {!initialized ? (
-                          <div className="h-11 w-full animate-pulse rounded-xl bg-slate-200/70" aria-hidden />
-                        ) : (
-                          <div
-                            className={accountStatusPillClass}
-                            role="status"
-                            aria-label={isEmailConfirmed ? tr('Email подтверждён', 'Email verified') : tr('Email не подтверждён', 'Email not verified')}
-                          >
-                            {isEmailConfirmed ? tr('Email подтверждён ✓', 'Email verified ✓') : tr('Email не подтверждён', 'Email not verified')}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
 
               <div className="mt-6 border-t border-slate-100 pt-4">
                 <h3 className="mb-3 text-[length:calc(0.875rem-1pt)] font-semibold text-slate-900">{tr('Сменить пароль', 'Change password')}</h3>
@@ -835,30 +760,22 @@ export const ProfileEdit: React.FC = () => {
                       value={form?.email ?? safeUserEmail ?? ''}
                       aria-readonly
                     />
-                    {!isEmailConfirmed && !verifyEmailEverSent && (
+                    {!isEmailConfirmed && (
                       <button
                         type="button"
-                        disabled={verifyEmailSending || !safeUserEmail?.trim()}
-                        onClick={() => void handleSendProfileVerifyEmail()}
-                        className={`${accountPrimaryCtaClass} w-full shrink-0 sm:w-auto sm:px-5`}
-                      >
-                        {verifyEmailSending ? tr('Отправка…', 'Sending…') : tr('Подтвердить email', 'Verify email')}
-                      </button>
-                    )}
-                    {!isEmailConfirmed && verifyEmailEverSent && (
-                      <button
-                        type="button"
-                        disabled={verifyEmailSending || verifyEmailCooldownSeconds > 0 || !safeUserEmail?.trim()}
-                        onClick={() => void handleSendProfileVerifyEmail()}
+                        disabled={signupResendSending || signupResendCooldownSeconds > 0 || !safeUserEmail?.trim()}
+                        onClick={() => void handleResendSignupEmail()}
                         className={`${accountResendOutlineCtaClass} w-full shrink-0 sm:w-auto sm:px-5`}
                       >
-                        {verifyEmailSending ? tr('Отправка…', 'Sending…') : tr('Отправить снова', 'Resend')}
+                        {signupResendSending
+                          ? tr('Отправка…', 'Sending…')
+                          : tr('Письмо подтверждения снова', 'Resend confirmation email')}
                       </button>
                     )}
                   </div>
-                  {!isEmailConfirmed && verifyEmailEverSent && verifyEmailCooldownSeconds > 0 && (
+                  {!isEmailConfirmed && signupResendCooldownSeconds > 0 && (
                     <p className="text-[length:calc(0.75rem-1pt)] font-medium tabular-nums text-slate-500" aria-live="polite">
-                      {tr('Повтор через', 'Resend in')} {verifyEmailCooldownSeconds}s
+                      {tr('Повтор через', 'Resend in')} {signupResendCooldownSeconds}s
                     </p>
                   )}
                   {!isEmailConfirmed && (
@@ -868,19 +785,22 @@ export const ProfileEdit: React.FC = () => {
                       </span>
                       <div className={deliveryFormNoteScrollClass}>
                         <span className={deliveryFormNoteTextClass}>
-                          {tr('Подтвердите email для оформления заказа.', 'Verify email to place orders.')}
+                          {tr(
+                            'Откройте ссылку из письма при регистрации.',
+                            'Open the link in your signup email.',
+                          )}
                         </span>
                       </div>
                     </div>
                   )}
-                  {verifyEmailError && (
+                  {signupResendError && (
                     <p className="mt-2 text-[length:calc(0.75rem-1pt)] text-red-600" role="alert">
-                      {verifyEmailError}
+                      {signupResendError}
                     </p>
                   )}
-                  {verifyEmailMessage && (
+                  {signupResendMessage && (
                     <p className="mt-2 text-[length:calc(0.75rem-1pt)] text-slate-600" role="status">
-                      {verifyEmailMessage}
+                      {signupResendMessage}
                     </p>
                   )}
                 </div>
@@ -892,28 +812,30 @@ export const ProfileEdit: React.FC = () => {
                   </label>
                   <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-stretch">
                     <PhoneCountryCodeSelect value={phoneCountry} onChange={setPhoneCountry} />
-                    <input
-                      ref={phoneInputRef}
-                      id="pe-phone"
-                      type="tel"
-                      placeholder="+7 999 999 9999"
-                      title={tr('+200 баллов за подтверждение в Telegram', '+200 points for Telegram verification')}
-                      className={`${phoneFieldClass} min-w-0 flex-1`}
-                      value={form?.phone ?? ''}
-                      onChange={editing && (!telegramLinked || phoneUnlinkRequested) ? handlePhoneChange : undefined}
-                      readOnly={!editing || phoneLockedByTelegram}
-                      maxLength={16}
-                    />
-                    {!telegramLinked && (
-                      <button
-                        type="button"
-                        disabled={pollingForTelegram}
-                        onClick={() => void handleTelegramVerify()}
-                        className={`${accountPrimaryCtaClass} w-full shrink-0 sm:w-auto sm:px-5`}
-                      >
-                        {pollingForTelegram ? tr('Ожидание…', 'Waiting…') : tr('Подтвердить', 'Verify')}
-                      </button>
-                    )}
+                    <div className="flex w-full min-w-0 flex-1 flex-row items-stretch gap-2 sm:min-h-11">
+                      <input
+                        ref={phoneInputRef}
+                        id="pe-phone"
+                        type="tel"
+                        placeholder="+7 999 999 9999"
+                        title={tr('+200 баллов за подтверждение в Telegram', '+200 points for Telegram verification')}
+                        className={`${phoneFieldClass} !w-auto min-h-11 max-w-full min-w-[10rem] flex-1 basis-0`}
+                        value={form?.phone ?? ''}
+                        onChange={editing && (!telegramLinked || phoneUnlinkRequested) ? handlePhoneChange : undefined}
+                        readOnly={!editing || phoneLockedByTelegram}
+                        maxLength={16}
+                      />
+                      {!telegramLinked && (
+                        <button
+                          type="button"
+                          disabled={pollingForTelegram}
+                          onClick={() => void handleTelegramVerify()}
+                          className={`${accountPrimaryCtaClass} self-stretch sm:px-5`}
+                        >
+                          {pollingForTelegram ? tr('Ожидание…', 'Waiting…') : tr('Подтвердить', 'Verify')}
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div className={deliveryFormNoteRowClass} role="note">
                     <span aria-hidden className="shrink-0 select-none">

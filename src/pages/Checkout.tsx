@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
@@ -8,10 +8,11 @@ import { PhoneCountryCodeSelect } from '../components/PhoneCountryCodeSelect';
 import { CountrySelect } from '../components/CountrySelect';
 import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../components/SemoPageSpinner';
 import { AddressSuggest } from '../components/AddressSuggest';
+import { getAddressSuggestUiCopy } from '../lib/addressSuggestUiCopy';
 import { generateOrderNumber } from '../lib/orderNumber';
 import { executePayment } from '../lib/paymentGateway';
 import { supabase } from '../lib/supabase';
-import { resendSignupConfirmationEmail } from '../lib/authSignupResend';
+import { resendSignupConfirmationEmail } from '../lib/resendSignupConfirmationEmail';
 import {
   migrateLegacyProfileEditToSupabase,
   shippingFormToSnakePatch,
@@ -27,7 +28,7 @@ import { detectCountryFromPhone, formatIntlPhoneByCountry, type PhoneCountry } f
 import { formatCurrencyAmount } from '../lib/market';
 import { CustomsPassportNotice } from '../components/CustomsPassportNotice';
 import { InnHelpTooltip } from '../components/InnHelpTooltip';
-import { accountPrimaryCtaClass } from '../lib/accountLinkUi';
+import { accountPrimaryCtaClass, accountResendOutlineCtaClass } from '../lib/accountLinkUi';
 import {
   deliveryContactInputEditable,
   deliveryContactInputEmailPending,
@@ -122,12 +123,13 @@ function deliveryFormToShippingFormCamel(form: DeliveryForm): ShippingFormCamel 
 const MAX_POINTS_TO_USE = 1000;
 /** 포인트 사용 상한: 찐 판매가(total)의 10%를 넘을 수 없음 */
 const POINTS_MAX_PERCENT_OF_TOTAL = 0.1;
+const SIGNUP_EMAIL_RESEND_COOLDOWN_SEC = 60;
 
 export const Checkout: React.FC = () => {
   const navigate = useNavigate();
-  const { currency, country, setCountry } = useI18n();
+  const { currency, country, setCountry, language } = useI18n();
   const [searchParams] = useSearchParams();
-  const { isLoggedIn, userId, userEmail, initialized, isEmailConfirmed } = useAuth();
+  const { isLoggedIn, userId, userEmail, initialized, isEmailConfirmed, refreshEmailConfirmationFromServer } = useAuth();
   /** 가짜(테스트) 주문 여부. URL에 ?test=1 있으면 true → is_test로 저장해 나중에 구분·삭제 가능 */
   const isTestOrder = searchParams.get('test') === '1';
   const { items, total, totalCount } = useCart();
@@ -144,9 +146,25 @@ export const Checkout: React.FC = () => {
   const [loading, setLoading] = useState(true);
   /** 프로필 조회 실패 시만(러시아어) — 주문 게이트는 Auth isEmailConfirmed */
   const [emailGateNotice, setEmailGateNotice] = useState<string | null>(null);
-  const [verifyEmailSending, setVerifyEmailSending] = useState(false);
-  const [verifyEmailMessage, setVerifyEmailMessage] = useState<string | null>(null);
-  const [verifyEmailError, setVerifyEmailError] = useState<string | null>(null);
+  const [signupResendSending, setSignupResendSending] = useState(false);
+  const [signupResendMessage, setSignupResendMessage] = useState<string | null>(null);
+  const [signupResendError, setSignupResendError] = useState<string | null>(null);
+  const [signupResendCooldownSeconds, setSignupResendCooldownSeconds] = useState(0);
+
+  useEffect(() => {
+    setSignupResendMessage(null);
+    setSignupResendError(null);
+    if (!userId) setSignupResendCooldownSeconds(0);
+  }, [userId]);
+
+  useEffect(() => {
+    if (signupResendCooldownSeconds <= 0) return undefined;
+    const id = window.setTimeout(() => {
+      setSignupResendCooldownSeconds((s) => Math.max(0, s - 1));
+    }, 1000);
+    return () => window.clearTimeout(id);
+  }, [signupResendCooldownSeconds]);
+
   /** 주문 INSERT·결제 단계 오류(인라인, 러시아어) */
   const [orderFlowError, setOrderFlowError] = useState<string | null>(null);
   /** телефон/localStorage 저장 실패 등 — 결제는 계속, 알림만 인라인 */
@@ -165,6 +183,7 @@ export const Checkout: React.FC = () => {
   const [saveDeliveryAsDefault, setSaveDeliveryAsDefault] = useState(true);
   const [noPatronymic, setNoPatronymic] = useState(false);
   const [addressQuery, setAddressQuery] = useState('');
+  const addressUi = useMemo(() => getAddressSuggestUiCopy(country, language), [country, language]);
   /** Telegram 연동(개인정보 수정과 동일 UX) */
   const [phoneError, setPhoneError] = useState('');
   /** «Изменить номер» без мгновенного сброса telegram_id в БД — снятие привязки при сохранении заказа/адреса */
@@ -389,32 +408,32 @@ export const Checkout: React.FC = () => {
       .catch(() => {});
   }, [step, total, userPoints, pointsToUse, items, userId]);
 
-  const handleSendCheckoutVerifyEmail = useCallback(async () => {
-    if (!supabase || !userId || !userEmail?.trim()) {
-      setVerifyEmailError('Не удалось определить email. Войдите снова.');
+  const handleResendSignupEmail = useCallback(async () => {
+    if (signupResendCooldownSeconds > 0) return;
+    if (!supabase || !userEmail?.trim()) {
+      setSignupResendError('Не удалось определить email. Войдите снова.');
       return;
     }
-    setVerifyEmailSending(true);
-    setVerifyEmailMessage(null);
-    setVerifyEmailError(null);
+    setSignupResendSending(true);
+    setSignupResendMessage(null);
+    setSignupResendError(null);
     try {
-      const testQs = isTestOrder ? '?test=1' : '';
-      const result = await resendSignupConfirmationEmail(
-        supabase,
-        userEmail.trim(),
-        `/checkout${testQs}`,
-      );
+      const result = await resendSignupConfirmationEmail(supabase, userEmail.trim());
       if (!result.ok) {
-        setVerifyEmailError(result.message);
+        setSignupResendError(result.message);
         return;
       }
-      setVerifyEmailMessage(
-        'Письмо отправлено. Перейдите по ссылке из письма — после подтверждения обновите страницу, если кнопка заказа всё ещё неактивна.',
+      setSignupResendCooldownSeconds(SIGNUP_EMAIL_RESEND_COOLDOWN_SEC);
+      setSignupResendMessage(
+        language === 'en'
+          ? 'Confirmation email sent. Check your inbox (and Spam).'
+          : 'Письмо для подтверждения отправлено. Проверьте почту и папку «Спам».',
       );
+      void refreshEmailConfirmationFromServer();
     } finally {
-      setVerifyEmailSending(false);
+      setSignupResendSending(false);
     }
-  }, [userId, userEmail, isTestOrder]);
+  }, [userEmail, signupResendCooldownSeconds, language, refreshEmailConfirmationFromServer]);
 
   const dbTelegramLinked = !!profile?.telegram_id;
   const phoneLockedByTelegram = dbTelegramLinked && !phoneUnlinkRequested;
@@ -543,7 +562,7 @@ export const Checkout: React.FC = () => {
   const handleConfirmOrder = async () => {
     if (!isEmailConfirmed) {
       window.alert(
-        'Для оформления заказа подтвердите email. Проверьте письмо от сервиса (включая «Спам») или нажмите «Подтвердить email» в разделе «Доставка».',
+        'Для оформления заказа подтвердите email по ссылке из письма при регистрации (папка «Спам»). Нужно письмо ещё раз — кнопка ниже у email.',
       );
       return;
     }
@@ -752,7 +771,7 @@ export const Checkout: React.FC = () => {
           msgLower.includes('policy');
         setOrderFlowError(
           isRls
-            ? 'Подтвердите email в личном кабинете или по письму (profiles.email_verified_at). SQL: docs/SUPABASE_ORDERS_RLS_AUTH_EMAIL_CONFIRMED.sql.'
+            ? 'Подтвердите email по ссылке из письма при регистрации. В Supabase должны быть включены Confirm email и политика docs/SUPABASE_ORDERS_RLS_EMAIL_CONFIRMED_AT.sql.'
             : `Не удалось оформить заказ. Попробуйте ещё раз.${orderError?.message ? ` (${orderError.message})` : ''}`,
         );
         return;
@@ -1061,14 +1080,21 @@ export const Checkout: React.FC = () => {
                   aria-readonly
                 />
                 {!isEmailConfirmed && (
-                  <button
-                    type="button"
-                    disabled={verifyEmailSending || !userEmail?.trim()}
-                    onClick={() => void handleSendCheckoutVerifyEmail()}
-                    className={`${accountPrimaryCtaClass} w-full shrink-0 sm:w-auto sm:px-5`}
-                  >
-                    {verifyEmailSending ? 'Отправка…' : 'Подтвердить email'}
-                  </button>
+                  <div className="flex w-full min-w-0 flex-col gap-1 sm:w-auto sm:shrink-0">
+                    <button
+                      type="button"
+                      disabled={signupResendSending || signupResendCooldownSeconds > 0 || !userEmail?.trim()}
+                      onClick={() => void handleResendSignupEmail()}
+                      className={`${accountResendOutlineCtaClass} w-full shrink-0 sm:w-auto sm:px-5`}
+                    >
+                      {signupResendSending ? 'Отправка…' : 'Письмо подтверждения снова'}
+                    </button>
+                    {signupResendCooldownSeconds > 0 && (
+                      <p className="text-center text-[10px] font-medium tabular-nums text-slate-500" aria-live="polite">
+                        Повтор через {signupResendCooldownSeconds}s
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
               {!isEmailConfirmed && (
@@ -1078,19 +1104,19 @@ export const Checkout: React.FC = () => {
                   </span>
                   <div className={deliveryFormNoteScrollClass}>
                     <span className={deliveryFormNoteTextClass}>
-                      Подтвердите email для оформления заказа.
+                      Подтвердите email по ссылке из письма при регистрации.
                     </span>
                   </div>
                 </div>
               )}
-              {verifyEmailError && (
+              {signupResendError && (
                 <p className="mt-2 text-xs text-red-600" role="alert">
-                  {verifyEmailError}
+                  {signupResendError}
                 </p>
               )}
-              {verifyEmailMessage && (
+              {signupResendMessage && (
                 <p className="mt-2 text-xs text-slate-600" role="status">
-                  {verifyEmailMessage}
+                  {signupResendMessage}
                 </p>
               )}
             </div>
@@ -1101,29 +1127,31 @@ export const Checkout: React.FC = () => {
               </label>
               <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-stretch">
                 <PhoneCountryCodeSelect value={phoneCountry} onChange={setPhoneCountry} />
-                <input
-                  ref={phoneInputRef}
-                  id="ck-phone"
-                  type="tel"
-                  autoComplete="tel"
-                  placeholder="+7 999 999 9999"
-                  title="+200 баллов за подтверждение в Telegram"
-                  className={`${phoneFieldClass} min-w-0 flex-1`}
-                  value={deliveryForm.phone}
-                  onChange={handlePhoneInputChange}
-                  readOnly={phoneLockedByTelegram}
-                  maxLength={16}
-                />
-                {showTelegramVerifyButton && (
-                  <button
-                    type="button"
-                    disabled={(deliveryForm.phone ?? '').replace(/\D/g, '').length < 10 || pollingForTelegram}
-                    onClick={() => void handleTelegramVerify()}
-                    className={`${accountPrimaryCtaClass} w-full shrink-0 sm:w-auto sm:px-5`}
-                  >
-                    {pollingForTelegram ? 'Ожидание…' : 'Подтвердить'}
-                  </button>
-                )}
+                <div className="flex w-full min-w-0 flex-1 flex-row items-stretch gap-2 sm:min-h-11">
+                  <input
+                    ref={phoneInputRef}
+                    id="ck-phone"
+                    type="tel"
+                    autoComplete="tel"
+                    placeholder="+7 999 999 9999"
+                    title="+200 баллов за подтверждение в Telegram"
+                    className={`${phoneFieldClass} !w-auto min-h-11 max-w-full min-w-[10rem] flex-1 basis-0`}
+                    value={deliveryForm.phone}
+                    onChange={handlePhoneInputChange}
+                    readOnly={phoneLockedByTelegram}
+                    maxLength={16}
+                  />
+                  {showTelegramVerifyButton && (
+                    <button
+                      type="button"
+                      disabled={(deliveryForm.phone ?? '').replace(/\D/g, '').length < 10 || pollingForTelegram}
+                      onClick={() => void handleTelegramVerify()}
+                      className={`${accountPrimaryCtaClass} self-stretch sm:px-5`}
+                    >
+                      {pollingForTelegram ? 'Ожидание…' : 'Подтвердить'}
+                    </button>
+                  )}
+                </div>
               </div>
               <div className={deliveryFormNoteRowClass} role="note">
                 <span aria-hidden className="shrink-0 select-none">
@@ -1180,20 +1208,21 @@ export const Checkout: React.FC = () => {
             </div>
             <AddressSuggest
               country={country}
+              mapsUiLanguage={language}
               label={
                 <span className="inline-flex items-center gap-2">
-                  Адрес (поиск по базе)
-                  <span className="group relative ml-0.5 inline-flex cursor-help" aria-label="Подсказка">
+                  {addressUi.label}
+                  <span className="group relative ml-0.5 inline-flex cursor-help" aria-label={addressUi.tooltipAria}>
                     <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 text-xs font-medium transition hover:border-brand hover:text-brand">
                       ?
                     </span>
-                    <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 inline-block w-max -translate-x-1/2 whitespace-nowrap rounded border border-slate-100 bg-white px-2.5 py-1.5 text-left text-xs font-medium leading-none text-brand shadow-md opacity-0 transition group-hover:opacity-100">
-                      При вводе адреса нижние поля заполнятся автоматически.
+                    <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 inline-block max-w-[min(20rem,calc(100vw-2rem))] -translate-x-1/2 rounded border border-slate-100 bg-white px-2.5 py-1.5 text-left text-xs font-medium leading-snug text-brand shadow-md opacity-0 transition group-hover:opacity-100 sm:whitespace-normal">
+                      {addressUi.tooltip}
                     </span>
                   </span>
                 </span>
               }
-              placeholder="Начните вводить адрес, затем выберите вариант из списка"
+              placeholder={addressUi.placeholder}
               value={addressQuery}
               onChange={setAddressQuery}
               onPartsChange={(parts) => {

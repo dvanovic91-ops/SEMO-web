@@ -3,13 +3,6 @@ import { Link, Navigate } from 'react-router-dom';
 import { useAuth, ADMIN_DUMMY_USER_ID } from '../context/AuthContext';
 import { useI18n } from '../context/I18nContext';
 import { supabase } from '../lib/supabase';
-import { resendSignupConfirmationEmail } from '../lib/authSignupResend';
-import {
-  accountCardSubtextClass,
-  accountLinkTwoColGridClass,
-  accountPrimaryCtaClass,
-  accountStatusPillClass,
-} from '../lib/accountLinkUi';
 import { AuthInitializingScreen } from '../components/SemoPageSpinner';
 import { hasSelfieAnalysisSnapshot } from '../lib/skinTestSelfie';
 
@@ -35,30 +28,9 @@ type ProfileMemCacheEntry = {
 const PROFILE_MEM_CACHE_TTL_MS = 60_000;
 const PROFILE_MEM_CACHE = new Map<string, ProfileMemCacheEntry>();
 
-/** 세션 내 텔레그램 연동 여부 캐시 — 프로필 API 응답 전에도 버튼 깜빡임 완화 */
-const TG_CACHE_PREFIX = 'semo_profile_tg_';
-function readTelegramCache(userId: string): boolean | null {
-  try {
-    const v = sessionStorage.getItem(TG_CACHE_PREFIX + userId);
-    if (v === '1') return true;
-    if (v === '0') return false;
-  } catch {
-    /* private mode */
-  }
-  return null;
-}
-function writeTelegramCache(userId: string, linked: boolean) {
-  try {
-    sessionStorage.setItem(TG_CACHE_PREFIX + userId, linked ? '1' : '0');
-  } catch {
-    /* */
-  }
-}
-
 /**
  * 로그인된 사용자 개인화면 — 인사/등급/포인트 박스.
  * 이름·등급(표시)·포인트의 유일한 근거는 Supabase `profiles`(및 주문 기반 membershipTier) — 브라우저에 이름/포인트를 캐시하지 않음.
- * Telegram 연동 여부만 세션 스토리지로 깜빡임 완화(0/1 플래그, 개인정보 아님).
  */
 export const Profile: React.FC = () => {
   const {
@@ -68,13 +40,12 @@ export const Profile: React.FC = () => {
     isLoggedIn,
     initialized,
     isAdmin,
-    isEmailConfirmed,
     refreshEmailConfirmationFromServer,
   } = useAuth();
   const { language, country, setCountry } = useI18n();
   const tr = useCallback((ru: string, en: string) => (language === 'en' ? en : ru), [language]);
 
-  // 메모리 캐시(세션 내)로 인해 리마운트 순간에도 이름/포인트/텔레그램 상태가 즉시 채워지도록 함
+  // 메모리 캐시(세션 내)로 인해 리마운트 순간에도 이름/포인트 등이 즉시 채워지도록 함
   const memCache = userId ? PROFILE_MEM_CACHE.get(userId) ?? null : null;
   const cacheFresh = memCache ? Date.now() - memCache.updatedAt < PROFILE_MEM_CACHE_TTL_MS : false;
   const initialDbProfile = cacheFresh ? memCache?.dbProfile ?? null : null;
@@ -107,22 +78,14 @@ export const Profile: React.FC = () => {
     return () => document.removeEventListener('mousedown', onDown);
   }, [deliveryCountryOpen]);
   const [dbProfile, setDbProfile] = useState<DbProfileState | null>(initialDbProfile);
-  /** 연동 성공 시 토스트 (다른 탭에서 연동 후 돌아왔을 때) */
-  const [telegramLinkedToast, setTelegramLinkedToast] = useState(false);
   /** 회원 등급: basic(일반) / premium(프리미엄) / family(가족) — 주문 누계 기준으로 계산 */
   const [membershipTier, setMembershipTier] = useState<'basic' | 'premium' | 'family'>(initialMembershipTier);
   const [lastSkinType, setLastSkinType] = useState<string | null>(null);
   /** 저장된 결과 중 셀카 분석 없음(설문만) 건수 — Tests 타일 배지용 */
   const [skinTestWithoutSelfieCount, setSkinTestWithoutSelfieCount] = useState(0);
-  const [verifyEmailSending, setVerifyEmailSending] = useState(false);
-  const [verifyEmailMessage, setVerifyEmailMessage] = useState<string | null>(null);
-  const [verifyEmailError, setVerifyEmailError] = useState<string | null>(null);
-  const [telegramLinkLoading, setTelegramLinkLoading] = useState(false);
-  const [telegramLinkError, setTelegramLinkError] = useState<string | null>(null);
   /** 헤더 배지: 사용 가능 멤버십 쿠폰 + 셀피 분석 프로젝트 수 (목록은 /profile/coupons) */
   const [activeCouponCount, setActiveCouponCount] = useState<number | null>(null);
   const [couponCountLoading, setCouponCountLoading] = useState(false);
-  const prevTelegramIdRef = useRef<string | null | undefined>(undefined);
   const currentUserIdRef = useRef<string | null>(null);
   currentUserIdRef.current = userId;
 
@@ -142,21 +105,6 @@ export const Profile: React.FC = () => {
     } | null) => {
       if (currentUserIdRef.current !== requestedUserId) return;
       const nextTelegramId = data?.telegram_id ?? null;
-      const prev = prevTelegramIdRef.current;
-      if (prev !== undefined && prev && !nextTelegramId) {
-        console.warn('Telegram state changed! (Profile) — was linked, now unlinked. Check DB or network.');
-      }
-      if (prev !== undefined && !prev && nextTelegramId) {
-        setTelegramLinkedToast(true);
-        setTimeout(() => setTelegramLinkedToast(false), 3000);
-      }
-      prevTelegramIdRef.current = nextTelegramId;
-
-      if (data) {
-        writeTelegramCache(requestedUserId, !!nextTelegramId);
-      } else {
-        writeTelegramCache(requestedUserId, false);
-      }
 
       const nextDbProfile: DbProfileState | null = data
         ? {
@@ -330,7 +278,7 @@ export const Profile: React.FC = () => {
     refreshActiveCouponCount();
   }, [refreshActiveCouponCount]);
 
-  // 다른 탭에서 Telegram 연동 후 돌아오면 프로필(연동 여부·포인트) 다시 불러오기
+  // 다른 탭으로 돌아오면 프로필·쿠폰 수 다시 불러오기
   useEffect(() => {
     const onVisibility = () => {
       if (document.visibilityState === 'visible') {
@@ -349,29 +297,6 @@ export const Profile: React.FC = () => {
     void refreshEmailConfirmationFromServer();
   }, [userId, refreshEmailConfirmationFromServer]);
 
-  /** 프로필에서도 체크아웃과 동일한 매직링크 발송(리다이렉트 → /checkout?ck=…) */
-  const handleSendProfileVerifyEmail = useCallback(async () => {
-    if (!supabase || !userId || !userEmail?.trim()) {
-      setVerifyEmailError(tr('Не удалось определить email. Войдите снова.', 'Could not detect your email. Please sign in again.'));
-      return;
-    }
-    setVerifyEmailSending(true);
-    setVerifyEmailMessage(null);
-    setVerifyEmailError(null);
-    try {
-      const result = await resendSignupConfirmationEmail(supabase, userEmail.trim(), '/profile');
-      if (!result.ok) {
-        setVerifyEmailError(result.message);
-        return;
-      }
-      setVerifyEmailMessage(
-        tr('Письмо отправлено. Перейдите по ссылке — после подтверждения обновите страницу.', 'Email sent. Open the link and refresh after confirmation.'),
-      );
-    } finally {
-      setVerifyEmailSending(false);
-    }
-  }, [userId, userEmail]);
-
   /**
    * 표시용 이름: DB 조회 완료 후에만 결정.
    * - profiles.name 이 있으면 그대로
@@ -386,16 +311,6 @@ export const Profile: React.FC = () => {
   /** 포인트: DB 조회 완료 후에만 숫자 표시(로딩 중 스켈레톤) */
   const pointsLoaded = dbProfile !== null;
   const displayPoints = dbProfile?.points ?? 0;
-
-  /** 텔레그램 버튼: DB 로드 전에는 sessionStorage 캐시로 즉시 표시(깜빡임 완화), 없으면 스켈레톤 */
-  const telegramButtonState = useMemo((): 'linked' | 'unlinked' | 'loading' | null => {
-    if (!userId || userId === ADMIN_DUMMY_USER_ID) return null;
-    if (dbProfile != null) return dbProfile.telegram_id ? 'linked' : 'unlinked';
-    const c = readTelegramCache(userId);
-    if (c === true) return 'linked';
-    if (c === false) return 'unlinked';
-    return 'loading';
-  }, [userId, dbProfile]);
 
   const isVipAdminAccount = !!userEmail && VIP_ADMIN_EMAILS.includes(userEmail.trim().toLowerCase());
   const tierTriangleGradientId = isVipAdminAccount
@@ -436,34 +351,6 @@ export const Profile: React.FC = () => {
     window.location.href = '/login';
   };
 
-  const handleStartTelegramLink = async () => {
-    if (!supabase || !userId) return;
-    setTelegramLinkError(null);
-    setTelegramLinkLoading(true);
-    try {
-      const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-      const { data, error } = await supabase
-        .from('link_tokens')
-        .insert({ user_id: userId, expires_at: expiresAt })
-        .select('token')
-        .single();
-      if (error || !data?.token) {
-        setTelegramLinkError(tr('Не удалось создать ссылку Telegram. Попробуйте ещё раз.', 'Could not create Telegram link. Try again.'));
-        return;
-      }
-      const opened = window.open(`https://t.me/My_SEMO_Beautybot?start=link_${data.token}`, '_blank');
-      if (!opened) {
-        setTelegramLinkError(tr('Браузер заблокировал переход. Разрешите всплывающее окно и повторите.', 'Popup blocked by browser. Allow popups and try again.'));
-        return;
-      }
-      setTimeout(() => void refreshProfile(), 1200);
-    } catch {
-      setTelegramLinkError(tr('Не удалось открыть Telegram. Проверьте интернет и повторите.', 'Could not open Telegram. Check internet and try again.'));
-    } finally {
-      setTelegramLinkLoading(false);
-    }
-  };
-
   return (
     <main className="mx-auto w-full max-w-3xl px-3 py-5 sm:px-6 sm:py-10 md:py-14">
       <header className="mb-5 flex flex-wrap items-center justify-between gap-3 sm:mb-6 sm:gap-4">
@@ -490,8 +377,8 @@ export const Profile: React.FC = () => {
         </div>
       </header>
 
-      {/* 연한 하늘색 박스: 웹(인사+우측 3아이콘), 모바일(인사 아래 3아이콘 중앙) */}
-      <div className="rounded-xl border border-sky-200/90 bg-sky-50/95 px-3 py-4 shadow-sm ring-1 ring-sky-100/80 sm:px-6 sm:py-6">
+      {/* 연한 주황(brand-soft) 박스 — 예전 Telegram/이메일 인증 카드 톤과 동일 */}
+      <div className="rounded-xl border border-brand/25 bg-brand-soft/95 px-3 py-4 shadow-sm ring-1 ring-brand/10 sm:px-6 sm:py-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="break-words text-center text-base font-medium text-slate-800 sm:text-left sm:text-lg">
             {displayName == null ? tr('Здравствуйте!', 'Hello!') : language === 'en' ? `Hello, ${displayName}!` : `Здравствуйте, ${displayName}!`}
@@ -503,7 +390,7 @@ export const Profile: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setDeliveryCountryOpen((v) => !v)}
-                className="inline-flex h-11 min-h-11 w-20 min-w-20 flex-col items-center justify-center gap-0 rounded-lg border border-sky-200 bg-white/90 px-0 py-1 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-sky-100/80 focus:outline-none focus:ring-1 focus:ring-brand"
+                className="inline-flex h-11 min-h-11 w-20 min-w-20 flex-col items-center justify-center gap-0 rounded-lg border border-brand/25 bg-white/90 px-0 py-1 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-brand-soft/55 focus:outline-none focus:ring-1 focus:ring-brand"
                 aria-label={tr('Страна доставки', 'Delivery country')}
                 title={tr('Страна доставки', 'Delivery country')}
               >
@@ -550,7 +437,7 @@ export const Profile: React.FC = () => {
             </div>
             <Link
               to="/profile/tier"
-              className="inline-flex h-11 min-h-11 w-20 min-w-20 flex-col items-center justify-center gap-0 rounded-lg border border-sky-200 bg-white/90 px-0 py-1 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-sky-100/80"
+              className="inline-flex h-11 min-h-11 w-20 min-w-20 flex-col items-center justify-center gap-0 rounded-lg border border-brand/25 bg-white/90 px-0 py-1 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-brand-soft/55"
               aria-label={tr('Уровень участника', 'Membership tier')}
               title={tierTooltipText}
             >
@@ -588,7 +475,7 @@ export const Profile: React.FC = () => {
             </Link>
             <Link
               to="/profile/points"
-              className="inline-flex h-11 min-h-11 w-20 min-w-20 flex-col items-center justify-center gap-0 rounded-lg border border-sky-200 bg-white/90 px-0 py-1 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-sky-100/80"
+              className="inline-flex h-11 min-h-11 w-20 min-w-20 flex-col items-center justify-center gap-0 rounded-lg border border-brand/25 bg-white/90 px-0 py-1 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-brand-soft/55"
               aria-busy={!pointsLoaded}
             >
               {pointsLoaded ? (
@@ -619,7 +506,7 @@ export const Profile: React.FC = () => {
             </Link>
             <Link
               to="/profile/coupons"
-              className="inline-flex h-11 min-h-11 w-20 min-w-20 flex-col items-center justify-center gap-0 rounded-lg border border-sky-200 bg-white/90 px-0 py-1 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-sky-100/80"
+              className="inline-flex h-11 min-h-11 w-20 min-w-20 flex-col items-center justify-center gap-0 rounded-lg border border-brand/25 bg-white/90 px-0 py-1 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-brand-soft/55"
               aria-busy={couponCountLoading}
               aria-label={tr('Купоны', 'Coupons')}
             >
@@ -660,7 +547,7 @@ export const Profile: React.FC = () => {
           <div className="flex shrink-0 flex-row items-center justify-center gap-2 sm:hidden">
             <Link
               to="/profile/tier"
-              className="inline-flex h-11 min-h-11 w-20 min-w-20 flex-col items-center justify-center gap-0 rounded-lg border border-sky-200 bg-white/90 px-0 py-1 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-sky-100/80"
+              className="inline-flex h-11 min-h-11 w-20 min-w-20 flex-col items-center justify-center gap-0 rounded-lg border border-brand/25 bg-white/90 px-0 py-1 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-brand-soft/55"
               aria-label={tr('Уровень участника', 'Membership tier')}
               title={tierTooltipText}
             >
@@ -707,7 +594,7 @@ export const Profile: React.FC = () => {
             </Link>
             <Link
               to="/profile/points"
-              className="inline-flex h-11 min-h-11 w-20 min-w-20 flex-col items-center justify-center gap-0 rounded-lg border border-sky-200 bg-white/90 px-0 py-1 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-sky-100/80"
+              className="inline-flex h-11 min-h-11 w-20 min-w-20 flex-col items-center justify-center gap-0 rounded-lg border border-brand/25 bg-white/90 px-0 py-1 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-brand-soft/55"
               aria-busy={!pointsLoaded}
             >
               {pointsLoaded ? (
@@ -738,7 +625,7 @@ export const Profile: React.FC = () => {
             </Link>
             <Link
               to="/profile/coupons"
-              className="inline-flex h-11 min-h-11 w-20 min-w-20 flex-col items-center justify-center gap-0 rounded-lg border border-sky-200 bg-white/90 px-0 py-1 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-sky-100/80"
+              className="inline-flex h-11 min-h-11 w-20 min-w-20 flex-col items-center justify-center gap-0 rounded-lg border border-brand/25 bg-white/90 px-0 py-1 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-brand-soft/55"
               aria-busy={couponCountLoading}
               aria-label={tr('Купоны', 'Coupons')}
             >
@@ -777,104 +664,6 @@ export const Profile: React.FC = () => {
           </div>
         </div>
       </div>
-
-      {/* Telegram + E-mail: две колонки (어д민 제외) */}
-      {userId && userId !== ADMIN_DUMMY_USER_ID && (
-        <div className="mt-6 overflow-hidden rounded-2xl border border-brand/25 bg-brand-soft/95 px-3 pt-3 pb-2 shadow-sm ring-1 ring-brand/10 sm:px-5 sm:pt-5 sm:pb-3">
-          {/* 모바일도 2열(텔еграм | 이메일), md 이상은 동일 + 여백만 넓게 */}
-          <div className={`${accountLinkTwoColGridClass} md:gap-x-0`}>
-            {/* Левая колонка: Telegram — заголовок → кнопка → (미연동 시) пояснение */}
-            <div className="flex min-h-0 min-w-0 flex-col border-r border-slate-200/60 pr-2 sm:pr-3 md:pr-5">
-              <div className="flex items-center justify-center gap-2.5">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/90 text-[#26A5E4] shadow-sm ring-1 ring-slate-200/80">
-                  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden>
-                    <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
-                  </svg>
-                </span>
-                <p className="text-sm font-semibold tracking-tight text-slate-900">Telegram</p>
-              </div>
-              <div className="mt-2.5">
-                {telegramButtonState === 'loading' && (
-                  <div
-                    className="h-11 w-full animate-pulse rounded-xl bg-slate-200/70"
-                    aria-hidden
-                  />
-                )}
-                {telegramButtonState === 'linked' && (
-                  <button type="button" disabled className={accountStatusPillClass} aria-label={tr('Telegram привязан', 'Telegram linked')}>
-                    {tr('Telegram привязан ✓', 'Telegram linked ✓')}
-                  </button>
-                )}
-                {telegramButtonState === 'unlinked' && (
-                  <button
-                    type="button"
-                    onClick={() => void handleStartTelegramLink()}
-                    disabled={telegramLinkLoading}
-                    className={accountPrimaryCtaClass}
-                  >
-                    {telegramLinkLoading ? tr('Открываем…', 'Opening…') : tr('Привязать Telegram', 'Link Telegram')}
-                  </button>
-                )}
-              </div>
-              {telegramButtonState === 'unlinked' && (
-                <p className={accountCardSubtextClass}>
-                  {tr('В Telegram спросим согласие на привязку номера и уведомления о новинках/скидках. Настройки можно изменить позже в профиле.', 'Telegram will ask for consent to link your number and receive updates. You can change this later in profile settings.')}
-                </p>
-              )}
-              {telegramButtonState === 'unlinked' && telegramLinkError && (
-                <p className="mt-2 text-xs text-red-600" role="alert">
-                  {telegramLinkError}
-                </p>
-              )}
-            </div>
-
-            {/* Правая колонка: E-mail — заголовок → кнопка → (미확인 시) пояснение */}
-            <div className="flex min-h-0 min-w-0 flex-col pl-2 sm:pl-3 md:pl-5">
-              <div className="flex items-center justify-center gap-2.5">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/90 text-brand shadow-sm ring-1 ring-brand/25">
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" aria-hidden>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
-                  </svg>
-                </span>
-                <p className="text-sm font-semibold tracking-tight text-slate-900">E-mail</p>
-              </div>
-              <div className="mt-2.5">
-                {!initialized ? (
-                  <div className="h-11 w-full animate-pulse rounded-xl bg-slate-200/70" aria-hidden />
-                ) : isEmailConfirmed ? (
-                  <button type="button" disabled className={accountStatusPillClass} aria-label={tr('Email подтверждён', 'Email verified')}>
-                    {tr('Email подтверждён ✓', 'Email verified ✓')}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    disabled={verifyEmailSending}
-                    onClick={() => void handleSendProfileVerifyEmail()}
-                    className={accountPrimaryCtaClass}
-                  >
-                    {verifyEmailSending ? tr('Отправка…', 'Sending…') : tr('Подтвердить email', 'Verify email')}
-                  </button>
-                )}
-              </div>
-              {initialized && !isEmailConfirmed && (
-                <p className={accountCardSubtextClass}>
-                  {tr('Email нужен для подтверждения заказов.', 'Email is required to confirm orders.')}
-                </p>
-              )}
-            </div>
-          </div>
-          {verifyEmailError && (
-            <p className="prose-ru mt-3 border-t border-slate-200/50 pt-3 text-xs text-red-700" role="alert">
-              {verifyEmailError}
-            </p>
-          )}
-          {verifyEmailMessage && (
-            <p className={`prose-ru text-xs text-slate-600 ${verifyEmailError ? 'mt-1.5' : 'mt-3 border-t border-slate-200/50 pt-3'}`} role="status">
-              {verifyEmailMessage}
-            </p>
-          )}
-        </div>
-      )}
 
       {/* 그래픽/아이콘 메뉴: 프로필·테스트·리뷰·주문 (카탈로그는 상단 네비 / SEMO Box에서만) */}
       <nav
@@ -957,12 +746,6 @@ export const Profile: React.FC = () => {
         </Link>
 
       </nav>
-
-      {telegramLinkedToast && (
-        <div className="fixed bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-brand px-5 py-2.5 text-sm font-medium text-white shadow-lg md:bottom-8" role="status" aria-live="polite">
-          {tr('Telegram привязан. Аккаунт успешно связан.', 'Telegram linked. Account connected successfully.')}
-        </div>
-      )}
     </main>
   );
 };

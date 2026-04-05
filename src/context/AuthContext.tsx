@@ -18,9 +18,9 @@ const MANAGER_EMAIL_ALLOWLIST: string[] = [];
 interface AuthContextValue {
   userEmail: string | null;
   userId: string | null;
-  /** profiles.email_verified_at — UI/주문 ‘이메일 인증’의 유일 기준 (auth만 보면 Confirm OFF일 때 전원 인증됨으로 나옴) */
+  /** Supabase `user.email_confirmed_at` (가입 확인). OAuth 구글/얀덱스는 공급자 신뢰로 동일 취급 */
   emailConfirmedAt: string | null;
-  /** profiles.email_verified_at 존재 여부 — 더미 관리자 UUID는 항상 true */
+  /** 이메일·비밀번호: 가입 메일 확인 완료 여부. 더미 관리자 UUID는 항상 true */
   isEmailConfirmed: boolean;
   setUserEmail: (email: string | null) => void;
   isLoggedIn: boolean;
@@ -39,43 +39,21 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-/**
- * Confirm email OFF일 때 created_at과 email_confirmed_at이 같은 요청 안에서 거의 동시에 찍힘 → 이 간격보다 짧으면
- * “가짜 인증”으로 보고 프로필에 복사하지 않음. 4초는 빠른 메일 클라이언트가 링크를 연 경우까지 막을 수 있어 1.5초로 조정.
- */
-const AUTH_EMAIL_SYNC_MIN_MS = 1500;
-
-/**
- * auth.email_confirmed_at 은 있으나 profile.email_verified_at 이 비어 있을 때만,
- * 가입 시점과 충분히 떨어진 확인 시각이면 프로필에 반영(Confirm ON 후 링크 클릭 등).
- */
-async function maybeSyncProfileEmailFromAuth(user: User): Promise<boolean> {
-  if (!supabase || user.id === ADMIN_DUMMY_USER_ID) return false;
-  if (!user.email_confirmed_at) return false;
-  const { data: prof, error } = await supabase
-    .from('profiles')
-    .select('email_verified_at')
-    .eq('id', user.id)
-    .maybeSingle();
-  if (error || prof?.email_verified_at) return false;
-
-  const created = new Date(user.created_at).getTime();
-  const confirmed = new Date(user.email_confirmed_at).getTime();
-  if (confirmed - created < AUTH_EMAIL_SYNC_MIN_MS) return false;
-
-  const { error: upErr } = await supabase
-    .from('profiles')
-    .update({ email_verified_at: user.email_confirmed_at })
-    .eq('id', user.id)
-    .is('email_verified_at', null);
-  return !upErr;
+function emailConfirmedAtFromUser(user: User | null | undefined): string | null {
+  if (!user) return null;
+  const v = user.email_confirmed_at;
+  if (v == null || v === '') return null;
+  return typeof v === 'string' ? v : String(v);
 }
 
-async function fetchProfileEmailVerifiedAt(userId: string): Promise<string | null> {
-  if (!supabase) return null;
-  const { data, error } = await supabase.from('profiles').select('email_verified_at').eq('id', userId).maybeSingle();
-  if (error) return null;
-  return (data as { email_verified_at?: string | null } | null)?.email_verified_at ?? null;
+/** 표시·주문 게이트용 확인 시각: Auth 확인 완료 또는 OAuth(구글/얀덱스) */
+function resolvedEmailConfirmedAt(user: User | null, uid: string | null): string | null {
+  if (!user || !uid) return null;
+  if (uid === ADMIN_DUMMY_USER_ID) return emailConfirmedAtFromUser(user) ?? new Date().toISOString();
+  const fromAuth = emailConfirmedAtFromUser(user);
+  if (fromAuth) return fromAuth;
+  if (isOauthGoogleOrYandexUser(user)) return new Date().toISOString();
+  return null;
 }
 
 /** 구글/얀덱스 OAuth(또는 얀덱스 user_metadata) — 이메일 매직링크 없이 신뢰 */
@@ -126,23 +104,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const { data, error } = await supabase.auth.getUser();
       if (error || !data.user) return;
-      await maybeSyncProfileEmailFromAuth(data.user);
-      let v = await fetchProfileEmailVerifiedAt(data.user.id);
-      if (
-        !v &&
-        data.user.id !== ADMIN_DUMMY_USER_ID &&
-        isOauthGoogleOrYandexUser(data.user)
-      ) {
-        const { error: rpcErr } = await supabase.rpc('sync_own_oauth_email_verified');
-        if (!rpcErr) {
-          v = await fetchProfileEmailVerifiedAt(data.user.id);
-        }
+      if (isOauthGoogleOrYandexUser(data.user)) {
+        await supabase.rpc('sync_own_oauth_email_verified').catch(() => {});
       }
-      if (data.user.id === ADMIN_DUMMY_USER_ID) {
-        setEmailConfirmedAt(v ?? new Date().toISOString());
-      } else {
-        setEmailConfirmedAt(v);
-      }
+      setEmailConfirmedAt(resolvedEmailConfirmedAt(data.user, data.user.id));
     } catch {
       // ignore
     }
@@ -173,29 +138,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // 세션 user 유지
         }
       }
-      if (serverUser) {
-        await maybeSyncProfileEmailFromAuth(serverUser);
-      }
-      let profileVerified = await fetchProfileEmailVerifiedAt(session.user.id);
-      if (
-        !profileVerified &&
-        serverUser &&
-        session.user.id !== ADMIN_DUMMY_USER_ID &&
-        supabase &&
-        isOauthGoogleOrYandexUser(serverUser)
-      ) {
+      if (supabase && serverUser && isOauthGoogleOrYandexUser(serverUser)) {
         const { error: oauthRpcErr } = await supabase.rpc('sync_own_oauth_email_verified');
         if (oauthRpcErr) {
           console.warn('[Auth] sync_own_oauth_email_verified', oauthRpcErr.message);
-        } else {
-          profileVerified = await fetchProfileEmailVerifiedAt(session.user.id);
         }
       }
-      if (session.user.id === ADMIN_DUMMY_USER_ID) {
-        setEmailConfirmedAt(profileVerified ?? new Date().toISOString());
-      } else {
-        setEmailConfirmedAt(profileVerified);
-      }
+      setEmailConfirmedAt(resolvedEmailConfirmedAt(serverUser ?? session.user, session.user.id));
       const meta = session.user.user_metadata ?? {};
       const displayName =
         (typeof meta.nickname === 'string' && meta.nickname.trim()) ||

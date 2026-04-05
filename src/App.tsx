@@ -1,5 +1,5 @@
-import React, { useRef, useEffect } from 'react';
-import { Route, Routes, useLocation, useParams } from 'react-router-dom';
+import React, { useRef, useEffect, useLayoutEffect } from 'react';
+import { Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { isSemoBoxSubmenuPath } from './lib/semoBoxSubmenu';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
@@ -51,6 +51,45 @@ function ScrollToTop() {
   }, [pathname]);
   return null;
 }
+
+/**
+ * 비밀번호 재설정 메일 링크의 redirect_to 가 사이트 루트·/auth/callback 인 경우,
+ * 해시에 type=recovery 가 있어도 홈으로만 가 버리는 문제 방지 → /auth/reset-password 로 보냄.
+ */
+function PasswordRecoveryRouteGuard() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  useLayoutEffect(() => {
+    const h = window.location.hash;
+    if (!h || h.length < 3) return;
+    const params = new URLSearchParams(h.startsWith('#') ? h.slice(1) : h);
+    if (params.get('type') !== 'recovery') return;
+    const path = location.pathname.replace(/\/$/, '') || '/';
+    if (path === '/auth/reset-password') return;
+    navigate(
+      {
+        pathname: '/auth/reset-password',
+        search: window.location.search,
+        hash: h.startsWith('#') ? h.slice(1) : h,
+      },
+      { replace: true },
+    );
+  }, [location.pathname, location.search, location.hash, navigate]);
+
+  useEffect(() => {
+    if (!supabase) return;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!session || event !== 'PASSWORD_RECOVERY') return;
+      const path = window.location.pathname.replace(/\/$/, '') || '/';
+      if (path === '/auth/reset-password') return;
+      navigate('/auth/reset-password', { replace: true });
+    });
+    return () => subscription.unsubscribe();
+  }, [navigate]);
+
+  return null;
+}
 import { About } from './pages/About';
 import { Cart } from './pages/Cart';
 import { Checkout } from './pages/Checkout';
@@ -82,6 +121,7 @@ import { Journey } from './pages/Journey';
 import { Promo } from './pages/Promo';
 import { Recommendations } from './pages/Recommendations';
 import { AuthCallback, AUTH_MESSAGE_TYPE } from './pages/AuthCallback';
+import { AuthResetPassword } from './pages/AuthResetPassword';
 import { YandexCallback } from './pages/YandexCallback';
 import { Admin } from './pages/admin/Admin';
 
@@ -113,6 +153,7 @@ function AppLayout() {
       <Navbar />
       <GlobalEnglishOverlay />
       <TrackVisit />
+      <PasswordRecoveryRouteGuard />
       <ScrollToTop />
       <div
         className={`min-w-0 flex-1 overflow-x-hidden pb-[var(--semo-mobile-tabbar-h)] pt-[var(--semo-mobile-header-h)] md:pb-0 ${mdProductPad} ${mobileTopPad}`}
@@ -155,6 +196,7 @@ function AppLayout() {
               <Route path="/admin" element={<Admin />} />
               <Route path="/login" element={<Login />} />
               <Route path="/auth/callback" element={<AuthCallback />} />
+              <Route path="/auth/reset-password" element={<AuthResetPassword />} />
               <Route path="/auth/yandex/callback" element={<YandexCallback />} />
               <Route path="/register" element={<Register />} />
               <Route path="/register/shipping" element={<RegisterShipping />} />

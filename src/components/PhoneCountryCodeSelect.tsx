@@ -12,6 +12,12 @@ function formatOptionLine(o: { code: string; dial: string; label: string }) {
   return `${o.label} (${o.code})${dialPart}`;
 }
 
+/** 트리거(닫힌 상태): 국가명 + 다이얼만 — (RU) 등 ISO 괄호 생략으로 폭 축소 */
+function formatTriggerLabel(o: { dial: string; label: string }) {
+  const dialPart = o.dial ? ` ${o.dial}` : '';
+  return `${o.label}${dialPart}`;
+}
+
 export const PhoneCountryCodeSelect: React.FC<Props> = ({ value, onChange, id }) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -61,13 +67,13 @@ export const PhoneCountryCodeSelect: React.FC<Props> = ({ value, onChange, id })
     return () => document.removeEventListener('keydown', onKey);
   }, [open]);
 
-  const triggerLabel = formatOptionLine(selected);
+  const triggerLabel = formatTriggerLabel(selected);
 
   const triggerClass =
     'flex min-h-[44px] w-full items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-sm text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:border-slate-300 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand sm:min-h-[40px]';
 
   return (
-    <div ref={rootRef} className="relative w-full sm:w-[12rem]">
+    <div ref={rootRef} className="relative w-full sm:w-[9.25rem]">
       <button
         type="button"
         id={id}

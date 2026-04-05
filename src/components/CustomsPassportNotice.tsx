@@ -3,13 +3,13 @@ import React, { useLayoutEffect, useRef, useState } from 'react';
 /** ИНН / паспорт — таможня (3 строки, по центру) */
 export const CUSTOMS_PASSPORT_NOTICE_LINES_RU = [
   'Обратите внимание:',
-  'корректность данных для таможни — ответственность получателя (ст. 84 ТК ЕАЭС).',
+  'достоверность данных для таможенного оформления — ответственность получателя в рамках применимого законодательства.',
   'Пожалуйста, проверьте данные перед сохранением, чтобы избежать задержек.',
 ] as const;
 
 export const CUSTOMS_PASSPORT_NOTICE_LINES_EN = [
   'Please note:',
-  'The accuracy of customs data is the recipient’s responsibility (EAEU Customs Code art. 84).',
+  'The recipient is responsible for the accuracy of customs clearance data under applicable customs laws and regulations.',
   'Please verify your details before saving to avoid delays.',
 ] as const;
 
