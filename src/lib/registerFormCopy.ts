@@ -5,10 +5,25 @@ export type RegisterFormStrings = {
   sectionMain: string;
   emailVerifyTitle: string;
   emailVerifyBtn: string;
+  /** 인증코드 첫 발송 버튼 */
+  emailResendBeforeSignup: string;
+  /** 인증코드 재발송 버튼 */
+  emailResendAgain: string;
+  emailResendSending: string;
+  emailResendOk: string;
+  emailResendErr: string;
   emailInvalid: string;
   emailNoteLine1: string;
   emailNoteLine2: string;
   emailNoteSingle: string;
+  /** OTP 코드 입력란 */
+  otpLabel: string;
+  otpPlaceholder: string;
+  otpVerifyBtn: string;
+  otpVerifyingBtn: string;
+  otpVerifiedMsg: string;
+  otpInvalidErr: string;
+  otpExpiredErr: string;
   password: string;
   name: string;
   namePh: string;
@@ -28,10 +43,6 @@ export type RegisterFormStrings = {
   verifyPhone: string;
   phoneNote: string;
   country: string;
-  addressSearch: string;
-  addressTooltip: string;
-  addressTooltipAria: string;
-  addressPh: string;
   cityRegion: string;
   cityPh: string;
   street: string;
@@ -70,14 +81,26 @@ export type RegisterFormStrings = {
 const ru: RegisterFormStrings = {
   title: 'Регистрация',
   sectionMain: 'Основные данные',
-  emailVerifyTitle: 'После регистрации откройте письмо и перейдите по ссылке',
-  emailVerifyBtn: 'Подтвердить email',
+  emailVerifyTitle: 'Нажмите «Получить код» — отправим 6-значный код на вашу почту',
+  emailVerifyBtn: 'Получить код',
+  emailResendBeforeSignup: 'Получить код',
+  emailResendAgain: 'Отправить снова',
+  emailResendSending: 'Отправка…',
+  emailResendOk: 'Код отправлен. Проверьте почту и «Спам».',
+  emailResendErr: 'Не удалось отправить. Попробуйте позже.',
   emailInvalid:
     'Введите корректный адрес: латиница, цифры и . _ % + - до @; домен как mail.ru или semo-box.ru.',
-  emailNoteLine1: 'Вход без подтверждения, но активация обязательна для заказов.',
+  emailNoteLine1: 'Введите email и нажмите «Получить код» — пришлём 6-значный код подтверждения.',
   emailNoteLine2: 'Изменение e-mail после регистрации невозможно.',
   emailNoteSingle:
-    'Вход без подтверждения, но активация обязательна для заказов. Изменение e-mail после регистрации невозможно.',
+    'Введите email и нажмите «Получить код» — вышлем 6-значный код. Изменение e-mail после регистрации невозможно.',
+  otpLabel: 'Код из письма',
+  otpPlaceholder: '000000',
+  otpVerifyBtn: 'Подтвердить',
+  otpVerifyingBtn: 'Проверяем…',
+  otpVerifiedMsg: 'Email подтверждён',
+  otpInvalidErr: 'Неверный код. Проверьте письмо или запросите новый код.',
+  otpExpiredErr: 'Код истёк. Запросите новый.',
   password: 'Пароль',
   name: 'Имя',
   namePh: 'Например, Анна',
@@ -97,10 +120,6 @@ const ru: RegisterFormStrings = {
   verifyPhone: 'Подтвердить',
   phoneNote: 'Подтверждается через Telegram, за подтверждение +200 баллов.',
   country: 'Страна доставки',
-  addressSearch: 'Адрес (поиск по базе)',
-  addressTooltip: 'При вводе адреса нижние поля заполнятся автоматически.',
-  addressTooltipAria: 'Подсказка',
-  addressPh: 'Начните вводить адрес, затем выберите вариант из списка',
   cityRegion: 'Город / Регион',
   cityPh: 'Москва, Санкт-Петербург',
   street: 'Улица, Дом, Корпус/Строение',
@@ -121,7 +140,7 @@ const ru: RegisterFormStrings = {
   toastWelcome: 'Добро пожаловать!',
   toastCheckEmail: 'Проверьте почту (папка «Спам»).',
   successBody:
-    'Аккаунт создан. Откройте письмо и перейдите по ссылке, затем войдите — или подтвердите email в личном кабинете.',
+    'Аккаунт создан. Откройте письмо и перейдите по ссылке, затем войдите. Письма нет — проверьте «Спам» или запросите повтор в профиле.',
   loginLink: 'Перейти к входу',
   errName: 'Укажите имя для обращения.',
   errLegal: 'Подтвердите согласие с условиями обработки данных и доставки.',
@@ -144,16 +163,28 @@ const ru: RegisterFormStrings = {
 const en: RegisterFormStrings = {
   title: 'Create account',
   sectionMain: 'Basic information',
-  emailVerifyTitle: 'After signing up, open the email and follow the link',
-  emailVerifyBtn: 'Verify email',
+  emailVerifyTitle: "Tap 'Get code' — we'll send a 6-digit verification code to your email",
+  emailVerifyBtn: 'Get code',
+  emailResendBeforeSignup: 'Get code',
+  emailResendAgain: 'Send again',
+  emailResendSending: 'Sending…',
+  emailResendOk: 'Code sent. Check your inbox and Spam.',
+  emailResendErr: 'Could not send. Try again later.',
   emailInvalid:
     'Enter a valid address: Latin letters, digits and . _ % + - before @; domain like mail.ru or gmail.com.',
-  emailNoteLine1: 'You can sign in without mail confirmation, but you must verify email to place orders.',
+  emailNoteLine1: "Enter your email and tap 'Get code' — we'll send a 6-digit verification code.",
   emailNoteLine2: 'You cannot change your e-mail after registration.',
   emailNoteSingle:
-    'You can sign in without mail confirmation, but you must verify email to place orders. You cannot change your e-mail after registration.',
+    "Enter your email and tap 'Get code' — we'll send a 6-digit code. You cannot change your e-mail after registration.",
+  otpLabel: 'Code from email',
+  otpPlaceholder: '000000',
+  otpVerifyBtn: 'Verify',
+  otpVerifyingBtn: 'Verifying…',
+  otpVerifiedMsg: 'Email verified',
+  otpInvalidErr: 'Invalid code. Check the email or request a new one.',
+  otpExpiredErr: 'Code expired. Request a new one.',
   password: 'Password',
-  name: 'Display name',
+  name: 'Name',
   namePh: 'e.g. Anna',
   gender: 'Gender',
   genderM: 'Male',
@@ -171,10 +202,6 @@ const en: RegisterFormStrings = {
   verifyPhone: 'Verify',
   phoneNote: 'Verified via Telegram; +200 points for verification.',
   country: 'Delivery country',
-  addressSearch: 'Address (database search)',
-  addressTooltip: 'When you pick an address, the fields below fill in automatically.',
-  addressTooltipAria: 'Hint',
-  addressPh: 'Start typing, then choose from the list',
   cityRegion: 'City / Region',
   cityPh: 'Moscow, Saint Petersburg',
   street: 'Street, building, block',
@@ -195,9 +222,9 @@ const en: RegisterFormStrings = {
   toastWelcome: 'Welcome!',
   toastCheckEmail: 'Check your inbox (and Spam).',
   successBody:
-    'Account created. Open the email and follow the link, then sign in — or confirm your email in your profile.',
+    'Account created. Open the email and follow the link, then sign in. No email? Check Spam or resend from your profile.',
   loginLink: 'Go to sign in',
-  errName: 'Please enter your display name.',
+  errName: 'Please enter your name.',
   errLegal: 'Please accept the data processing and delivery terms.',
   errService: 'Registration is temporarily unavailable.',
   errEmailInvalid:
@@ -288,7 +315,8 @@ const shippingExtraEn: typeof shippingExtraRu = {
 /** 로그인 화면 하단 — Register와 동일 CIS 규칙(ru|en) */
 export const LOGIN_LEGAL_INTRO: Record<RegisterFormLang, string> = {
   ru: 'Продолжая вход (email или соцсети), вы подтверждаете ознакомление с ',
-  en: 'By continuing to sign in (email or social accounts), you confirm that you have reviewed the ',
+  /** Shorter than “social accounts … reviewed” so the login footer wraps to ~2 lines on desktop. */
+  en: 'By continuing to sign in (email or social), you confirm you have read the ',
 };
 
 export function getRegisterShippingStrings(lang: RegisterFormLang): RegisterShippingStrings {

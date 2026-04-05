@@ -10,7 +10,6 @@ import { useI18n } from '../context/I18nContext';
 import { getRegisterFormStrings } from '../lib/registerFormCopy';
 import { useRegisterFormLang } from '../lib/registerFormLocale';
 import { accountPrimaryCtaClass, accountResendOutlineCtaClass } from '../lib/accountLinkUi';
-import { resendSignupConfirmationEmail } from '../lib/resendSignupConfirmationEmail';
 import {
   deliveryFormNoteRowClass,
   deliveryFormNoteScrollClass,
@@ -72,8 +71,14 @@ export const Register: React.FC = () => {
   const [signupResendSending, setSignupResendSending] = useState(false);
   const [signupResendMessage, setSignupResendMessage] = useState<string | null>(null);
   const [signupResendError, setSignupResendError] = useState<string | null>(null);
-  /** Confirm email ON일 때 가입 직후 같은 화면에서 재발송 허용 */
+  /** OTP 코드가 발송된 상태 */
   const [awaitingEmailConfirm, setAwaitingEmailConfirm] = useState(false);
+  /** OTP 입력란 */
+  const [otpCode, setOtpCode] = useState('');
+  /** OTP 검증 성공 → 가입 버튼 활성화 */
+  const [otpVerified, setOtpVerified] = useState(false);
+  const [otpVerifying, setOtpVerifying] = useState(false);
+  const [otpError, setOtpError] = useState<string | null>(null);
 
   useEffect(() => {
     if (signupResendCooldownSeconds <= 0) return undefined;
@@ -87,32 +92,65 @@ export const Register: React.FC = () => {
     if (signupResendCooldownSeconds > 0 || signupResendSending) return;
     const addr = email.trim().toLowerCase();
     if (!addr || !isValidEmailFormat(addr)) return;
-
-    if (!awaitingEmailConfirm) {
-      // First click: open the verification gate, start countdown — actual email sent by signUp
-      setAwaitingEmailConfirm(true);
-      setSignupResendCooldownSeconds(REGISTER_EMAIL_RESEND_COOLDOWN_SEC);
-      return;
-    }
-
-    // Resend click (after first submit sent the email): call resend API
     if (!supabase) { setSignupResendError(t.errService); return; }
+
     setSignupResendSending(true);
     setSignupResendError(null);
     setSignupResendMessage(null);
     try {
-      const result = await resendSignupConfirmationEmail(supabase, addr);
-      if (!result.ok) {
-        // User may not exist yet (가입 not clicked yet) — just restart countdown silently
-        setSignupResendCooldownSeconds(REGISTER_EMAIL_RESEND_COOLDOWN_SEC);
+      // OTP 코드 발송 (기존 사용자 또는 신규 사용자 모두)
+      const { error } = await supabase.auth.signInWithOtp({
+        email: addr,
+        options: { shouldCreateUser: true },
+      });
+      if (error) {
+        const msg = (error.message || '').toLowerCase();
+        if (msg.includes('rate limit') || msg.includes('rate_limit')) {
+          setSignupResendError(t.errRateLimit);
+        } else {
+          setSignupResendError(error.message || t.emailResendErr);
+        }
         return;
       }
+      setAwaitingEmailConfirm(true);
       setSignupResendCooldownSeconds(REGISTER_EMAIL_RESEND_COOLDOWN_SEC);
       setSignupResendMessage(t.emailResendOk);
+      // 재발송 시 이전 코드 입력 및 인증 상태 초기화
+      setOtpCode('');
+      setOtpVerified(false);
+      setOtpError(null);
     } finally {
       setSignupResendSending(false);
     }
-  }, [awaitingEmailConfirm, email, signupResendCooldownSeconds, signupResendSending, supabase, t]);
+  }, [email, signupResendCooldownSeconds, signupResendSending, supabase, t]);
+
+  const handleVerifyOtp = useCallback(async () => {
+    if (otpVerifying || otpCode.length < 6) return;
+    const addr = email.trim().toLowerCase();
+    if (!supabase) { setOtpError(t.errService); return; }
+
+    setOtpVerifying(true);
+    setOtpError(null);
+    try {
+      const { error } = await supabase.auth.verifyOtp({
+        email: addr,
+        token: otpCode,
+        type: 'email',
+      });
+      if (error) {
+        const msg = (error.message || '').toLowerCase();
+        if (msg.includes('expired') || msg.includes('token has expired')) {
+          setOtpError(t.otpExpiredErr);
+        } else {
+          setOtpError(t.otpInvalidErr);
+        }
+        return;
+      }
+      setOtpVerified(true);
+    } finally {
+      setOtpVerifying(false);
+    }
+  }, [email, otpCode, otpVerifying, supabase, t]);
 
   const handleEmailBlur = () => {
     const trimmed = email.trim();
@@ -161,61 +199,39 @@ export const Register: React.FC = () => {
       return;
     }
 
+    // OTP 인증이 완료된 경우에만 진행 (버튼 disabled로 방어하지만 2중 체크)
+    if (!otpVerified) {
+      setSubmitError(registerLang === 'ru' ? 'Сначала подтвердите email.' : 'Please verify your email first.');
+      return;
+    }
+
     setSubmitting(true);
     try {
-      const { data, error } = await supabase.auth.signUp({
-        email: trimmedEmail,
-        password,
-        options: {
-          // Подтверждение по ссылке из письма — после перехода личный кабинет
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
-          data: {
-            nickname,
-          },
-        },
-      });
-      if (error) {
-        const msg = (error.message || '').toLowerCase();
-        const code = (error as { code?: string | number })?.code;
-        // 운영 환경 원인 추적용(사용자에게는 노출하지 않음)
-        console.error('[Register] signUp failed', { code, message: error.message });
-        if (msg.includes('invalid') && msg.includes('email')) {
-          setSubmitError(t.errEmailInvalid);
-        } else if (msg.includes('rate limit') || msg.includes('rate_limit')) {
-          setSubmitError(t.errRateLimit);
-        } else if (msg.includes('email not confirmed') || msg.includes('confirmation') || msg.includes('smtp')) {
-          setSubmitError(t.errSmtp);
-        } else if (msg.includes('database') || msg.includes('saving new user')) {
-          setSubmitError(t.errDb);
-        } else if (msg.includes('captcha')) {
-          setSubmitError(t.errCaptcha);
-        } else if (msg.includes('signup is disabled')) {
-          setSubmitError(t.errSignupOff);
-        } else if (msg.includes('already registered') || msg.includes('already exists') || msg.includes('user already registered')) {
-          setSubmitError(t.errExists);
-        } else {
-          setSubmitError(error.message || t.errGeneric);
-        }
-        return;
-      }
+      // OTP 인증으로 생성된 세션 확인
+      const { data: { session: otpSession } } = await supabase.auth.getSession();
 
-      // Сессия из signUp (Confirm email OFF) или вход паролем сразу после регистрации
-      let session = data.session ?? null;
-      if (!session && supabase) {
-        const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
-          email: trimmedEmail,
+      if (otpSession) {
+        // OTP 세션 존재: 비밀번호 + 닉네임 설정으로 계정 완성
+        const { error: updateErr } = await supabase.auth.updateUser({
           password,
+          data: { nickname },
         });
-        if (!signInErr && signInData.session) {
-          session = signInData.session;
+        if (updateErr) {
+          const msg = (updateErr.message || '').toLowerCase();
+          console.error('[Register] updateUser failed', updateErr.message);
+          if (msg.includes('rate limit') || msg.includes('rate_limit')) {
+            setSubmitError(t.errRateLimit);
+          } else if (msg.includes('weak password') || msg.includes('password')) {
+            setSubmitError(updateErr.message || t.errGeneric);
+          } else {
+            setSubmitError(updateErr.message || t.errGeneric);
+          }
+          return;
         }
-      }
-
-      if (session) {
         try {
-          await applySession(session);
+          await applySession(otpSession);
         } catch (e) {
-          console.error('[Register] applySession', e);
+          console.error('[Register] applySession after OTP', e);
           setSubmitError(t.errSession);
           return;
         }
@@ -225,10 +241,13 @@ export const Register: React.FC = () => {
         return;
       }
 
-      // Confirm email ON в Supabase: вход только после ссылки в письме — подтверждение в личном кабинете
-      setAwaitingEmailConfirm(true);
-      setToastMessage(t.toastCheckEmail);
-      window.setTimeout(() => setToastMessage(null), 3500);
+      // OTP 세션이 만료된 경우: 재인증 안내
+      setOtpVerified(false);
+      setSubmitError(
+        registerLang === 'ru'
+          ? 'Сессия подтверждения истекла. Запросите новый код.'
+          : 'Verification session expired. Please request a new code.',
+      );
     } finally {
       setSubmitting(false);
     }
@@ -280,6 +299,10 @@ export const Register: React.FC = () => {
                     if (awaitingEmailConfirm) {
                       setAwaitingEmailConfirm(false);
                       setSignupResendCooldownSeconds(0);
+                      setOtpCode('');
+                      setOtpVerified(false);
+                      setOtpError(null);
+                      setSignupResendMessage(null);
                     }
                   }}
                   onBlur={handleEmailBlur}
@@ -318,9 +341,54 @@ export const Register: React.FC = () => {
                 </p>
               )}
               {awaitingEmailConfirm && signupResendMessage && !signupResendError && (
-                <p className="text-xs text-emerald-700" role="status">
+                <p className="text-xs text-slate-500" role="status">
                   {signupResendMessage}
                 </p>
+              )}
+              {/* OTP 코드 입력란 — 코드 발송 후 표시 */}
+              {awaitingEmailConfirm && (
+                <div className="flex flex-col gap-2">
+                  {!otpVerified ? (
+                    <>
+                      <div className="flex items-stretch gap-2">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          maxLength={6}
+                          placeholder={t.otpPlaceholder}
+                          value={otpCode}
+                          onChange={(e) => {
+                            setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6));
+                            setOtpError(null);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && otpCode.length >= 6) void handleVerifyOtp();
+                          }}
+                          className={`${inputClass} min-w-0 w-28 text-center tracking-[0.3em] font-mono`}
+                          aria-label={t.otpLabel}
+                        />
+                        <button
+                          type="button"
+                          disabled={otpVerifying || otpCode.length < 6}
+                          onClick={() => void handleVerifyOtp()}
+                          className={`${accountPrimaryCtaClass} shrink-0 px-4`}
+                        >
+                          {otpVerifying ? t.otpVerifyingBtn : t.otpVerifyBtn}
+                        </button>
+                      </div>
+                      {otpError && (
+                        <p className="text-xs text-red-500" role="alert">{otpError}</p>
+                      )}
+                    </>
+                  ) : (
+                    <p className="flex items-center gap-1.5 text-xs font-medium text-emerald-700" role="status">
+                      <svg className="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                      </svg>
+                      {t.otpVerifiedMsg}
+                    </p>
+                  )}
+                </div>
               )}
               {emailError && (
                 <p className="text-xs text-red-500">
@@ -673,7 +741,7 @@ export const Register: React.FC = () => {
 
         <button
           type="submit"
-          disabled={submitting || !awaitingEmailConfirm}
+          disabled={submitting || !otpVerified}
           className="min-h-11 w-full rounded-full bg-brand py-3 text-base font-semibold text-white transition hover:bg-brand/90 disabled:opacity-60"
         >
           {submitting ? t.submitting : t.submit}
