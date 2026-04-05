@@ -104,7 +104,7 @@ const ru: RegisterFormStrings = {
   otpInvalidErr: 'Неверный код. Проверьте письмо или запросите новый код.',
   otpExpiredErr: 'Код истёк. Запросите новый.',
   otpWrongOrExpiredErr:
-    'Код неверный или устарел. Введите ровно 6 цифр из письма (без лишних символов) или запросите новый.',
+    'Неверный код или истёк срок. Проверьте письмо и введите код точно как в письме, или запросите новый.',
   password: 'Пароль',
   name: 'Имя',
   namePh: 'Например, Анна',
@@ -188,7 +188,7 @@ const en: RegisterFormStrings = {
   otpInvalidErr: 'Invalid code. Check the email or request a new one.',
   otpExpiredErr: 'Code expired. Request a new one.',
   otpWrongOrExpiredErr:
-    'Wrong code or it expired. Enter exactly 6 digits from the email (no extra characters) or request a new code.',
+    'Wrong code or it expired. Enter the code exactly as shown in the email, or request a new one.',
   password: 'Password',
   name: 'Name',
   namePh: 'e.g. Anna',

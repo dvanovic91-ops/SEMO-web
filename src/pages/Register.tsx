@@ -130,20 +130,20 @@ export const Register: React.FC = () => {
     const addr = email.trim().toLowerCase();
     if (!supabase) { setOtpError(t.errService); return; }
 
-    /** Supabase 이메일 OTP는 6자리. 메일/복사로 7~8자리가 붙으면 앞·뒤 6자리 후보로 순서대로 시도 */
-    const sixDigitCandidates: string[] = [];
-    if (digits.length === 6) {
-      sixDigitCandidates.push(digits);
-    } else {
-      sixDigitCandidates.push(digits.slice(0, 6), digits.slice(-6));
-      if (sixDigitCandidates[0] === sixDigitCandidates[1]) sixDigitCandidates.pop();
+    /** 전체 코드 먼저 시도, 실패 시 앞 6자리·뒤 6자리 순으로 fallback (6~8자리 모두 대응) */
+    const candidates: string[] = [digits];
+    if (digits.length > 6) {
+      const head = digits.slice(0, 6);
+      const tail = digits.slice(-6);
+      if (head !== digits) candidates.push(head);
+      if (tail !== digits && tail !== head) candidates.push(tail);
     }
 
     setOtpVerifying(true);
     setOtpError(null);
     try {
       let lastError: { message?: string } | null = null;
-      for (const token of sixDigitCandidates) {
+      for (const token of candidates) {
         const { error } = await supabase.auth.verifyOtp({
           email: addr,
           token,
