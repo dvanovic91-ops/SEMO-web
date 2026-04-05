@@ -42,7 +42,9 @@ interface AddressSuggestProps {
   mapsUiLanguage?: 'ru' | 'en';
 }
 
-const DADATA_TOKEN = import.meta.env.VITE_DADATA_API_KEY as string | undefined;
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+const DADATA_PROXY_URL = SUPABASE_URL ? `${SUPABASE_URL}/functions/v1/dadata-suggest` : undefined;
 const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
 
 const GooglePlacesField: React.FC<
@@ -160,7 +162,7 @@ export const AddressSuggest: React.FC<AddressSuggestProps> = ({
   }, [value]);
 
   useEffect(() => {
-    if (mode !== 'dadata' || !DADATA_TOKEN) return;
+    if (mode !== 'dadata' || !DADATA_PROXY_URL) return;
     if (!query || query.length < 3) {
       setSuggestions([]);
       return;
@@ -169,13 +171,14 @@ export const AddressSuggest: React.FC<AddressSuggestProps> = ({
     const timeout = setTimeout(async () => {
       try {
         setLoading(true);
-        const res = await fetch('https://suggestions.dadata.ru/suggestions/api/4_1/rs/suggest/address', {
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        };
+        if (SUPABASE_ANON_KEY) headers['Authorization'] = `Bearer ${SUPABASE_ANON_KEY}`;
+        const res = await fetch(DADATA_PROXY_URL, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-            Authorization: `Token ${DADATA_TOKEN}`,
-          },
+          headers,
           body: JSON.stringify({ query, count: 5 }),
           signal: controller.signal,
         });

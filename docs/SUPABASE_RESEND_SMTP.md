@@ -49,9 +49,15 @@ Resend는 **웹 코드에 키를 넣는 것**이 아니라, **Supabase 프로젝
 
 ## 3. 꼭 같이 확인할 것
 
-1. **Authentication → Providers → Email**  
+1. **Authentication → Email Templates**  
+   - Resend를 써도 **본문 HTML은 Supabase에 저장된 템플릿**이 그대로 사용됩니다.  
+   - 가입 확인 메일은 **Confirm signup** 탭 내용이 나갑니다. (레포: `supabase/email_templates/confirm_signup_link_bilingual.html` — 수정 후 **대시보드에 다시 붙여넣고 Save** 해야 반영됩니다.)  
+   - `{{ .ConfirmationURL }}` 은 **일회용 매직 링크(URL)** 입니다. 숫자 OTP와는 다른 방식이라, 메일에 “버튼 + 링크” 형태가 정상입니다.
+
+2. **Authentication → Providers → Email**  
    - **Confirm email** 이 켜져 있어야 “가입 확인 링크” 메일이 나갑니다.
-2. **Authentication → URL Configuration**  
+
+3. **Authentication → URL Configuration**  
    - **Redirect URLs**에 실제 사이트가 허용돼 있어야 합니다.  
    - 코드에서 쓰는 `emailRedirectTo`(예: `.../profile`)가 이 목록과 맞아야 합니다.  
    - 자세한 건 `SUPABASE_AUTH_URL_CONFIGURATION.md`

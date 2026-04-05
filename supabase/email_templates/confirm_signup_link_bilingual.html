@@ -1,35 +1,52 @@
+<!-- Supabase → Authentication → Email Templates → Confirm signup
+     붙여넣기 후 Save. Resend(SMTP)는 발송만 담당하며 본문은 이 HTML 그대로 나갑니다.
+     {{ .ConfirmationURL }} = 일회용 매직 링크(토큰 포함 URL). 숫자 OTP와는 다릅니다. -->
 <div style="font-family: sans-serif; max-width: 500px; margin: auto; border: 1px solid #eee; padding: 20px;">
-  <h2 style="color: #333;">Welcome to SEMO Box!</h2>
-  <p>Thank you for choosing <b>SEMO Box</b>. Tap the button below to confirm your email and finish signing up.</p>
+  <h2 style="color: #333;">Welcome to SEMO Box</h2>
+  <p>Thank you for choosing <b>SEMO Box</b>.</p>
+  <p style="margin: 12px 0 0 0; color: #444; line-height: 1.5;">
+    This message contains a <b>one-time magic link</b> (not a numeric code). Tap the button below to confirm your email and finish signing up.
+  </p>
 
   <p style="margin: 24px 0;">
     <a href="{{ .ConfirmationURL }}" style="display: inline-block; background: #e65427; color: #fff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-weight: bold;">
-      Confirm email
+      Open magic link
     </a>
   </p>
 
   <hr style="border: 0; border-top: 1px solid #eee; margin: 30px 0;">
 
-  <h3 style="color: #333;">Добро пожаловать в SEMO Box!</h3>
-  <p>Благодарим вас за выбор <b>SEMO Box</b>. Нажмите кнопку ниже, чтобы подтвердить email и завершить регистрацию.</p>
+  <h3 style="color: #333;">Добро пожаловать в SEMO Box</h3>
+  <p>Благодарим вас за выбор <b>SEMO Box</b>.</p>
+  <p style="margin: 12px 0 0 0; color: #444; line-height: 1.5;">
+    В письме — <b>одноразовая магическая ссылка</b> (не код из цифр). Нажмите кнопку ниже, чтобы подтвердить email и завершить регистрацию.
+  </p>
 
   <p style="margin: 24px 0;">
     <a href="{{ .ConfirmationURL }}" style="display: inline-block; background: #e65427; color: #fff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-weight: bold;">
-      Подтвердить email
+      Открыть волшебную ссылку
     </a>
   </p>
 
   <p style="color: #666; font-size: 13px; margin-top: 30px; line-height: 1.45;">
-    * If the orange button doesn’t work, use the link below<br>
-    Если оранжевая кнопка не сработала, нажмите ссылку ниже:
+    * If the button doesn’t work, copy the full link below into your browser.<br>
+    Если кнопка не сработала, скопируйте ссылку целиком в адресную строку браузера:
+  </p>
+  <p style="margin: 10px 0 0 0; padding: 12px; background: #f9fafb; border-radius: 8px; font-size: 11px; word-break: break-all; color: #374151; font-family: ui-monospace, monospace;">
+    {{ .ConfirmationURL }}
+  </p>
+
+  <p style="color: #666; font-size: 13px; margin-top: 20px; line-height: 1.45;">
+    * Secondary: styled link<br>
+    Дополнительно — кнопка-ссылка:
   </p>
   <p style="margin: 12px 0 0 0;">
     <a href="{{ .ConfirmationURL }}" style="display: inline-block; border: 1px solid #e65427; color: #e65427; background: #fff; text-decoration: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; font-size: 14px;">
-      Open confirmation link / Открыть ссылку подтверждения
+      Open link / Открыть ссылку
     </a>
   </p>
 
-  <p style="margin-top: 20px;">
+  <p style="margin-top: 24px;">
     Best regards,<br>
     <b>SEMO Box Team</b>
   </p>

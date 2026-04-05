@@ -8,21 +8,70 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-const cors = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+// ── CORS (semo-box.com + 로컬 개발) ──
+const ALLOWED_ORIGINS = new Set([
+  'https://semo-box.com',
+  'http://localhost:5173',
+  'http://localhost:3001',
+]);
 
-function json(res: object) {
+function getCorsHeaders(req: Request): Record<string, string> {
+  const origin = req.headers.get('origin') ?? '';
+  const allowedOrigin = ALLOWED_ORIGINS.has(origin) ? origin : 'https://semo-box.com';
+  return {
+    'Access-Control-Allow-Origin': allowedOrigin,
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Vary': 'Origin',
+  };
+}
+
+function json(res: object, req: Request) {
   return new Response(JSON.stringify(res), {
     status: 200,
-    headers: { ...cors, 'Content-Type': 'application/json' },
+    headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
   });
 }
 
-function fail(error: string, extra?: Record<string, unknown>) {
-  return json({ ok: false, error, ...extra });
+function fail(error: string, req: Request, extra?: Record<string, unknown>) {
+  return json({ ok: false, error, ...extra }, req);
 }
+
+function rateLimitResp(req: Request) {
+  return new Response(JSON.stringify({ ok: false, error: 'rate_limited' }), {
+    status: 429,
+    headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
+  });
+}
+
+// ── Rate limiter (IP당 분당 10회) ──
+const rlStore = new Map<string, { count: number; resetAt: number }>();
+
+function isRateLimited(ip: string, maxPerMinute = 10): boolean {
+  const now = Date.now();
+  const entry = rlStore.get(ip);
+  if (!entry || now > entry.resetAt) {
+    rlStore.set(ip, { count: 1, resetAt: now + 60_000 });
+    return false;
+  }
+  if (entry.count >= maxPerMinute) return true;
+  entry.count++;
+  return false;
+}
+
+function getClientIp(req: Request): string {
+  return (
+    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    req.headers.get('x-real-ip') ||
+    'unknown'
+  );
+}
+
+// ── redirect_uri 허용 목록 ──
+const ALLOWED_REDIRECT_URIS = new Set([
+  'https://semo-box.com/auth/yandex/callback',
+  'http://localhost:5173/auth/yandex/callback',
+  'http://localhost:3001/auth/yandex/callback',
+]);
 
 function bufToHex(buf: ArrayBuffer): string {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -46,16 +95,19 @@ async function ensureProfileEmailVerifiedForYandex(
 // ── Main handler ──
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: getCorsHeaders(req) });
+
+  const ip = getClientIp(req);
+  if (isRateLimited(ip, 10)) return rateLimitResp(req);
 
   try {
     const clientId = Deno.env.get('YANDEX_CLIENT_ID') ?? '';
     const clientSecret = Deno.env.get('YANDEX_CLIENT_SECRET') ?? '';
-    if (!clientId || !clientSecret) return fail('yandex_credentials_not_configured');
+    if (!clientId || !clientSecret) return fail('yandex_credentials_not_configured', req);
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const serviceRole = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-    if (!supabaseUrl || !serviceRole) return fail('supabase_env_missing');
+    if (!supabaseUrl || !serviceRole) return fail('supabase_env_missing', req);
 
     const supabase = createClient(supabaseUrl, serviceRole, {
       auth: { autoRefreshToken: false, persistSession: false },
@@ -68,10 +120,15 @@ Deno.serve(async (req) => {
       const body = await req.json();
       code = body.code;
       redirectUri = body.redirect_uri;
-      if (!code) return fail('missing_code');
-      if (!redirectUri) return fail('missing_redirect_uri');
+      if (!code) return fail('missing_code', req);
+      if (!redirectUri) return fail('missing_redirect_uri', req);
     } catch {
-      return fail('invalid_json');
+      return fail('invalid_json', req);
+    }
+
+    // ── redirect_uri 허용 목록 검증 ──
+    if (!ALLOWED_REDIRECT_URIS.has(redirectUri)) {
+      return fail('invalid_redirect_uri', req);
     }
 
     // ── 2. Exchange code for access_token ──
@@ -89,7 +146,7 @@ Deno.serve(async (req) => {
 
     const tokenData = await tokenResp.json();
     if (!tokenData.access_token) {
-      return fail('token_exchange_failed', {
+      return fail('token_exchange_failed', req, {
         yandex_error: tokenData.error,
         yandex_description: tokenData.error_description,
       });
@@ -102,7 +159,7 @@ Deno.serve(async (req) => {
     const yandexUser = await userResp.json();
 
     if (!yandexUser.id) {
-      return fail('yandex_user_info_failed');
+      return fail('yandex_user_info_failed', req);
     }
 
     const yandexId = String(yandexUser.id);
@@ -112,7 +169,6 @@ Deno.serve(async (req) => {
     const lastName = yandexUser.last_name || '';
 
     // ── 4. Find or create Supabase user ──
-    // 먼저 이메일로 기존 유저 검색
     let userId: string | undefined;
     let userEmail: string;
     let isNew = false;
@@ -124,11 +180,9 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     if (userByEmail?.id) {
-      // 이메일로 찾음
       userId = userByEmail.id;
       userEmail = yandexEmail;
     } else {
-      // 새 유저 생성
       isNew = true;
       userEmail = yandexEmail;
       const randomPwd = bufToHex(crypto.getRandomValues(new Uint8Array(32)));
@@ -149,19 +203,15 @@ Deno.serve(async (req) => {
       });
 
       if (createErr) {
-        // 이미 auth.users에 같은 이메일이 있을 수 있음 (Google로 가입 등)
-        // getUserByEmail은 없으므로 listUsers 필터링
-        // 대안: generateLink로 바로 시도
         const { data: linkAttempt, error: linkErr } = await supabase.auth.admin.generateLink({
           type: 'magiclink',
           email: userEmail,
         });
         if (linkErr || !linkAttempt) {
-          return fail('user_creation_failed', { details: createErr.message });
+          return fail('user_creation_failed', req, { details: createErr.message });
         }
-        // 기존 유저의 magiclink
         const tokenHash = linkAttempt.properties?.hashed_token;
-        if (!tokenHash) return fail('no_token_hash');
+        if (!tokenHash) return fail('no_token_hash', req);
 
         const existingId = linkAttempt.user?.id;
         const { data: authUser } = await supabase.auth.admin.getUserById(existingId ?? '');
@@ -178,7 +228,7 @@ Deno.serve(async (req) => {
           is_new: false,
           email: userEmail,
           display_name: displayName,
-        });
+        }, req);
       }
 
       if (newUser?.user?.id) {
@@ -198,11 +248,11 @@ Deno.serve(async (req) => {
     });
 
     if (linkErr || !linkData) {
-      return fail('magiclink_failed', { details: linkErr?.message });
+      return fail('magiclink_failed', req, { details: linkErr?.message });
     }
 
     const tokenHash = linkData.properties?.hashed_token;
-    if (!tokenHash) return fail('no_token_hash');
+    if (!tokenHash) return fail('no_token_hash', req);
 
     const sessionUserId = linkData.user?.id ?? userId;
     await ensureProfileEmailVerifiedForYandex(supabase, sessionUserId);
@@ -213,8 +263,8 @@ Deno.serve(async (req) => {
       is_new: isNew,
       email: userEmail,
       display_name: displayName,
-    });
+    }, req);
   } catch (e) {
-    return fail('unexpected_error', { message: (e as Error).message });
+    return fail('unexpected_error', req, { message: (e as Error).message });
   }
 });
