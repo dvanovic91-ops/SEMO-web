@@ -125,28 +125,47 @@ export const Register: React.FC = () => {
   }, [email, signupResendCooldownSeconds, signupResendSending, supabase, t]);
 
   const handleVerifyOtp = useCallback(async () => {
-    if (otpVerifying || otpCode.length < 6) return;
+    const digits = otpCode.replace(/\D/g, '');
+    if (otpVerifying || digits.length < 6) return;
     const addr = email.trim().toLowerCase();
     if (!supabase) { setOtpError(t.errService); return; }
+
+    /** Supabase 이메일 OTP는 6자리. 메일/복사로 7~8자리가 붙으면 앞·뒤 6자리 후보로 순서대로 시도 */
+    const sixDigitCandidates: string[] = [];
+    if (digits.length === 6) {
+      sixDigitCandidates.push(digits);
+    } else {
+      sixDigitCandidates.push(digits.slice(0, 6), digits.slice(-6));
+      if (sixDigitCandidates[0] === sixDigitCandidates[1]) sixDigitCandidates.pop();
+    }
 
     setOtpVerifying(true);
     setOtpError(null);
     try {
-      const { error } = await supabase.auth.verifyOtp({
-        email: addr,
-        token: otpCode,
-        type: 'email',
-      });
-      if (error) {
-        const msg = (error.message || '').toLowerCase();
-        if (msg.includes('expired') || msg.includes('token has expired')) {
+      let lastError: { message?: string } | null = null;
+      for (const token of sixDigitCandidates) {
+        const { error } = await supabase.auth.verifyOtp({
+          email: addr,
+          token,
+          type: 'email',
+        });
+        if (!error) {
+          setOtpVerified(true);
+          return;
+        }
+        lastError = error;
+      }
+      if (lastError) {
+        const msg = (lastError.message || '').toLowerCase();
+        // Gotrue: 잘못된 코드도 "expired or is invalid" 로 올 수 있음 → 만료만 단정하지 않음
+        if (msg.includes('expired') && msg.includes('invalid')) {
+          setOtpError(t.otpWrongOrExpiredErr);
+        } else if (msg.includes('expired')) {
           setOtpError(t.otpExpiredErr);
         } else {
           setOtpError(t.otpInvalidErr);
         }
-        return;
       }
-      setOtpVerified(true);
     } finally {
       setOtpVerifying(false);
     }
@@ -354,22 +373,23 @@ export const Register: React.FC = () => {
                         <input
                           type="text"
                           inputMode="numeric"
-                          maxLength={6}
+                          maxLength={8}
                           placeholder={t.otpPlaceholder}
                           value={otpCode}
                           onChange={(e) => {
-                            setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6));
+                            setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 8));
                             setOtpError(null);
                           }}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter' && otpCode.length >= 6) void handleVerifyOtp();
+                            const d = otpCode.replace(/\D/g, '');
+                            if (e.key === 'Enter' && d.length >= 6) void handleVerifyOtp();
                           }}
-                          className={`${inputClass} min-w-0 w-28 text-center tracking-[0.3em] font-mono`}
+                          className={`${inputClass} min-w-0 w-36 text-center tracking-[0.25em] font-mono sm:w-40`}
                           aria-label={t.otpLabel}
                         />
                         <button
                           type="button"
-                          disabled={otpVerifying || otpCode.length < 6}
+                          disabled={otpVerifying || otpCode.replace(/\D/g, '').length < 6}
                           onClick={() => void handleVerifyOtp()}
                           className={`${accountPrimaryCtaClass} shrink-0 px-4`}
                         >
