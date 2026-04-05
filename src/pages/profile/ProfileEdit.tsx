@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
-import { useAuth, ADMIN_DUMMY_USER_ID } from '../../context/AuthContext';
+import { useAuth } from '../../context/AuthContext';
 import { useI18n } from '../../context/I18nContext';
 import { resendSignupConfirmationEmail } from '../../lib/resendSignupConfirmationEmail';
 import { InnHelpTooltip } from '../../components/InnHelpTooltip';
@@ -635,7 +635,7 @@ export const ProfileEdit: React.FC = () => {
                 )}
               </div>
 
-              {userId && userId !== ADMIN_DUMMY_USER_ID && (
+              {userId && (
                 <div className="prose-ru mt-6 min-w-0 max-w-full border-t border-slate-100 pt-4">
                   <p className="text-[length:calc(0.875rem-1pt)] font-semibold leading-snug text-slate-900">{tr('Уведомления в Telegram', 'Telegram notifications')}</p>
                   <p className="mt-1.5 text-[length:calc(0.75rem-1pt)] leading-snug text-slate-500">

@@ -30,6 +30,11 @@ const REGISTER_EMAIL_RESEND_COOLDOWN_SEC = 60;
  */
 const inputClass =
   'w-full min-h-[44px] rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 placeholder:text-xs placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand sm:min-h-0';
+/** 제출 검증 실패 시 입력·블록 강조 (테두리 + 링) */
+const inputInvalidHighlightClass =
+  '!border-red-400 ring-2 ring-red-400/45 focus:!border-red-500 focus:ring-red-400/50';
+const blockInvalidHighlightClass =
+  'rounded-xl border-2 border-red-400 ring-2 ring-red-400/35 bg-red-50/40';
 /** 라벨·입력·(* 안내) 세로 스택 — 인접 요소 간격 = gap-1 (= mt-1, 4px) */
 const fieldColClass = 'flex min-w-0 flex-col gap-1';
 /** ФИО 한 칸: 라벨↔입력 = gap-1 */
@@ -61,6 +66,12 @@ export const Register: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   /** Согласие с политикой / офертой / доставкой — обязательно перед отправкой формы */
   const [legalConsent, setLegalConsent] = useState(false);
+  /** 제출 시 약관 미동의 → 체크 영역 테두리 강조 */
+  const [legalConsentHighlight, setLegalConsentHighlight] = useState(false);
+  /** 닉네임 미입력 제출 시 */
+  const [nicknameHighlight, setNicknameHighlight] = useState(false);
+  /** 이메일 OTP 미완료 또는 세션 만료 안내 시 — 이메일/코드 블록 강조 */
+  const [emailOtpFlowHighlight, setEmailOtpFlowHighlight] = useState(false);
   const [fioLast, setFioLast] = useState('');
   const [fioFirst, setFioFirst] = useState('');
   const [fioMiddle, setFioMiddle] = useState('');
@@ -151,6 +162,7 @@ export const Register: React.FC = () => {
         });
         if (!error) {
           setOtpVerified(true);
+          setEmailOtpFlowHighlight(false);
           return;
         }
         lastError = error;
@@ -189,6 +201,9 @@ export const Register: React.FC = () => {
     setSubmitError(null);
     setSignupResendMessage(null);
     setSignupResendError(null);
+    setLegalConsentHighlight(false);
+    setNicknameHighlight(false);
+    setEmailOtpFlowHighlight(false);
 
     const trimmedEmail = email.trim().toLowerCase();
     let hasError = false;
@@ -205,10 +220,12 @@ export const Register: React.FC = () => {
     }
     if (!nickname.trim()) {
       hasError = true;
+      setNicknameHighlight(true);
       setSubmitError(t.errName);
     }
     if (hasError) return;
     if (!legalConsent) {
+      setLegalConsentHighlight(true);
       setSubmitError(t.errLegal);
       return;
     }
@@ -220,6 +237,7 @@ export const Register: React.FC = () => {
 
     // OTP 인증이 완료된 경우에만 진행 (버튼 disabled로 방어하지만 2중 체크)
     if (!otpVerified) {
+      setEmailOtpFlowHighlight(true);
       setSubmitError(registerLang === 'ru' ? 'Сначала подтвердите email.' : 'Please verify your email first.');
       return;
     }
@@ -262,6 +280,7 @@ export const Register: React.FC = () => {
 
       // OTP 세션이 만료된 경우: 재인증 안내
       setOtpVerified(false);
+      setEmailOtpFlowHighlight(true);
       setSubmitError(
         registerLang === 'ru'
           ? 'Сессия подтверждения истекла. Запросите новый код.'
@@ -305,16 +324,24 @@ export const Register: React.FC = () => {
               <label htmlFor="email" className={fieldLabelClass}>
                 Email <span className="text-brand">*</span>
               </label>
+              <div
+                className={`flex flex-col gap-2 ${
+                  emailError || (emailOtpFlowHighlight && !otpVerified)
+                    ? `p-2 sm:p-3 ${blockInvalidHighlightClass}`
+                    : ''
+                }`}
+              >
               <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch sm:items-center">
                 <input
                   id="email"
                   type="email"
                   placeholder="example@mail.ru"
-                  className={`${inputClass} min-w-0 flex-1 ${emailError ? 'border-red-400' : ''}`}
+                  className={`${inputClass} min-w-0 flex-1 ${emailError ? inputInvalidHighlightClass : ''}`}
                   value={email}
                   onChange={(e) => {
                     setEmail(e.target.value);
                     if (emailError) setEmailError(false);
+                    if (emailOtpFlowHighlight) setEmailOtpFlowHighlight(false);
                     if (awaitingEmailConfirm) {
                       setAwaitingEmailConfirm(false);
                       setSignupResendCooldownSeconds(0);
@@ -379,12 +406,13 @@ export const Register: React.FC = () => {
                           onChange={(e) => {
                             setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 8));
                             setOtpError(null);
+                            if (emailOtpFlowHighlight) setEmailOtpFlowHighlight(false);
                           }}
                           onKeyDown={(e) => {
                             const d = otpCode.replace(/\D/g, '');
                             if (e.key === 'Enter' && d.length >= 6) void handleVerifyOtp();
                           }}
-                          className={`${inputClass} min-w-0 w-36 text-center tracking-[0.25em] font-mono sm:w-40`}
+                          className={`${inputClass} min-w-0 w-36 text-center tracking-[0.25em] font-mono sm:w-40 ${emailOtpFlowHighlight && !otpVerified ? inputInvalidHighlightClass : ''}`}
                           aria-label={t.otpLabel}
                         />
                         <button
@@ -415,6 +443,7 @@ export const Register: React.FC = () => {
                   {t.emailInvalid}
                 </p>
               )}
+              </div>
               <div
                 className="leading-tight text-gray-500 text-[8px] min-[361px]:max-sm:text-[9px] min-[401px]:max-sm:text-[10px] sm:text-[11px]"
                 role="note"
@@ -447,7 +476,7 @@ export const Register: React.FC = () => {
                 id="password"
                 type="password"
                 placeholder="••••••••"
-                className={`${inputClass} ${passwordError ? 'border-red-400' : ''}`}
+                className={`${inputClass} ${passwordError ? inputInvalidHighlightClass : ''}`}
                 value={password}
                 onChange={(e) => {
                   setPassword(e.target.value);
@@ -464,9 +493,13 @@ export const Register: React.FC = () => {
                 id="nickname"
                 type="text"
                 placeholder={t.namePh}
-                className={inputClass}
+                className={`${inputClass} ${nicknameHighlight ? inputInvalidHighlightClass : ''}`}
                 value={nickname}
-                onChange={(e) => setNickname(e.target.value)}
+                onChange={(e) => {
+                  setNickname(e.target.value);
+                  if (nicknameHighlight) setNicknameHighlight(false);
+                  setSubmitError((prev) => (prev === t.errName ? null : prev));
+                }}
               />
             </div>
             <div className={fieldColClass}>
@@ -743,12 +776,18 @@ export const Register: React.FC = () => {
           {/* 하단 안내 문구는 제거 — 화면을 더 간결하게 유지 */}
         </section>
 
-        <label className="flex cursor-pointer items-start gap-2.5 rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-3 text-left text-[13px] leading-snug text-slate-600 sm:text-sm">
+        <label
+          className={`flex cursor-pointer items-start gap-2.5 rounded-xl border bg-slate-50/80 px-3 py-3 text-left text-[13px] leading-snug text-slate-600 sm:text-sm ${
+            legalConsentHighlight ? blockInvalidHighlightClass : 'border-slate-100'
+          }`}
+        >
           <input
             type="checkbox"
             checked={legalConsent}
             onChange={(e) => {
-              setLegalConsent(e.target.checked);
+              const next = e.target.checked;
+              setLegalConsent(next);
+              if (next) setLegalConsentHighlight(false);
               if (submitError === t.errLegal) setSubmitError(null);
             }}
             className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-brand focus:ring-brand"

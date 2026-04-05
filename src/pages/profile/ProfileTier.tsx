@@ -6,13 +6,11 @@ import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-/** 관리자 2계정은 등급을 VIP로 고정 표시 */
-const VIP_ADMIN_EMAILS = ['dvanovic91@gmail.com', 'admin@semo-box.ru'];
 
 /** 회원 등급 안내 + 확정 주문 누계 금액(배송완료/구매확정, 테스트 주문 제외) */
 export const ProfileTier: React.FC = () => {
   const [searchParams] = useSearchParams();
-  const { userId, userEmail, isLoggedIn, initialized, isAdmin } = useAuth();
+  const { userId, isLoggedIn, initialized, isAdmin } = useAuth();
   const targetUserId = useMemo(() => {
     const p = searchParams.get('userId');
     if (isAdmin && p && UUID_RE.test(p)) return p;
@@ -73,8 +71,7 @@ export const ProfileTier: React.FC = () => {
   if (!isLoggedIn) return <Navigate to="/login" replace />;
 
   const viewingOtherUser = isAdmin && targetUserId && userId && targetUserId !== userId;
-  const isVipAdminAccount =
-    !viewingOtherUser && !!userEmail && VIP_ADMIN_EMAILS.includes(userEmail.trim().toLowerCase());
+  const isVipAdminAccount = !viewingOtherUser && isAdmin;
   const tier: 'bronze' | 'silver' | 'gold' = sumRub >= 100_000 ? 'gold' : sumRub >= 35_000 ? 'silver' : 'bronze';
   const nextTarget = isVipAdminAccount ? null : tier === 'bronze' ? 35_000 : tier === 'silver' ? 100_000 : null;
   const tierLabel = isVipAdminAccount ? 'VIP' : tier === 'gold' ? 'Gold' : tier === 'silver' ? 'Silver' : 'Bronze';

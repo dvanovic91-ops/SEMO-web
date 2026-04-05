@@ -1,13 +1,10 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Link, Navigate } from 'react-router-dom';
-import { useAuth, ADMIN_DUMMY_USER_ID } from '../context/AuthContext';
+import { useAuth } from '../context/AuthContext';
 import { useI18n } from '../context/I18nContext';
 import { supabase } from '../lib/supabase';
 import { AuthInitializingScreen } from '../components/SemoPageSpinner';
 import { hasSelfieAnalysisSnapshot } from '../lib/skinTestSelfie';
-
-/** 관리자 2계정은 등급 라벨을 VIP로 고정 표시 */
-const VIP_ADMIN_EMAILS = ['dvanovic91@gmail.com', 'admin@semo-box.ru'];
 
 type DbProfileState = {
   name: string | null;
@@ -131,20 +128,6 @@ export const Profile: React.FC = () => {
           .select('name, grade, points, phone, telegram_id, telegram_reward_given')
           .eq('id', userId)
           .single();
-
-        if (userId === ADMIN_DUMMY_USER_ID) {
-          if (!res.error && res.data) {
-            applyRow(res.data);
-          } else {
-            const r2 = await supabase
-              .from('profiles')
-              .select('name, grade, points, phone, telegram_id, telegram_reward_given')
-              .eq('id', userId)
-              .single();
-            if (!r2.error) applyRow(r2.data);
-          }
-          return;
-        }
 
         if (res.error || !res.data) {
           if (currentUserIdRef.current !== requestedUserId) return;
@@ -312,7 +295,8 @@ export const Profile: React.FC = () => {
   const pointsLoaded = dbProfile !== null;
   const displayPoints = dbProfile?.points ?? 0;
 
-  const isVipAdminAccount = !!userEmail && VIP_ADMIN_EMAILS.includes(userEmail.trim().toLowerCase());
+  /** DB `profiles.is_admin` 기준 — VIP 등급 라벨·스타일 */
+  const isVipAdminAccount = isAdmin;
   const tierTriangleGradientId = isVipAdminAccount
     ? 'tier-gold-metal'
     : membershipTier === 'family'

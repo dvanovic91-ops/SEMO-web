@@ -71,11 +71,6 @@ function normalizePreviewImageUrls(row: { image_url?: string | null; image_urls?
   return [];
 }
 
-/** 어드민 이메일 — 웹에서도 테스트 횟수 제한 없음 (봇 ADMIN_IDS와 별도) */
-const ADMIN_EMAILS = ['admin@semo-box.ru', 'admin@semo-box.com'];
-/** 테스트 횟수 제한 없음 (해당 이메일만) */
-const UNLIMITED_TEST_EMAILS = ['dvanovic91@gmail.com'];
-
 type Stage = 'intro' | 'profile' | 'concern' | 'test' | 'result';
 type SelfieAnalyzeResponse = {
   error?: boolean;
@@ -298,7 +293,7 @@ export const SkinTest: React.FC = () => {
   const regionCode = countryToRegion[country] ?? 'russia_other';
   const isEn = language === 'en';
   const skinApiBase = getSkinApiBaseUrl();
-  const { userId, userEmail } = useAuth();
+  const { userId, userEmail, isAdmin } = useAuth();
   const activeQuestions = isEn ? QUESTIONS_EN : QUESTIONS.map((q) => q.text);
   const activeAnswers = isEn ? ANSWERS_EN : ANSWERS;
   const activeProfileSteps = isEn
@@ -397,8 +392,8 @@ export const SkinTest: React.FC = () => {
   const resultRowIdQueryParam = searchParams.get('id')?.trim() ?? '';
   const resultRowIdFromQueryOk = SKIN_TEST_RESULT_ROW_UUID_RE.test(resultRowIdQueryParam);
   const { addItem } = useCart();
-  const isAdmin = !!userEmail && ADMIN_EMAILS.includes(userEmail);
-  const noTestLimit = !!userEmail && UNLIMITED_TEST_EMAILS.includes(userEmail);
+  /** `profiles.is_admin` — 관리자/매니저는 횟수 제한 없음 */
+  const noTestLimit = isAdmin;
   const [stage, setStage] = useState<Stage>('intro');
   const [testCount, setTestCount] = useState<number | null>(null);
   /** insert 직후 DB 재조회 타이밍 맞춤 */

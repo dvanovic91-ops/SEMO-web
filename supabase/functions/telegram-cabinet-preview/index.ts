@@ -3,21 +3,47 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-const cors = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-telegram-bot-secret',
-};
+// ── CORS (semo-box.com + 로컬 개발) ──
+const ALLOWED_ORIGINS = new Set([
+  'https://semo-box.com',
+  'https://semo-box.ru',
+  'http://localhost:5173',
+  'http://localhost:3001',
+]);
 
-function json(res: object, status = 200) {
-  return new Response(JSON.stringify(res), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
+function getCorsHeaders(req: Request): Record<string, string> {
+  const origin = req.headers.get('origin') ?? '';
+  const allowedOrigin = ALLOWED_ORIGINS.has(origin) ? origin : 'https://semo-box.com';
+  return {
+    'Access-Control-Allow-Origin': allowedOrigin,
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-telegram-bot-secret',
+    'Vary': 'Origin',
+  };
+}
+
+function json(res: object, status = 200, req: Request) {
+  return new Response(JSON.stringify(res), {
+    status,
+    headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
+  });
+}
+
+// ── 상수-시간 비교 (타이밍 공격 방지) ──
+async function timingSafeEqual(a: string, b: string): Promise<boolean> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey('raw', enc.encode('semo-cabinet-preview'), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const [sa, sb] = await Promise.all([
+    crypto.subtle.sign('HMAC', key, enc.encode(a)),
+    crypto.subtle.sign('HMAC', key, enc.encode(b)),
+  ]);
+  const aa = new Uint8Array(sa), ba = new Uint8Array(sb);
+  let diff = 0;
+  for (let i = 0; i < aa.length; i++) diff |= aa[i] ^ ba[i];
+  return diff === 0;
 }
 
 function fmtDateRu(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString('ru-RU');
-  } catch {
-    return iso;
-  }
+  try { return new Date(iso).toLocaleDateString('ru-RU'); } catch { return iso; }
 }
 
 type CabinetPayload = {
@@ -83,40 +109,38 @@ function formatCabinetRu(payload: CabinetPayload, siteBase: string): string {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: getCorsHeaders(req) });
 
   const secret = Deno.env.get('TELEGRAM_CABINET_PREVIEW_SECRET');
   const got = req.headers.get('x-telegram-bot-secret') ?? '';
-  if (!secret || got !== secret) return json({ error: 'unauthorized' }, 401);
+  if (!secret || !got || !(await timingSafeEqual(got, secret))) {
+    return json({ error: 'unauthorized' }, 401, req);
+  }
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
   const serviceRole = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   const siteBase = (Deno.env.get('PUBLIC_SITE_URL') ?? 'https://semo-box.ru').replace(/\/$/, '');
 
-  if (!supabaseUrl || !serviceRole) return json({ error: 'Supabase env missing' }, 500);
+  if (!supabaseUrl || !serviceRole) return json({ error: 'Supabase env missing' }, 500, req);
 
   let telegram_id: string | null = null;
   try {
     const body = await req.json();
     telegram_id = typeof body.telegram_id === 'string' ? body.telegram_id : null;
   } catch {
-    return json({ error: 'Invalid JSON' }, 400);
+    return json({ error: 'Invalid JSON' }, 400, req);
   }
-  if (!telegram_id?.trim()) return json({ error: 'telegram_id required' }, 400);
+  if (!telegram_id?.trim()) return json({ error: 'telegram_id required' }, 400, req);
 
   const supabase = createClient(supabaseUrl, serviceRole);
   const { data: rpc, error } = await supabase.rpc('telegram_cabinet_preview', {
     p_telegram_id: telegram_id.trim(),
   });
 
-  if (error) return json({ error: error.message }, 500);
+  if (error) return json({ error: 'rpc_failed' }, 500, req);
 
   const payload = rpc as CabinetPayload;
   const message_ru = formatCabinetRu(payload, siteBase);
 
-  return json({
-    ...payload,
-    message_ru,
-    site_base: siteBase,
-  });
+  return json({ ...payload, message_ru, site_base: siteBase }, 200, req);
 });

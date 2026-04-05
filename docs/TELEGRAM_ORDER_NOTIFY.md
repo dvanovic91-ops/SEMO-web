@@ -6,8 +6,8 @@
 
 - **Supabase Edge Function** `notify-order`: `user_id`(또는 Webhook의 `record`)로 `profiles.telegram_id`를 조회한 뒤, 유저 봇 토큰으로 해당 채팅에 메시지 전송.
 - **호출 방식**
-  - **Database Webhook**: `orders` 테이블 INSERT 시 Supabase가 Edge Function URL로 POST (페이로드에 `record` 포함).
-  - **앱에서 직접 호출**: 주문 INSERT 후 `notifyOrderCreated(orderId)` 또는 Supabase `functions.invoke('notify-order', { body: { order_id, user_id } })` 호출.
+  - **Database Webhook**: `orders` INSERT 시 Supabase가 Edge로 POST. **HTTP 헤더** `x-notify-order-secret: <NOTIFY_ORDER_SECRET>` 를 Webhook 설정에서 넣어야 함 (또는 Supabase가 함수 호출 시 시크릿 주입 방식이면 그에 맞게 설정).
+  - **앱(로그인 유저)**: `functions.invoke('notify-order', { body: { order_id } })` — 세션 JWT로 인증되며, **해당 주문의 `user_id`가 JWT 사용자와 일치할 때만** 발송 (타인에게 스팸 불가).
 
 ## 2. Edge Function 배포
 
@@ -18,7 +18,9 @@ supabase functions deploy notify-order
 
 **시크릿 설정 (Supabase 대시보드 → Edge Functions → notify-order → Secrets):**
 
-- `TELEGRAM_USER_BOT_TOKEN`: 유저 봇 토큰 (BotFather 발급).  
+- `NOTIFY_ORDER_SECRET`: Webhook·서버 전용 호출용 (타이밍 안전 비교). **절대 프론트 `.env`에 넣지 말 것.**
+- `TELEGRAM_USER_BOT_TOKEN`: 유저 봇 토큰 (BotFather 발급).
+- JWT 경로 검증용: `SUPABASE_ANON_KEY` (대시보드에 자동 주입되는 경우가 많음).  
   `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`는 배포 시 자동 주입됩니다.
 
 ## 3. Database Webhook 연결 (선택)

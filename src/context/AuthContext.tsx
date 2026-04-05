@@ -4,23 +4,14 @@ import { supabase, SUPABASE_URL } from '../lib/supabase';
 import { getOrCreateVisitSessionId } from '../lib/clientSession';
 import { migrateLegacyProfileEditToSupabase } from '../lib/profileDeliveryDb';
 
-/** 테스트용 관리자 이메일 — 이 계정으로 로그인 시 Profile 진입용 dummy userId 사용 */
-export const TEST_ADMIN_EMAIL = 'admin@semo-box.ru';
-export const ADMIN_DUMMY_USER_ID = '00000000-0000-0000-0000-000000000001';
-
-/** 개발자 계정 — 항상 최상위 권한(관리자모드 전체). DB/RLS와 무관하게 프론트에서 항상 관리자로 인식 */
-const DEVELOPER_EMAILS = ['dvanovic91@gmail.com'];
-/** 관리자 모드 접근 허용 이메일 — DB is_admin 없어도 이 목록에 있으면 관리자(권한부여 가능)로 인식 */
-const ADMIN_EMAIL_ALLOWLIST = ['admin@semo-box.ru', ...DEVELOPER_EMAILS];
-/** 매니저(보기 전용) 허용 이메일 */
-const MANAGER_EMAIL_ALLOWLIST: string[] = [];
+/** 관리자·매니저 여부는 `profiles.is_admin` / `is_manager` 만 신뢰 (클라이언트 이메일 목록 없음). */
 
 interface AuthContextValue {
   userEmail: string | null;
   userId: string | null;
   /** Supabase `user.email_confirmed_at` (가입 확인). OAuth 구글/얀덱스는 공급자 신뢰로 동일 취급 */
   emailConfirmedAt: string | null;
-  /** 이메일·비밀번호: 가입 메일 확인 완료 여부. 더미 관리자 UUID는 항상 true */
+  /** 이메일·비밀번호: 가입 메일 확인 완료 여부 */
   isEmailConfirmed: boolean;
   setUserEmail: (email: string | null) => void;
   isLoggedIn: boolean;
@@ -49,7 +40,6 @@ function emailConfirmedAtFromUser(user: User | null | undefined): string | null 
 /** 표시·주문 게이트용 확인 시각: Auth 확인 완료 또는 OAuth(구글/얀덱스) */
 function resolvedEmailConfirmedAt(user: User | null, uid: string | null): string | null {
   if (!user || !uid) return null;
-  if (uid === ADMIN_DUMMY_USER_ID) return emailConfirmedAtFromUser(user) ?? new Date().toISOString();
   const fromAuth = emailConfirmedAtFromUser(user);
   if (fromAuth) return fromAuth;
   if (isOauthGoogleOrYandexUser(user)) return new Date().toISOString();
@@ -82,7 +72,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const setUserEmail = useCallback((email: string | null) => {
     if (email) {
       setUserEmailState(email);
-      setUserId(email === TEST_ADMIN_EMAIL ? ADMIN_DUMMY_USER_ID : null);
     } else {
       try {
         sessionStorage.removeItem('semo_tg_mini_login_try');
@@ -168,35 +157,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch {
         // ignore
       }
-      const emailNorm = (session.user.email ?? '').trim().toLowerCase();
-      const isDeveloper = emailNorm && DEVELOPER_EMAILS.includes(emailNorm);
-      if (isDeveloper) {
-        setCanGrantPermission(true);
-        setCanGrantAdminRole(true);
-        setIsAdmin(true);
-      } else {
-        try {
-          const fromAdminAllowlist = emailNorm && ADMIN_EMAIL_ALLOWLIST.includes(emailNorm);
-          const fromManagerAllowlist = emailNorm && MANAGER_EMAIL_ALLOWLIST.includes(emailNorm);
-          const { data } = await supabase
-            .from('profiles')
-            .select('is_admin, is_manager')
-            .eq('id', session.user.id)
-            .single();
-          const dbAdmin = !!data?.is_admin;
-          const dbManager = !!data?.is_manager;
-          const fullAdmin = dbAdmin || fromAdminAllowlist;
-          const manager = dbManager || fromManagerAllowlist;
-          setCanGrantPermission(fullAdmin);
+      try {
+        const { data, error: profErr } = await supabase
+          .from('profiles')
+          .select('is_admin, is_manager')
+          .eq('id', session.user.id)
+          .single();
+        if (profErr || !data) {
+          setCanGrantPermission(false);
           setCanGrantAdminRole(false);
-          setIsAdmin(fullAdmin || manager);
-        } catch {
-          const fullAdmin = !!(emailNorm && ADMIN_EMAIL_ALLOWLIST.includes(emailNorm));
-          const manager = !!(emailNorm && MANAGER_EMAIL_ALLOWLIST.includes(emailNorm));
-          setCanGrantPermission(fullAdmin);
-          setCanGrantAdminRole(false);
-          setIsAdmin(fullAdmin || manager);
+          setIsAdmin(false);
+        } else {
+          const dbAdmin = !!data.is_admin;
+          const dbManager = !!data.is_manager;
+          setCanGrantPermission(dbAdmin);
+          setCanGrantAdminRole(dbAdmin);
+          setIsAdmin(dbAdmin || dbManager);
         }
+      } catch {
+        setCanGrantPermission(false);
+        setCanGrantAdminRole(false);
+        setIsAdmin(false);
       }
       try {
         const sid = getOrCreateVisitSessionId();
@@ -310,7 +291,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const isEmailConfirmed = useMemo(() => {
     if (!userId) return false;
-    if (userId === ADMIN_DUMMY_USER_ID) return true;
     return emailConfirmedAt != null;
   }, [userId, emailConfirmedAt]);
 

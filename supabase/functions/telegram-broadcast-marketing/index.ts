@@ -4,17 +4,46 @@
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-const cors = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-telegram-broadcast-secret',
-};
+const ALLOWED_ORIGINS = new Set([
+  'https://semo-box.com',
+  'https://semo-box.ru',
+  'http://localhost:5173',
+  'http://localhost:3001',
+]);
 
-function json(res: object, status = 200) {
-  return new Response(JSON.stringify(res), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
+function getCorsHeaders(req: Request): Record<string, string> {
+  const origin = req.headers.get('origin') ?? '';
+  const allowedOrigin = ALLOWED_ORIGINS.has(origin) ? origin : 'https://semo-box.com';
+  return {
+    'Access-Control-Allow-Origin': allowedOrigin,
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-telegram-broadcast-secret',
+    'Vary': 'Origin',
+  };
+}
+
+function json(res: object, status: number, req: Request) {
+  return new Response(JSON.stringify(res), {
+    status,
+    headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
+  });
+}
+
+async function timingSafeEqual(a: string, b: string): Promise<boolean> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey('raw', enc.encode('semo-tg-broadcast'), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const [sa, sb] = await Promise.all([
+    crypto.subtle.sign('HMAC', key, enc.encode(a)),
+    crypto.subtle.sign('HMAC', key, enc.encode(b)),
+  ]);
+  const aa = new Uint8Array(sa);
+  const ba = new Uint8Array(sb);
+  let diff = 0;
+  for (let i = 0; i < aa.length; i++) diff |= aa[i] ^ ba[i];
+  return diff === 0;
 }
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: getCorsHeaders(req) });
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
   const serviceRole = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -23,7 +52,7 @@ Deno.serve(async (req) => {
   const sharedSecret = Deno.env.get('TELEGRAM_BROADCAST_SECRET') ?? '';
 
   if (!supabaseUrl || !serviceRole || !botToken) {
-    return json({ error: 'server misconfigured' }, 500);
+    return json({ error: 'server misconfigured' }, 500, req);
   }
 
   let title = '';
@@ -33,9 +62,9 @@ Deno.serve(async (req) => {
     title = (j.title ?? '').toString().trim();
     body = (j.body ?? '').toString().trim();
   } catch {
-    return json({ error: 'invalid json' }, 400);
+    return json({ error: 'invalid json' }, 400, req);
   }
-  if (!title) return json({ error: 'title required' }, 400);
+  if (!title) return json({ error: 'title required' }, 400, req);
 
   const headerSecret = req.headers.get('x-telegram-broadcast-secret') ?? '';
   const authHeader = req.headers.get('Authorization') ?? '';
@@ -43,7 +72,7 @@ Deno.serve(async (req) => {
 
   let allowed = false;
 
-  if (sharedSecret && headerSecret && headerSecret === sharedSecret) {
+  if (sharedSecret && headerSecret && (await timingSafeEqual(headerSecret, sharedSecret))) {
     allowed = true;
   } else if (bearer && bearer !== serviceRole) {
     const userClient = createClient(supabaseUrl, anonKey || serviceRole, {
@@ -58,7 +87,7 @@ Deno.serve(async (req) => {
     }
   }
 
-  if (!allowed) return json({ error: 'forbidden' }, 403);
+  if (!allowed) return json({ error: 'forbidden' }, 403, req);
 
   const admin = createClient(supabaseUrl, serviceRole);
   const { data: rows, error: qErr } = await admin
@@ -67,7 +96,7 @@ Deno.serve(async (req) => {
     .not('telegram_id', 'is', null)
     .eq('telegram_notify_marketing', true);
 
-  if (qErr) return json({ error: qErr.message }, 500);
+  if (qErr) return json({ error: qErr.message }, 500, req);
 
   const ids = (rows ?? [])
     .map((r: { telegram_id: string | null }) => r.telegram_id)
@@ -92,5 +121,5 @@ Deno.serve(async (req) => {
     await new Promise((r) => setTimeout(r, 45));
   }
 
-  return json({ ok: true, sent, total: ids.length });
+  return json({ ok: true, sent, total: ids.length }, 200, req);
 });

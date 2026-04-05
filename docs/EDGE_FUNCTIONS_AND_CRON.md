@@ -23,11 +23,13 @@ alter table public.profiles add column if not exists points_expires_at timestamp
 
 ### 기능 켜는 방법
 
-1. Supabase Edge Function 시크릿에 **`POINT_EXPIRY_NOTIFY_ENABLED` = `true`** 추가.
-2. **cron 호출 시간:** 오전 9시는 피하기. 쇼핑·활동이 많은 **오후 5~6시(17:00~18:00)** 에 호출하는 것을 권장.
+1. Edge Function 시크릿 **`POINT_EXPIRY_NOTIFY_ENABLED` = `true`**.
+2. **`CRON_POINT_EXPIRY_SECRET`**: 임의의 긴 랜덤 문자열을 생성해 시크릿으로 저장.
+3. **cron 호출 시간:** 오전 9시는 피하기. **오후 5~6시(17:00~18:00)** 권장.
    - **cron-job.org** / **Uptime Robot** 등: 매일 **17:00** 또는 **18:00**에  
      `POST https://<project_ref>.supabase.co/functions/v1/cron-point-expiry-notify`  
-     Header: `Authorization: Bearer <anon_key 또는 service_role_key>`
+     **필수 헤더:** `x-cron-point-expiry-secret: <CRON_POINT_EXPIRY_SECRET과 동일한 값>`  
+     (Bearer만으로는 호출 불가 — 무단 스팸 방지.)
 
 ---
 

@@ -476,8 +476,8 @@ const emptySlot = (index: number): Slot => ({
   link_url: '',
 });
 
-/** 개발자 계정 이메일 — RLS 안내 문구에 사용 */
-const DEVELOPER_EMAILS = ['dvanovic91@gmail.com'];
+const RLS_ADMIN_HINT =
+  ' Supabase SQL Editor에서 docs/SUPABASE_PROFILES_ADMIN_RLS.sql 전체 실행 후, 본인 프로필(profiles)에 is_admin = true 인지 확인하세요.';
 
 const ADMIN_TABS: { key: 'dashboard' | 'products' | 'skinMatch' | 'promo' | 'promoCodes' | 'broadcast' | 'orders' | 'activityLogs' | 'cartAbandonment' | 'reviewManagement' | 'members' | 'heroImage' | 'inventory' | 'productPlanning'; label: string }[] = [
   { key: 'dashboard', label: '대시보드' },
@@ -935,11 +935,8 @@ export const Admin: React.FC = () => {
         if (profilesError) {
           console.error('[Admin] profiles select 실패:', profilesError);
           setMembers([]);
-          const devHint = userEmail && DEVELOPER_EMAILS.includes(userEmail.trim().toLowerCase())
-            ? ' Supabase SQL Editor에서 docs/SUPABASE_PROFILES_ADMIN_RLS.sql 전체 실행 후, 본인 프로필(profiles)에 is_admin = true 인지 확인하세요.'
-            : '';
           setMembersError(
-            '회원 목록을 불러오지 못했습니다. Supabase profiles 테이블 RLS에서 관리자 조회 정책이 있는지 확인하세요.' + devHint
+            '회원 목록을 불러오지 못했습니다. Supabase profiles 테이블 RLS에서 관리자 조회 정책이 있는지 확인하세요.' + RLS_ADMIN_HINT
           );
           return;
         }
@@ -1093,10 +1090,7 @@ export const Admin: React.FC = () => {
         setSelectedMemberIds([]);
       } catch (e) {
         console.error('[Admin] 회원 목록 로드 중 오류:', e);
-        const devHint = userEmail && DEVELOPER_EMAILS.includes(userEmail.trim().toLowerCase())
-          ? ' Supabase SQL Editor에서 docs/SUPABASE_PROFILES_ADMIN_RLS.sql 실행 후, profiles.is_admin = true 인지 확인하세요.'
-          : '';
-        setMembersError('회원 목록을 불러오지 못했습니다. 콘솔(F12) 오류를 확인하세요.' + devHint);
+        setMembersError('회원 목록을 불러오지 못했습니다. 콘솔(F12) 오류를 확인하세요.' + RLS_ADMIN_HINT);
         setMembers([]);
       } finally {
         setMembersLoading(false);
@@ -6731,25 +6725,16 @@ export const Admin: React.FC = () => {
                           </td>
                           {canGrantPermission && (
                             <td className="whitespace-nowrap px-3 py-2">
-                              {(() => {
-                                const isDeveloperMember = m.email && DEVELOPER_EMAILS.includes(m.email.trim().toLowerCase());
-                                return isDeveloperMember ? (
-                                  <span className="inline-block rounded border border-slate-200 bg-slate-100 px-2 py-1 text-[11px] text-slate-500 cursor-not-allowed" title="개발자 계정은 권한 변경 불가">
-                                    관리자
-                                  </span>
-                                ) : (
-                                  <select
-                                    value={m.is_admin ? 'admin' : 'manager'}
-                                    onChange={(e) => handleUpdateMemberRole(m.id, e.target.value as 'member' | 'manager' | 'admin')}
-                                    disabled={updatingRoleUserId === m.id}
-                                    className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700 disabled:opacity-50"
-                                  >
-                                    <option value="member">회원</option>
-                                    <option value="manager">매니저(보기전용)</option>
-                                    <option value="admin" disabled={!canGrantAdminRole}>관리자</option>
-                                  </select>
-                                );
-                              })()}
+                              <select
+                                value={m.is_admin ? 'admin' : 'manager'}
+                                onChange={(e) => handleUpdateMemberRole(m.id, e.target.value as 'member' | 'manager' | 'admin')}
+                                disabled={updatingRoleUserId === m.id}
+                                className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700 disabled:opacity-50"
+                              >
+                                <option value="member">회원</option>
+                                <option value="manager">매니저(보기전용)</option>
+                                <option value="admin" disabled={!canGrantAdminRole}>관리자</option>
+                              </select>
                             </td>
                           )}
                         </tr>
@@ -6758,9 +6743,7 @@ export const Admin: React.FC = () => {
                   </table>
                 </div>
                 <div className="space-y-2 md:hidden">
-                  {adminList.map((m) => {
-                    const isDeveloperMember = m.email && DEVELOPER_EMAILS.includes(m.email.trim().toLowerCase());
-                    return (
+                  {adminList.map((m) => (
                       <div key={m.id} className="rounded-lg border border-slate-200 bg-white p-3">
                         <div className="flex items-center justify-between gap-2">
                           <div>
@@ -6788,25 +6771,20 @@ export const Admin: React.FC = () => {
                         </div>
                         {canGrantPermission && (
                           <div className="mt-2">
-                            {isDeveloperMember ? (
-                              <span className="text-[11px] text-slate-500">개발자 계정</span>
-                            ) : (
-                              <select
-                                value={m.is_admin ? 'admin' : 'manager'}
-                                onChange={(e) => handleUpdateMemberRole(m.id, e.target.value as 'member' | 'manager' | 'admin')}
-                                disabled={updatingRoleUserId === m.id}
-                                className={inputClass + ' w-full max-w-[180px]'}
-                              >
-                                <option value="member">회원</option>
-                                <option value="manager">매니저</option>
-                                <option value="admin" disabled={!canGrantAdminRole}>관리자</option>
-                              </select>
-                            )}
+                            <select
+                              value={m.is_admin ? 'admin' : 'manager'}
+                              onChange={(e) => handleUpdateMemberRole(m.id, e.target.value as 'member' | 'manager' | 'admin')}
+                              disabled={updatingRoleUserId === m.id}
+                              className={inputClass + ' w-full max-w-[180px]'}
+                            >
+                              <option value="member">회원</option>
+                              <option value="manager">매니저</option>
+                              <option value="admin" disabled={!canGrantAdminRole}>관리자</option>
+                            </select>
                           </div>
                         )}
                       </div>
-                    );
-                  })}
+                  ))}
                 </div>
               </div>
             ) : (
