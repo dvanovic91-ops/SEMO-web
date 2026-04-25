@@ -53,7 +53,6 @@ export const About: React.FC = () => {
     <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10 md:py-14">
       <section>
         <div className="mx-auto max-w-5xl text-center">
-          <p className="mb-3 text-xs font-medium uppercase tracking-[0.24em] text-brand">About SEMO</p>
           <h1 className="prose-ru mx-auto text-center text-[1.75rem] font-medium leading-tight tracking-tight text-slate-950 sm:text-[2.05rem] md:text-[2.35rem] lg:text-[2.55rem]">
             {copy.headline}
           </h1>
