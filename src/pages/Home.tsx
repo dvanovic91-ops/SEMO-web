@@ -15,6 +15,8 @@ import {
   type CatalogSlotRoom,
 } from '../lib/catalogSlotRooms';
 import { isLegacyMockCatalogProductName } from '../lib/legacyMockContent';
+import { JourneyStepImage } from '../components/JourneyStepImage';
+import { JOURNEY_INTRO_SUBLINE_CLASS, JOURNEY_STEPS } from '../data/journeySteps';
 
 /* ─── 히어로 이미지 타입 ─── */
 type HeroSlide = { image_url: string; mobile_image_url?: string; link_url?: string };
@@ -214,7 +216,7 @@ function useScrollFadeIn(threshold = 0.15) {
   return { ref, visible };
 }
 
-/** 각 도형/카드마다 뷰포트에 처음 들어올 때만 등장 — 고정 헤더와 겹칠 때마다 깜빡이지 않음 */
+/** 뷰포트에 처음 들어올 때만 등장 (Journey 스텝·쇼케이스 등) — 고정 헤더와 겹칠 때마다 깜빡이지 않음 */
 function OrderStepReveal({
   children,
   className = '',
@@ -259,242 +261,78 @@ function OrderStepReveal({
   );
 }
 
-/* ─── 주문 과정 — 데스크톱: 겹친 책갈피 / 모바일: 세로 클립 스택 ─── */
-const ORDER_STEPS = [
-  {
-    num: '01',
-    title: 'Тест кожи',
-    desc: 'Пройдите тест и узнайте свой тип кожи',
-    /** md+ 호버: 01만 제목·아이콘·짧은 설명 대신 상세(스킨타입 추천) */
-    hoverDetail:
-      'Узнайте продукты, которые SEMO рекомендует для вашего типа кожи — персональные подборки и понятные советы по уходу.',
-    icon: (
-      <svg className="h-8 w-8 sm:h-10 sm:w-10" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
-        <circle cx="24" cy="17" r="7" /><path d="M13 38c0-6 5-11 11-11s11 5 11 11" />
-      </svg>
-    ),
-  },
-  {
-    num: '02',
-    title: 'Заказ и оплата',
-    desc: 'Выберите бокс и оплатите удобным способом',
-    hoverDetail:
-      'Добавьте бокс в корзину и оплатите картой или другим доступным способом. После оплаты заказ переходит в обработку.',
-    icon: (
-      <svg className="h-8 w-8 sm:h-10 sm:w-10" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
-        <rect x="8" y="14" width="32" height="22" rx="2" /><path d="M8 22h32" /><path d="M16 30h8" />
-      </svg>
-    ),
-  },
-  {
-    num: '03',
-    title: 'Доставка',
-    desc: 'Из Кореи — таможня на нас',
-    hoverDetail:
-      'Сборка и отправка из Кореи, таможенное оформление и доставка до вашего адреса — мы сопровождаем процесс и держим вас в курсе.',
-    icon: (
-      <svg className="h-8 w-8 sm:h-10 sm:w-10" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M6 30h28V14H6z" /><path d="M34 22h6l4 8v6h-10" />
-        <circle cx="14" cy="36" r="3" /><circle cx="38" cy="36" r="3" />
-        <path d="M17 36h17" /><path d="M6 36h5" />
-      </svg>
-    ),
-  },
-  {
-    num: '04',
-    title: 'Получение',
-    desc: 'Распакуйте свой персональный бокс!',
-    hoverDetail:
-      'Получите посылку курьером или в пункте выдачи. Внутри — подобранные под ваш профиль средства и понятные подсказки по уходу.',
-    icon: (
-      <svg className="h-8 w-8 sm:h-10 sm:w-10" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
-        <rect x="10" y="16" width="28" height="22" rx="1.5" />
-        <path d="M10 24h28" /><path d="M24 16v22" /><path d="M18 16l6-6 6 6" />
-      </svg>
-    ),
-  },
-];
-
-/** 데스크톱 책갈피: 겹침마다 살짝 다른 톤(왼쪽 밝음 → 오른쪽 주황) */
-const BOOKMARK_GRADIENTS = [
-  'linear-gradient(165deg, #ffffff 0%, #fff3eb 45%, #ffe0cc 100%)',
-  'linear-gradient(165deg, #fff6ee 0%, #ffd4bc 50%, #ffb088 100%)',
-  'linear-gradient(165deg, #ffe8d8 0%, #ff9b6a 55%, #f06e35 100%)',
-  'linear-gradient(165deg, #ff9a5c 0%, #e65427 55%, #c73f18 100%)',
-] as const;
-
-/* 모바일: 풀폭 세로 스택용 비정형 클립(각 행 좌우 끝까지) */
-const MOBILE_STEP_CLIP_PATHS = [
-  'polygon(0 0, 100% 0, 100% calc(100% - 12px), 12px 100%)',
-  'polygon(0 8px, 100% 0, 100% 100%, 0 calc(100% - 10px))',
-  'polygon(0 0, calc(100% - 10px) 0, 100% 100%, 0 calc(100% - 14px))',
-  'polygon(10px 0, 100% 4px, 100% 100%, 0 100%)',
-] as const;
-
-const STEP_GRADIENT_MOBILE =
-  'linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(230, 84, 39, 0.2) 45%, rgba(230, 84, 39, 0.72) 78%, rgba(230, 84, 39, 0.96) 100%)';
-
-function OrderProcess() {
+/* ─── 홈: Journey to SEMO (/journey와 동일 데이터, 스텝마다 스크롤 등장) ─── */
+function JourneyHomeSection() {
   const { language } = useI18n();
-  const { ref: titleDeskRef, visible: titleDeskVisible } = useScrollFadeIn(0.08);
-  const { ref: titleMobRef, visible: titleMobVisible } = useScrollFadeIn(0.08);
-
-  /** 그라데이션 반전 후: 왼쪽(밝음)=짙은 글자, 오른쪽(주황)=밝은 글자 */
-  const textOnLight = (idx: number) => idx < 2;
+  const isEn = language === 'en';
+  const { ref: titleRef, visible: titleVisible } = useScrollFadeIn(0.08);
 
   return (
     <section className="relative w-full overflow-hidden bg-white">
-      {/* ── 데스크톱(md+) ── */}
-      <div className="hidden md:block bg-white">
-        <div ref={titleDeskRef} className="px-4 pt-14 pb-6">
+      <div className="mx-auto max-w-6xl px-4 pb-14 pt-12 sm:px-6 md:pb-20 md:pt-16 lg:pb-24 lg:pt-20">
+        <div
+          ref={titleRef}
+          className="mb-12 overflow-x-auto text-center [-ms-overflow-style:none] [scrollbar-width:none] md:mb-16 [&::-webkit-scrollbar]:hidden"
+        >
           <h2
-            className={`text-center text-lg font-medium normal-case tracking-normal text-slate-900 transition-all duration-700 lg:text-xl ${
-              titleDeskVisible ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0'
+            className={`text-xl font-semibold tracking-tight text-slate-900 transition-all duration-700 sm:text-2xl md:text-3xl ${
+              titleVisible ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0'
             }`}
           >
-            {language === 'en' ? 'How to order my Beauty box' : 'Как заказть мой Beauty box'}
+            Journey to SEMO
           </h2>
+          <p
+            className={`${JOURNEY_INTRO_SUBLINE_CLASS} transition-all delay-150 duration-700 ${
+              titleVisible ? 'translate-y-0 opacity-100' : 'translate-y-6 opacity-0'
+            }`}
+          >
+            {isEn
+              ? 'From AI Skin Testing to Direct Korea Delivery—Complete Your Skincare in 4 Easy Steps.'
+              : 'От AI-теста кожи до прямой доставки из Кореи — идеальный уход в 4 простых шага.'}
+          </p>
           <div
-            className={`mx-auto mt-4 h-px w-10 bg-gradient-to-r from-transparent via-brand/35 to-transparent transition-all duration-700 delay-200 ${
-              titleDeskVisible ? 'scale-x-100 opacity-100' : 'scale-x-0 opacity-0'
+            className={`mx-auto mt-5 h-px w-10 bg-gradient-to-r from-transparent via-brand/35 to-transparent transition-all delay-200 duration-700 ${
+              titleVisible ? 'scale-x-100 opacity-100' : 'scale-x-0 opacity-0'
             }`}
           />
         </div>
-        {/* 겹친 책갈피: 왼쪽이 안쪽 레이어, 오른쪽이 위로 포개짐 — 호버 시 앞으로·확대 */}
-        <div className="bg-white pb-14">
-          <div
-            className="relative mx-auto w-full max-w-[58rem] px-2 sm:px-4"
-            style={{ height: 'clamp(18rem, 34vw, 28rem)' }}
-          >
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 top-8 rounded-t-3xl bg-gradient-to-b from-slate-50/80 to-white md:top-10" aria-hidden />
-            <div className="relative h-full w-full">
-              {ORDER_STEPS.map((step, idx) => {
-                const leftPct = [0, 17.5, 35, 52.5][idx];
-                return (
-                  <OrderStepReveal
-                    key={step.num}
-                    staggerIndex={idx}
-                    className="group/bookmark absolute bottom-0 top-7 min-h-0 w-[26%] min-w-[5.75rem] max-w-[13.5rem] transition-[z-index] duration-300 ease-out hover:z-[50] sm:top-9 md:top-10 md:max-w-none md:min-w-[7rem]"
-                    style={{
-                      left: `${leftPct}%`,
-                      zIndex: 12 + idx,
-                    }}
-                  >
-                    <div className="h-full origin-bottom transition-transform duration-300 ease-out will-change-transform group-hover/bookmark:-translate-y-2 group-hover/bookmark:scale-[1.05] md:group-hover/bookmark:-translate-y-3 md:group-hover/bookmark:scale-[1.07]">
-                    <div
-                      className="flex h-full min-h-0 flex-col overflow-hidden rounded-t-[1.25rem] border border-white/50 shadow-[6px_4px_20px_-6px_rgba(0,0,0,0.18)] md:rounded-t-[1.4rem]"
-                      style={{ backgroundImage: BOOKMARK_GRADIENTS[idx] }}
-                    >
-                      <div
-                        className={`flex min-h-0 flex-1 flex-col items-center justify-between gap-1 px-1.5 py-3 text-center sm:gap-1.5 sm:px-2.5 sm:py-4 md:gap-2 ${
-                          textOnLight(idx) ? '' : '[&_svg]:drop-shadow-[0_1px_2px_rgba(0,0,0,0.25)]'
-                        }`}
-                      >
-                        <span
-                          className={`shrink-0 font-serif text-[2rem] font-extralight leading-none tracking-normal sm:text-[2.35rem] lg:text-[2.85rem] ${
-                            textOnLight(idx) ? 'text-slate-800/35' : 'text-white/45 [text-shadow:0_1px_3px_rgba(0,0,0,0.2)]'
-                          }`}
-                        >
-                          {step.num}
-                        </span>
-                        <div className="flex min-h-0 w-full flex-1 flex-col items-center justify-center">
-                          <p
-                            className={`mb-1 line-clamp-2 shrink-0 text-[10px] font-medium leading-tight tracking-normal transition-opacity duration-300 sm:text-[11px] md:group-hover/bookmark:invisible md:group-hover/bookmark:opacity-0 lg:text-xs ${
-                              textOnLight(idx) ? 'text-slate-900' : 'text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.25)]'
-                            }`}
-                          >
-                            {step.title}
-                          </p>
-                          <div className="relative flex min-h-0 w-full flex-1 flex-col items-center justify-center">
-                            <div className="flex min-h-0 min-w-0 flex-col items-center gap-1.5 transition-opacity duration-300 md:group-hover/bookmark:opacity-0 md:group-hover/bookmark:invisible">
-                              <div
-                                className={
-                                  textOnLight(idx)
-                                    ? 'shrink-0 text-slate-800 [&_svg]:h-7 [&_svg]:w-7 sm:[&_svg]:h-7 sm:[&_svg]:w-7 md:[&_svg]:h-8 md:[&_svg]:w-8'
-                                    : 'shrink-0 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.2)] [&_svg]:h-7 [&_svg]:w-7 md:[&_svg]:h-8 md:[&_svg]:w-8'
-                                }
-                              >
-                                {step.icon}
-                              </div>
-                              <p
-                                className={`line-clamp-3 w-full max-w-[11rem] text-[9px] leading-snug sm:max-w-[12rem] sm:text-[10px] md:line-clamp-4 ${
-                                  textOnLight(idx)
-                                    ? 'text-slate-700'
-                                    : 'text-white/92 [text-shadow:0_1px_2px_rgba(0,0,0,0.2)]'
-                                }`}
-                              >
-                                {step.desc}
-                              </p>
-                            </div>
-                            <div className="pointer-events-none absolute inset-x-0 bottom-0 top-0 flex items-center justify-center px-1.5 opacity-0 transition-opacity duration-300 md:group-hover/bookmark:opacity-100">
-                              <p
-                                className={`max-h-full w-full text-center text-[length:clamp(0.5625rem,0.65vw+0.42rem,0.8125rem)] font-normal leading-[1.25] [text-wrap:balance] md:line-clamp-6 md:text-[clamp(0.625rem,0.55vw+0.45rem,0.8125rem)] lg:leading-snug ${
-                                  textOnLight(idx)
-                                    ? 'text-slate-900'
-                                    : 'text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.22)]'
-                                }`}
-                              >
-                                {step.hoverDetail}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    </div>
-                  </OrderStepReveal>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      </div>
 
-      {/* ── 모바일: 1→4 세로 풀폭 비정형 띠 + 스크롤 등장 애니메이션 ── */}
-      <div className="bg-white py-12 md:hidden">
-        <div ref={titleMobRef} className="mb-8 px-4">
-          <h2
-            className={`text-center text-base font-medium normal-case tracking-normal text-slate-800 transition-all duration-700 ${
-              titleMobVisible ? 'translate-y-0 opacity-100' : 'translate-y-6 opacity-0'
-            }`}
-          >
-            {language === 'en' ? 'How to order my Beauty box' : 'Как заказть мой Beauty box'}
-          </h2>
-        </div>
-        <div className="relative flex w-full flex-col gap-1 bg-white px-0">
-          <div
-            className="pointer-events-none absolute inset-0 z-0"
-            style={{ backgroundImage: STEP_GRADIENT_MOBILE }}
-            aria-hidden
-          />
-          <div className="relative z-10 flex w-full flex-col gap-1">
-          {ORDER_STEPS.map((step, idx) => (
-            <OrderStepReveal
-              key={step.num}
-              staggerIndex={idx}
-              className="relative w-full overflow-hidden bg-transparent"
-              style={{
-                clipPath: MOBILE_STEP_CLIP_PATHS[idx],
-                minHeight: '9.25rem',
-              }}
-            >
-              <div className="flex flex-col items-center justify-center gap-2 px-4 py-6 text-center">
-                <span
-                  className={`font-serif text-[2.25rem] font-extralight leading-none tracking-normal ${idx < 2 ? 'text-slate-800/35' : 'text-white/40'}`}
-                >
-                  {step.num}
-                </span>
-                <div className={idx < 2 ? 'text-slate-800' : 'text-white'}>{step.icon}</div>
-                <p className={`text-sm font-medium tracking-normal ${idx < 2 ? 'text-slate-900' : 'text-white'}`}>
-                  {step.title}
-                </p>
-                <p className={`max-w-md text-[11px] leading-relaxed ${idx < 2 ? 'text-slate-700' : 'text-white/90'}`}>
-                  {step.desc}
-                </p>
-              </div>
-            </OrderStepReveal>
-          ))}
-          </div>
+        <div className="space-y-16 md:space-y-24">
+          {JOURNEY_STEPS.map((step, index) => {
+            const isImageLeft = index % 2 === 0;
+            const stepNum = index + 1;
+            const titleText = isEn ? step.title.en : step.title.ru;
+            return (
+              <OrderStepReveal key={step.title.en} staggerIndex={index} className="block w-full">
+                <article className="grid gap-8 md:grid-cols-2 md:items-center md:gap-10 lg:gap-14">
+                  <div className={`overflow-hidden rounded-2xl bg-slate-100 ${isImageLeft ? '' : 'md:order-2'}`}>
+                    {step.imageUrl ? (
+                      <JourneyStepImage src={step.imageUrl} alt={titleText} loading="lazy" />
+                    ) : (
+                      <div className="flex min-h-[220px] w-full items-center justify-center bg-gradient-to-br from-brand-soft/30 to-slate-100 sm:min-h-[280px] md:min-h-[320px]">
+                        <span className="text-4xl font-semibold text-slate-300">{step.imagePlaceholder}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className={`flex min-w-0 flex-col justify-center ${isImageLeft ? '' : 'md:order-1'}`}>
+                    <span className="text-sm font-semibold tracking-wide text-brand">Step {stepNum}</span>
+                    <h3
+                      className={`mt-2 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl ${
+                        step.titleSingleLineMd
+                          ? 'md:whitespace-nowrap md:text-base lg:text-xl xl:text-2xl 2xl:text-3xl'
+                          : ''
+                      }`}
+                    >
+                      {titleText}
+                    </h3>
+                    <p className="prose-ru mt-4 text-base leading-relaxed text-slate-600 sm:mt-5">
+                      {isEn ? step.description.en : step.description.ru}
+                    </p>
+                  </div>
+                </article>
+              </OrderStepReveal>
+            );
+          })}
         </div>
       </div>
     </section>
@@ -1130,7 +968,7 @@ export const Home: React.FC = () => {
   return (
     <>
       <HeroCarousel key={heroSlides === null ? 'hero-loading' : 'hero-ready'} slides={heroSlides} />
-      <OrderProcess />
+      <JourneyHomeSection />
       <ProductShowcase />
       <HomeReviews />
     </>

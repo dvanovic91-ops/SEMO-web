@@ -15,12 +15,18 @@ const inputClass =
   'w-full min-h-[44px] rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-base text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand sm:min-h-0';
 
 const FORGOT_COOLDOWN_SEC = 60;
+const YANDEX_OAUTH_STATE_KEY = 'semo_yandex_oauth_state';
 
 function formatMmSs(totalSec: number): string {
   const s = Math.max(0, Math.min(totalSec, 99 * 60 + 59));
   const m = Math.floor(s / 60);
   const r = s % 60;
   return `${m}:${String(r).padStart(2, '0')}`;
+}
+
+function createOauthState(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 /**
@@ -165,7 +171,9 @@ export const Login: React.FC = () => {
     }
     setRememberMe(rememberMe);
     setOauthLoading('yandex');
-    window.location.href = `https://oauth.yandex.com/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}`;
+    const state = createOauthState();
+    sessionStorage.setItem(YANDEX_OAUTH_STATE_KEY, state);
+    window.location.href = `https://oauth.yandex.com/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`;
   };
 
   const handleEmailLogin = async () => {

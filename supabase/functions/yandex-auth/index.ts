@@ -11,6 +11,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 // ── CORS (semo-box.com + 로컬 개발) ──
 const ALLOWED_ORIGINS = new Set([
   'https://semo-box.com',
+  'https://semo-box.ru',
   'http://localhost:5173',
   'http://localhost:3001',
 ]);
@@ -146,10 +147,7 @@ Deno.serve(async (req) => {
 
     const tokenData = await tokenResp.json();
     if (!tokenData.access_token) {
-      return fail('token_exchange_failed', req, {
-        yandex_error: tokenData.error,
-        yandex_description: tokenData.error_description,
-      });
+      return fail('token_exchange_failed', req);
     }
 
     // ── 3. Get Yandex user info ──
@@ -208,7 +206,7 @@ Deno.serve(async (req) => {
           email: userEmail,
         });
         if (linkErr || !linkAttempt) {
-          return fail('user_creation_failed', req, { details: createErr.message });
+          return fail('user_creation_failed', req);
         }
         const tokenHash = linkAttempt.properties?.hashed_token;
         if (!tokenHash) return fail('no_token_hash', req);
@@ -248,7 +246,7 @@ Deno.serve(async (req) => {
     });
 
     if (linkErr || !linkData) {
-      return fail('magiclink_failed', req, { details: linkErr?.message });
+      return fail('magiclink_failed', req);
     }
 
     const tokenHash = linkData.properties?.hashed_token;
@@ -265,6 +263,7 @@ Deno.serve(async (req) => {
       display_name: displayName,
     }, req);
   } catch (e) {
-    return fail('unexpected_error', req, { message: (e as Error).message });
+    console.error('[yandex-auth] unexpected_error', e);
+    return fail('unexpected_error', req);
   }
 });

@@ -9,6 +9,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 // ── CORS (semo-box.com + 로컬 개발) ──
 const ALLOWED_ORIGINS = new Set([
   'https://semo-box.com',
+  'https://semo-box.ru',
   'http://localhost:5173',
   'http://localhost:3001',
 ]);
@@ -53,6 +54,21 @@ function getClientIp(req: Request): string {
   );
 }
 
+// ── 상수-시간 비교 (타이밍 공격 완화) ──
+async function timingSafeEqual(a: string, b: string): Promise<boolean> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey('raw', enc.encode('semo-link-consent'), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const [sa, sb] = await Promise.all([
+    crypto.subtle.sign('HMAC', key, enc.encode(a)),
+    crypto.subtle.sign('HMAC', key, enc.encode(b)),
+  ]);
+  const aa = new Uint8Array(sa);
+  const ba = new Uint8Array(sb);
+  let diff = 0;
+  for (let i = 0; i < aa.length; i++) diff |= aa[i] ^ ba[i];
+  return diff === 0;
+}
+
 /** RU 11자리(7/8로 시작)만 공백 포맷; 그 외 국가는 +국번 그대로(7 강제 없음). */
 function normalizePhoneForProfile(raw: string | null): string | null {
   if (!raw) return null;
@@ -85,7 +101,7 @@ Deno.serve(async (req) => {
 
   const secret = Deno.env.get('TELEGRAM_LINK_CONSENT_SECRET');
   const got = req.headers.get('x-telegram-bot-secret') ?? '';
-  if (!secret || got !== secret) return json({ error: 'unauthorized' }, 401, req);
+  if (!secret || !got || !(await timingSafeEqual(got, secret))) return json({ error: 'unauthorized' }, 401, req);
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const serviceRole = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');

@@ -9,6 +9,8 @@ import { getYandexOAuthRedirectUri } from '../lib/auth';
 import { useI18n } from '../context/I18nContext';
 import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../components/SemoPageSpinner';
 
+const YANDEX_OAUTH_STATE_KEY = 'semo_yandex_oauth_state';
+
 export const YandexCallback: React.FC = () => {
   const navigate = useNavigate();
   const { setCountry, setLanguage, setCurrency } = useI18n();
@@ -17,6 +19,7 @@ export const YandexCallback: React.FC = () => {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
+    const state = params.get('state');
     const yandexError = params.get('error');
 
     if (yandexError) {
@@ -26,6 +29,12 @@ export const YandexCallback: React.FC = () => {
 
     if (!code) {
       setError('Код авторизации отсутствует.');
+      return;
+    }
+    const expectedState = sessionStorage.getItem(YANDEX_OAUTH_STATE_KEY);
+    sessionStorage.removeItem(YANDEX_OAUTH_STATE_KEY);
+    if (!state || !expectedState || state !== expectedState) {
+      setError('Недействительный OAuth state.');
       return;
     }
 

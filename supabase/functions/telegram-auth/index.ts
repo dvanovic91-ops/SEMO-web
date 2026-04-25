@@ -8,6 +8,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 // ── CORS (semo-box.com + 로컬 개발) ──
 const ALLOWED_ORIGINS = new Set([
   'https://semo-box.com',
+  'https://semo-box.ru',
   'http://localhost:5173',
   'http://localhost:3001',
 ]);
@@ -84,6 +85,15 @@ function bufToHex(buf: ArrayBuffer): string {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+function timingSafeEqualStr(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
 // ── Telegram hash verification ──
 
 async function verifyWidgetHash(
@@ -99,16 +109,16 @@ async function verifyWidgetHash(
   const checkString = checkArr.join('\n');
   const secretKey = await sha256(botToken);
   const computed = bufToHex(await hmacSha256(secretKey, checkString));
-  return computed === hash;
+  return timingSafeEqualStr(computed, hash);
 }
 
 async function verifyMiniAppHash(
   botToken: string,
   initData: string,
-): Promise<{ ok: boolean; user?: Record<string, unknown>; debug?: string }> {
+): Promise<{ ok: boolean; user?: Record<string, unknown> }> {
   const params = new URLSearchParams(initData);
   const hash = params.get('hash');
-  if (!hash) return { ok: false, debug: 'no_hash_param' };
+  if (!hash) return { ok: false };
   const checkArr: string[] = [];
   params.forEach((v, k) => {
     if (k !== 'hash') checkArr.push(`${k}=${v}`);
@@ -117,9 +127,7 @@ async function verifyMiniAppHash(
   const checkString = checkArr.join('\n');
   const secretKey = await hmacSha256(new TextEncoder().encode('WebAppData'), botToken);
   const computed = bufToHex(await hmacSha256(secretKey, checkString));
-  if (computed !== hash) {
-    return { ok: false, debug: `hash_mismatch|expected:${hash.substring(0,16)}|got:${computed.substring(0,16)}|tokenLen:${botToken.length}` };
-  }
+  if (!timingSafeEqualStr(computed, hash)) return { ok: false };
   try {
     const userStr = params.get('user');
     const user = userStr ? JSON.parse(userStr) : null;
@@ -184,7 +192,7 @@ Deno.serve(async (req) => {
 
     if (mode === 'miniapp' && miniAppInitData) {
       const result = await verifyMiniAppHash(botToken, miniAppInitData);
-      if (!result.ok) return fail('miniapp_invalid_hash', req, { debug: result.debug });
+      if (!result.ok) return fail('miniapp_invalid_hash', req);
       const params = new URLSearchParams(miniAppInitData);
       const authDate = parseInt(params.get('auth_date') || '0', 10);
       const serverTime = Math.floor(Date.now() / 1000);
