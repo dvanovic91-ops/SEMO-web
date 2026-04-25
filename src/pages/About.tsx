@@ -11,8 +11,7 @@ const SEMO_ORANGE_BOX_IMG = '/images/journey/step4-unbox-beauty-box.png';
 const storyCopy = {
   en: {
     headline: 'Skincare should not be a guessing game.',
-    subheadline:
-      'SEMO builds your routine around real skin data, verified ingredients, and trusted Korean beauty.',
+    subheadline: 'SEMO finds your perfect K-beauty box.',
     intro:
       'Have you ever felt lost in front of endless shelves or while scrolling through countless product pages? SEMO began with that exact uncertainty: “Will this really work for me?” and “Am I buying products I do not need?”',
     body:
@@ -25,9 +24,8 @@ const storyCopy = {
     ctaSecondary: 'Explore Beauty box',
   },
   ru: {
-    headline: 'Хватит гадать. Начните уход, построенный на реальных данных вашей кожи.',
-    subheadline:
-      'SEMO создает ваш уход на основе реальных данных кожи, проверенных ингредиентов и надежной корейской косметики.',
+    headline: 'Уход за кожей — не игра в догадки.',
+    subheadline: 'SEMO подбирает ваш идеальный K-beauty box.',
     intro:
       'Вы когда-нибудь терялись перед полками с бесконечным количеством товаров или в длинных страницах интернет-магазина? SEMO начался именно с этой неопределенности: «Подойдет ли это мне?» и «Не покупаю ли я лишнее?»',
     body:
