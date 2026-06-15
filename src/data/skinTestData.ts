@@ -83,6 +83,26 @@ export const PROFILE_STEPS = [
     ] as OptionItem[],
   },
   {
+    key: 'recent_irritation',
+    label: 'За последние 3 месяца была ли у вас реакция на косметику: жжение, покраснение, зуд или пощипывание?',
+    options: [
+      ['Да, часто', 'irritation_often'],
+      ['Иногда', 'irritation_sometimes'],
+      ['Почти нет', 'irritation_rare'],
+      ['Не помню / сложно сказать', 'irritation_unknown'],
+    ] as OptionItem[],
+  },
+  {
+    key: 'fragrance_sensitivity',
+    label: 'Ваша кожа реагирует на отдушки, ароматизаторы или эфирные масла в косметике?',
+    options: [
+      ['Да, стараюсь избегать', 'fragrance_avoid'],
+      ['Иногда', 'fragrance_sometimes'],
+      ['Обычно нормально', 'fragrance_ok'],
+      ['Не знаю', 'fragrance_unknown'],
+    ] as OptionItem[],
+  },
+  {
     key: 'source',
     label: 'Как вы узнали о нас?',
     options: [

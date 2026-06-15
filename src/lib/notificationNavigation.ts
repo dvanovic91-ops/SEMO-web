@@ -70,6 +70,9 @@ export function notificationKindBadgeRu(
   if (kind === 'points') {
     return 'Баллы';
   }
+  if (kind === 'feedback') {
+    return 'Отзыв';
+  }
   if (kind === 'admin') {
     const cat = metadata && typeof metadata.announcement_category === 'string' ? metadata.announcement_category : null;
     return announcementCategoryLabelRu(cat);
@@ -91,6 +94,13 @@ export function resolveNotificationHref(kind: string, metadata: Record<string, u
   }
   if (kind === 'points') {
     return '/profile/points';
+  }
+  if (kind === 'feedback') {
+    const oid = meta.order_id;
+    if (typeof oid === 'string' && oid.length > 0) {
+      return `/profile/orders?order=${encodeURIComponent(oid)}`;
+    }
+    return '/profile/orders';
   }
   if (kind === 'admin') {
     const raw = meta.link_to;

@@ -9,6 +9,7 @@ import { AddItemFromQuery } from './components/AddItemFromQuery';
 import { Footer } from './components/Footer';
 import { Navbar } from './components/Navbar';
 import { GlobalEnglishOverlay } from './components/GlobalEnglishOverlay';
+import { CrossRegionNotice } from './components/CrossRegionNotice';
 import { supabase } from './lib/supabase';
 import { getOrCreateVisitSessionId } from './lib/clientSession';
 
@@ -113,6 +114,7 @@ import { ProfilePoints } from './pages/profile/ProfilePoints';
 import { ProfileCoupons } from './pages/profile/ProfileCoupons';
 import { ProfileTier } from './pages/profile/ProfileTier';
 import { ProfileReviews } from './pages/profile/ProfileReviews';
+import { ProfileSkinCare } from './pages/profile/ProfileSkinCare';
 import { ProfileTestResults } from './pages/profile/ProfileTestResults';
 import { ProfileTestResultDetail } from './pages/profile/ProfileTestResultDetail';
 import { Support } from './pages/Support';
@@ -124,6 +126,7 @@ import { AuthCallback, AUTH_MESSAGE_TYPE } from './pages/AuthCallback';
 import { AuthResetPassword } from './pages/AuthResetPassword';
 import { YandexCallback } from './pages/YandexCallback';
 import { Admin } from './pages/admin/Admin';
+import { GiftVoucher } from './pages/GiftVoucher';
 
 /** 상품 id가 바뀔 때마다 ProductDetail을 새로 마운트 → effect 중복·#310 완화 */
 function ProductDetailWithKey() {
@@ -149,6 +152,7 @@ function AppLayout() {
       : '';
   return (
     <>
+      <CrossRegionNotice />
       <AddItemFromQuery />
       <Navbar />
       <GlobalEnglishOverlay />
@@ -189,10 +193,12 @@ function AppLayout() {
               <Route path="/profile/points" element={<ProfilePoints />} />
               <Route path="/profile/coupons" element={<ProfileCoupons />} />
               <Route path="/profile/tier" element={<ProfileTier />} />
+              <Route path="/profile/skin-care" element={<ProfileSkinCare />} />
               <Route path="/profile/test-results" element={<ProfileTestResults />} />
               <Route path="/profile/test-results/:id" element={<ProfileTestResultDetail />} />
               <Route path="/profile/reviews" element={<ProfileReviews />} />
               <Route path="/profile/orders" element={<ProfileOrders />} />
+              <Route path="/gift-voucher" element={<GiftVoucher />} />
               <Route path="/admin" element={<Admin />} />
               <Route path="/login" element={<Login />} />
               <Route path="/auth/callback" element={<AuthCallback />} />

@@ -29,6 +29,7 @@ export const messages = {
       faq: 'FAQ',
       version: 'Версия',
       rights: 'All rights reserved.',
+      partnership: 'По вопросам партнёрства',
     },
   },
   en: {
@@ -59,6 +60,7 @@ export const messages = {
       faq: 'FAQ',
       version: 'Version',
       rights: 'All rights reserved.',
+      partnership: 'Partnership inquiries',
     },
   },
 } as const;

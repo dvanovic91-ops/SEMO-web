@@ -479,7 +479,9 @@ const emptySlot = (index: number): Slot => ({
 const RLS_ADMIN_HINT =
   ' Supabase SQL Editor에서 docs/SUPABASE_PROFILES_ADMIN_RLS.sql 전체 실행 후, 본인 프로필(profiles)에 is_admin = true 인지 확인하세요.';
 
-const ADMIN_TABS: { key: 'dashboard' | 'products' | 'skinMatch' | 'promo' | 'promoCodes' | 'broadcast' | 'orders' | 'activityLogs' | 'cartAbandonment' | 'reviewManagement' | 'members' | 'heroImage' | 'inventory' | 'productPlanning'; label: string }[] = [
+type AdminTabKey = 'dashboard' | 'products' | 'skinMatch' | 'promo' | 'promoCodes' | 'broadcast' | 'orders' | 'activityLogs' | 'cartAbandonment' | 'reviewManagement' | 'recommendationAnalytics' | 'members' | 'heroImage' | 'inventory' | 'productPlanning' | 'settings';
+
+const ADMIN_TABS: { key: AdminTabKey; label: string }[] = [
   { key: 'dashboard', label: '대시보드' },
   { key: 'heroImage', label: '히어로 이미지' },
   { key: 'products', label: '상품관리' },
@@ -493,7 +495,9 @@ const ADMIN_TABS: { key: 'dashboard' | 'products' | 'skinMatch' | 'promo' | 'pro
   { key: 'activityLogs', label: '활동 로그' },
   { key: 'cartAbandonment', label: '장바구니 이탈' },
   { key: 'reviewManagement', label: '리뷰 관리' },
+  { key: 'recommendationAnalytics', label: '추천 분석' },
   { key: 'members', label: '가입회원 관리' },
+  { key: 'settings', label: '설정' },
 ];
 
 /** 모바일 드로어·하단 탭: 탭별 아이콘 (가독성) */
@@ -510,16 +514,266 @@ const ADMIN_TAB_ICON: Record<(typeof ADMIN_TABS)[number]['key'], string> = {
   activityLogs: '📝',
   cartAbandonment: '🛒',
   reviewManagement: '⭐',
+  recommendationAnalytics: '📈',
   members: '👥',
   heroImage: '🖼️',
+  settings: '⚙️',
 };
+
+type RecommendationAnalyticsRow = {
+  skinType: string;
+  snapshots: number;
+  clicks: number;
+  carts: number;
+  purchases: number;
+  feedbacks: number;
+  avgOverall: number | null;
+  avgSkinFit: number | null;
+  irritationRate: number | null;
+};
+
+/** ──────────────────────────────────────
+ *  사이트 설정 탭 — 선물권 가격 등 site_settings 관리
+ * ────────────────────────────────────── */
+function SiteSettingsTab() {
+  const [giftPrice, setGiftPrice] = useState('');
+  const [loadingSettings, setLoadingSettings] = useState(true);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsMsg, setSettingsMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!supabase) { setLoadingSettings(false); return; }
+    supabase
+      .from('site_settings')
+      .select('value')
+      .eq('key', 'gift_voucher_price_rub')
+      .maybeSingle()
+      .then(({ data }) => {
+        const val = (data as { value?: string } | null)?.value ?? '10000';
+        setGiftPrice(val);
+      })
+      .catch(() => setGiftPrice('10000'))
+      .finally(() => setLoadingSettings(false));
+  }, []);
+
+  const handleSave = async () => {
+    if (!supabase) return;
+    const price = Number(giftPrice);
+    if (!Number.isFinite(price) || price <= 0) {
+      setSettingsMsg('가격은 0보다 큰 숫자여야 합니다.');
+      return;
+    }
+    setSavingSettings(true);
+    setSettingsMsg(null);
+    try {
+      const { error } = await supabase
+        .from('site_settings')
+        .upsert({ key: 'gift_voucher_price_rub', value: String(Math.round(price)) }, { onConflict: 'key' });
+      if (error) throw error;
+      setSettingsMsg('✅ 저장됐습니다.');
+    } catch (e) {
+      setSettingsMsg('❌ 저장 실패: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  if (loadingSettings) return <p className="py-10 text-center text-sm text-slate-400">불러오는 중…</p>;
+
+  return (
+    <section className="mx-auto mt-6 max-w-xl space-y-6">
+      <h2 className="text-lg font-semibold text-slate-900">사이트 설정</h2>
+
+      {/* 선물권 가격 */}
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-100 bg-slate-50/60 px-5 py-3">
+          <p className="text-sm font-semibold text-slate-800">🎁 선물권 가격</p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            /gift-voucher 페이지에 표시되는 가격. 변경 시 즉시 반영됩니다.
+          </p>
+        </div>
+        <div className="px-5 py-4">
+          <label className="text-xs font-medium text-slate-600" htmlFor="gift-price-input">
+            가격 (루블)
+          </label>
+          <div className="mt-1 flex items-center gap-2">
+            <input
+              id="gift-price-input"
+              type="number"
+              min="1"
+              step="100"
+              value={giftPrice}
+              onChange={(e) => setGiftPrice(e.target.value)}
+              className="w-40 rounded-lg border border-slate-200 px-3 py-2 text-sm tabular-nums focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+            />
+            <span className="text-sm text-slate-500">₽</span>
+          </div>
+          {settingsMsg && (
+            <p className="mt-2 text-xs text-slate-600">{settingsMsg}</p>
+          )}
+          <button
+            type="button"
+            disabled={savingSettings}
+            onClick={() => void handleSave()}
+            className="mt-3 rounded-full bg-brand px-5 py-2 text-sm font-semibold text-white transition hover:bg-brand/90 disabled:opacity-50"
+          >
+            {savingSettings ? '저장 중…' : '저장'}
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function RecommendationAnalyticsTab() {
+  const [rows, setRows] = useState<RecommendationAnalyticsRow[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      if (!supabase) {
+        setRows([]);
+        setLoading(false);
+        return;
+      }
+      setLoading(true);
+      const [{ data: snapshots }, { data: events }, { data: feedbacks }] = await Promise.all([
+        supabase.from('recommendation_snapshots').select('id, skin_type').limit(2000),
+        supabase.from('recommendation_events').select('recommendation_snapshot_id, event_type').limit(5000),
+        supabase.from('recommendation_feedback').select('recommendation_snapshot_id, overall_rating, skin_fit_rating, irritation_reported').limit(2000),
+      ]);
+      if (!alive) return;
+      const bySnapshot = new Map<string, string>();
+      const stats = new Map<string, RecommendationAnalyticsRow & { overallSum: number; skinFitSum: number; irritationCount: number }>();
+      const ensure = (skinType: string) => {
+        const key = skinType || 'UNKNOWN';
+        const existing = stats.get(key);
+        if (existing) return existing;
+        const row = {
+          skinType: key,
+          snapshots: 0,
+          clicks: 0,
+          carts: 0,
+          purchases: 0,
+          feedbacks: 0,
+          avgOverall: null,
+          avgSkinFit: null,
+          irritationRate: null,
+          overallSum: 0,
+          skinFitSum: 0,
+          irritationCount: 0,
+        };
+        stats.set(key, row);
+        return row;
+      };
+      ((snapshots ?? []) as { id: string; skin_type: string | null }[]).forEach((s) => {
+        const skinType = s.skin_type ?? 'UNKNOWN';
+        bySnapshot.set(s.id, skinType);
+        ensure(skinType).snapshots += 1;
+      });
+      ((events ?? []) as { recommendation_snapshot_id: string | null; event_type: string }[]).forEach((e) => {
+        const skinType = e.recommendation_snapshot_id ? bySnapshot.get(e.recommendation_snapshot_id) : null;
+        if (!skinType) return;
+        const row = ensure(skinType);
+        if (e.event_type === 'recommended_product_clicked') row.clicks += 1;
+        if (e.event_type === 'add_to_cart') row.carts += 1;
+        if (e.event_type === 'purchase_completed') row.purchases += 1;
+      });
+      ((feedbacks ?? []) as { recommendation_snapshot_id: string | null; overall_rating: number | null; skin_fit_rating: number | null; irritation_reported: boolean | null }[]).forEach((f) => {
+        const skinType = f.recommendation_snapshot_id ? bySnapshot.get(f.recommendation_snapshot_id) : null;
+        if (!skinType) return;
+        const row = ensure(skinType);
+        row.feedbacks += 1;
+        if (typeof f.overall_rating === 'number') row.overallSum += f.overall_rating;
+        if (typeof f.skin_fit_rating === 'number') row.skinFitSum += f.skin_fit_rating;
+        if (f.irritation_reported) row.irritationCount += 1;
+      });
+      const next = [...stats.values()]
+        .map((row) => ({
+          ...row,
+          avgOverall: row.feedbacks > 0 ? row.overallSum / row.feedbacks : null,
+          avgSkinFit: row.feedbacks > 0 ? row.skinFitSum / row.feedbacks : null,
+          irritationRate: row.feedbacks > 0 ? (row.irritationCount / row.feedbacks) * 100 : null,
+        }))
+        .sort((a, b) => b.snapshots - a.snapshots);
+      setRows(next);
+      setLoading(false);
+    };
+    void load();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const totalSnapshots = rows.reduce((sum, row) => sum + row.snapshots, 0);
+  const totalPurchases = rows.reduce((sum, row) => sum + row.purchases, 0);
+  const purchaseRate = totalSnapshots > 0 ? (totalPurchases / totalSnapshots) * 100 : 0;
+
+  return (
+    <section className="mt-4 space-y-4">
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-semibold text-slate-900">추천 성과 분석</h2>
+        <p className="mt-1 text-sm text-slate-500">피부 타입별 추천 노출, 클릭, 장바구니, 구매, 만족도를 비교합니다.</p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-xl bg-slate-50 p-4">
+            <p className="text-xs font-medium text-slate-500">추천 스냅샷</p>
+            <p className="mt-1 text-2xl font-semibold text-slate-900">{totalSnapshots.toLocaleString()}</p>
+          </div>
+          <div className="rounded-xl bg-slate-50 p-4">
+            <p className="text-xs font-medium text-slate-500">구매 이벤트</p>
+            <p className="mt-1 text-2xl font-semibold text-slate-900">{totalPurchases.toLocaleString()}</p>
+          </div>
+          <div className="rounded-xl bg-slate-50 p-4">
+            <p className="text-xs font-medium text-slate-500">추천 → 구매율</p>
+            <p className="mt-1 text-2xl font-semibold text-slate-900">{purchaseRate.toFixed(1)}%</p>
+          </div>
+        </div>
+      </div>
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        {loading ? (
+          <p className="p-5 text-sm text-slate-500">불러오는 중...</p>
+        ) : rows.length === 0 ? (
+          <p className="p-5 text-sm text-slate-500">아직 추천 데이터가 없습니다.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-200 text-sm">
+              <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="px-4 py-3 text-left">피부 타입</th>
+                  <th className="px-4 py-3 text-right">노출</th>
+                  <th className="px-4 py-3 text-right">클릭</th>
+                  <th className="px-4 py-3 text-right">장바구니</th>
+                  <th className="px-4 py-3 text-right">구매</th>
+                  <th className="px-4 py-3 text-right">만족도</th>
+                  <th className="px-4 py-3 text-right">자극률</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {rows.map((row) => (
+                  <tr key={row.skinType}>
+                    <td className="px-4 py-3 font-medium text-slate-900">{row.skinType}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">{row.snapshots}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">{row.clicks}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">{row.carts}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">{row.purchases}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">{row.avgOverall == null ? '—' : row.avgOverall.toFixed(1)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">{row.irritationRate == null ? '—' : `${row.irritationRate.toFixed(1)}%`}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
 
 export const Admin: React.FC = () => {
   const { isLoggedIn, initialized, isAdmin, canGrantPermission, canGrantAdminRole, userEmail } = useAuth();
   const canBroadcast = isAdmin;
-  const [tab, setTab] = useState<
-    'dashboard' | 'products' | 'skinMatch' | 'promo' | 'promoCodes' | 'broadcast' | 'orders' | 'activityLogs' | 'cartAbandonment' | 'reviewManagement' | 'members' | 'heroImage' | 'inventory' | 'productPlanning'
-  >('dashboard');
+  const [tab, setTab] = useState<AdminTabKey>('dashboard');
   /** 모바일: 햄버거로 열리는 탭 메뉴 */
   const [adminMobileMenuOpen, setAdminMobileMenuOpen] = useState(false);
   /** 헤더가 스크롤로 화면 밖으로 나가면 상단 고정바 표시 */
@@ -3956,6 +4210,8 @@ export const Admin: React.FC = () => {
       {/* ── 상품 & 재고 관리 탭 ── */}
       {tab === 'inventory' && <InventoryTab />}
       {tab === 'productPlanning' && <ProductPlanningTab />}
+      {tab === 'recommendationAnalytics' && <RecommendationAnalyticsTab />}
+      {tab === 'settings' && <SiteSettingsTab />}
 
       {tab === 'products' && (
         <section className="mt-4 space-y-4">

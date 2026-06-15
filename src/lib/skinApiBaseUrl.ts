@@ -12,9 +12,12 @@ export function getSkinApiBaseUrl(): string {
   return 'https://api.semo-box.com';
 }
 
-/** API 요청 기본 헤더 */
+/** API 요청 기본 헤더 — X-API-Key는 VITE_SKIN_API_KEY 환경변수에서 주입 */
 export const skinApiHeaders: Record<string, string> = {
   'Content-Type': 'application/json',
+  ...(import.meta.env.VITE_SKIN_API_KEY
+    ? { 'X-API-Key': import.meta.env.VITE_SKIN_API_KEY as string }
+    : {}),
 };
 
 /**

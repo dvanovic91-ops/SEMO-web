@@ -4,7 +4,9 @@ import { useAuth } from '../context/AuthContext';
 import { useI18n } from '../context/I18nContext';
 import { supabase } from '../lib/supabase';
 import { AuthInitializingScreen } from '../components/SemoPageSpinner';
-import { hasSelfieAnalysisSnapshot } from '../lib/skinTestSelfie';
+import { approximateScoresFromSkinTypeCode } from '../data/skinTestData';
+import { formatSkinTypeShort } from '../lib/skinTypeDisplay';
+import { hasSelfieAnalysisSnapshot, selfieAnalysisToClientState } from '../lib/skinTestSelfie';
 
 type DbProfileState = {
   name: string | null;
@@ -19,6 +21,36 @@ type ProfileMemCacheEntry = {
   membershipTier: 'basic' | 'premium' | 'family';
   updatedAt: number;
 };
+
+type SkinSummaryState = {
+  id: string;
+  skin_type: string | null;
+  completed_at: string;
+  baumann_scores?: unknown;
+  selfie_analysis?: unknown;
+};
+
+const EMPTY_SKIN_SCORES: Record<1 | 2 | 3 | 4, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
+
+function parseBaumannScores(raw: unknown, skinType: string | null): Record<1 | 2 | 3 | 4, number> {
+  let value = raw;
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value) as unknown;
+    } catch {
+      value = null;
+    }
+  }
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const obj = value as Record<string, unknown>;
+    const read = (key: '1' | '2' | '3' | '4') => {
+      const n = Number(obj[key]);
+      return Number.isFinite(n) ? Math.max(-10, Math.min(10, n)) : 0;
+    };
+    return { 1: read('1'), 2: read('2'), 3: read('3'), 4: read('4') };
+  }
+  return skinType ? approximateScoresFromSkinTypeCode(skinType) : EMPTY_SKIN_SCORES;
+}
 
 // 페이지 전환(리마운트) 시 0.1초 정도 스켈레톤이 보이는 문제를 완화하기 위한
 // "세션 동안만" 메모리 캐시(브라우저 영구 저장 X).
@@ -78,6 +110,7 @@ export const Profile: React.FC = () => {
   /** 회원 등급: basic(일반) / premium(프리미엄) / family(가족) — 주문 누계 기준으로 계산 */
   const [membershipTier, setMembershipTier] = useState<'basic' | 'premium' | 'family'>(initialMembershipTier);
   const [lastSkinType, setLastSkinType] = useState<string | null>(null);
+  const [skinSummary, setSkinSummary] = useState<SkinSummaryState | null>(null);
   /** 저장된 결과 중 셀카 분석 없음(설문만) 건수 — Tests 타일 배지용 */
   const [skinTestWithoutSelfieCount, setSkinTestWithoutSelfieCount] = useState(0);
   /** 헤더 배지: 사용 가능 멤버십 쿠폰 + 셀피 분석 프로젝트 수 (목록은 /profile/coupons) */
@@ -152,38 +185,44 @@ export const Profile: React.FC = () => {
     void refreshProfile();
   }, [refreshProfile, userId]);
 
-  // 마지막 тип кожи + 셀카 미완료 건수 (карточка «Тесты»)
+  // 마지막 тип кожи + 셀카 미완료 건수 + 홈 요약 패널용 점수
   useEffect(() => {
     if (!supabase || !userId) {
       setLastSkinType(null);
+      setSkinSummary(null);
       setSkinTestWithoutSelfieCount(0);
       return;
     }
     supabase
       .from('skin_test_results')
-      .select('skin_type, completed_at, selfie_analysis')
+      .select('id, skin_type, completed_at, baumann_scores, selfie_analysis')
       .eq('user_id', userId)
       .then(({ data }) => {
         if (data && data.length > 0) {
           const sorted = (
             data as {
+              id: string;
               skin_type: string | null;
               completed_at: string;
+              baumann_scores?: unknown;
               selfie_analysis?: unknown;
             }[]
           )
             .slice()
             .sort((a, b) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime());
           setLastSkinType(sorted[0].skin_type ?? null);
+          setSkinSummary(sorted[0] ?? null);
           const n = sorted.filter((r) => !hasSelfieAnalysisSnapshot(r.selfie_analysis)).length;
           setSkinTestWithoutSelfieCount(n);
         } else {
           setLastSkinType(null);
+          setSkinSummary(null);
           setSkinTestWithoutSelfieCount(0);
         }
       })
       .catch(() => {
         setLastSkinType(null);
+        setSkinSummary(null);
         setSkinTestWithoutSelfieCount(0);
       });
   }, [userId]);
@@ -294,6 +333,31 @@ export const Profile: React.FC = () => {
   /** 포인트: DB 조회 완료 후에만 숫자 표시(로딩 중 스켈레톤) */
   const pointsLoaded = dbProfile !== null;
   const displayPoints = dbProfile?.points ?? 0;
+  const skinScores = skinSummary
+    ? parseBaumannScores(skinSummary.baumann_scores, skinSummary.skin_type)
+    : EMPTY_SKIN_SCORES;
+  const skinSummaryHasSelfie = skinSummary ? hasSelfieAnalysisSnapshot(skinSummary.selfie_analysis) : false;
+  const skinSummarySelfie = skinSummary ? selfieAnalysisToClientState(skinSummary.selfie_analysis) : null;
+  const skinSummarySelfieMetrics = skinSummarySelfie?.skin_metrics ?? null;
+  const skinSummaryHref = skinSummary ? '/profile/skin-care' : '/skin-test';
+  const skinSummaryLabel = formatSkinTypeShort(skinSummary?.skin_type, language === 'en');
+  const miniSkinAxes = useMemo(
+    () =>
+      language === 'en'
+        ? [
+            { label: 'Dry/Oil', left: 'D', right: 'O', value: skinScores[1] },
+            { label: 'Sensitive', left: 'S', right: 'R', value: skinScores[2] },
+            { label: 'Pigment', left: 'P', right: 'N', value: skinScores[3] },
+            { label: 'Wrinkle', left: 'T', right: 'W', value: skinScores[4] },
+          ]
+        : [
+            { label: 'Сух./жирн.', left: 'D', right: 'O', value: skinScores[1] },
+            { label: 'Чувств.', left: 'S', right: 'R', value: skinScores[2] },
+            { label: 'Пигмент', left: 'P', right: 'N', value: skinScores[3] },
+            { label: 'Возраст', left: 'T', right: 'W', value: skinScores[4] },
+          ],
+    [language, skinScores],
+  );
 
   /** DB `profiles.is_admin` 기준 — VIP 등급 라벨·스타일 */
   const isVipAdminAccount = isAdmin;
@@ -649,9 +713,89 @@ export const Profile: React.FC = () => {
         </div>
       </div>
 
-      {/* 그래픽/아이콘 메뉴: 프로필·테스트·리뷰·주문 (카탈로그는 상단 네비 / SEMO Box에서만) */}
+      <Link
+        to={skinSummaryHref}
+        className="mt-4 block rounded-xl border border-brand/25 bg-brand-soft/95 px-3 py-4 shadow-sm ring-1 ring-brand/10 transition hover:border-brand/40 hover:bg-brand-soft sm:mt-5 sm:px-6 sm:py-5"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-semibold text-slate-900 sm:text-base">
+                {tr('Мой профиль кожи', 'My skin profile')}
+              </p>
+              {skinSummary ? (
+                <span className="rounded-full bg-white/90 px-2.5 py-1 text-xs font-semibold text-brand ring-1 ring-brand/20">
+                  {skinSummaryLabel}
+                </span>
+              ) : null}
+              {skinSummary && !skinSummaryHasSelfie ? (
+                <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700 ring-1 ring-amber-200">
+                  {tr('Нужно селфи', 'Add selfie')}
+                </span>
+              ) : null}
+            </div>
+            <p className="mt-1 text-xs leading-5 text-slate-600 sm:text-sm">
+              {skinSummary
+                ? tr('Последний тест отражён в кратких шкалах ниже.', 'Latest test reflected in the quick scores below.')
+                : tr('Пройдите тест, чтобы увидеть персональный профиль кожи.', 'Take the test to see your personal skin profile.')}
+            </p>
+          </div>
+
+          {!skinSummary ? (
+            <span className="inline-flex min-h-10 items-center justify-center rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white">
+              {tr('Пройти тест', 'Start test')}
+            </span>
+          ) : null}
+        </div>
+
+        {skinSummary ? (
+          <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+            {miniSkinAxes.map((axis) => {
+              const c = Math.max(-10, Math.min(10, axis.value));
+              const markerLeft = `${50 + c * 5}%`;
+              return (
+                <div key={axis.label} className="rounded-xl border border-white/80 bg-white/90 px-3 py-3 shadow-sm">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="truncate text-[11px] font-semibold uppercase tracking-wide text-slate-500">{axis.label}</span>
+                    <span className="shrink-0 text-sm font-semibold tabular-nums text-brand">{c > 0 ? `+${c}` : c}</span>
+                  </div>
+                  <div className="relative mt-3 h-2 rounded-full bg-slate-200">
+                    <span className="absolute left-1/2 top-1/2 h-2 w-px -translate-x-1/2 -translate-y-1/2 bg-slate-400/70" />
+                    <span
+                      className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand shadow-sm ring-2 ring-white"
+                      style={{ left: markerLeft }}
+                    />
+                  </div>
+                  <div className="mt-2 flex justify-between text-[10px] font-medium text-slate-400">
+                    <span>{axis.left}</span>
+                    <span>{axis.right}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+
+        {skinSummary && skinSummaryHasSelfie && skinSummarySelfieMetrics ? (
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {[
+              [tr('Покраснение', 'Redness'), skinSummarySelfieMetrics.redness_index],
+              [tr('Тон', 'Tone'), skinSummarySelfieMetrics.pigment_unevenness],
+              [tr('Текстура', 'Texture'), skinSummarySelfieMetrics.texture_roughness],
+              [tr('Блеск', 'Oiliness'), skinSummarySelfieMetrics.oiliness_index],
+            ].map(([label, value]) => (
+              <div key={String(label)} className="rounded-lg bg-white/70 px-3 py-2 text-xs">
+                <span className="text-slate-500">{label}</span>
+                <span className="float-right font-semibold tabular-nums text-slate-800">{Math.round(Number(value) || 0)}</span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </Link>
+
+      {/* 그래픽/아이콘 메뉴: 프로필·리뷰·주문 (카탈로그는 상단 네비 / SEMO Box에서만) */}
       <nav
-        className="mt-5 grid grid-cols-2 gap-2 sm:mt-8 sm:gap-3 xl:grid-cols-4 xl:gap-3"
+        className="mt-5 grid grid-cols-3 gap-2 sm:mt-8 sm:gap-3"
         aria-label="Profile menu"
       >
         <Link
@@ -666,36 +810,6 @@ export const Profile: React.FC = () => {
           <div className="min-w-0 px-0.5">
             <p className="text-center text-sm font-semibold text-slate-800 sm:text-base whitespace-nowrap">{tr('Профиль', 'Profile')}</p>
             <p className="prose-ru mt-0.5 text-center text-[10px] text-slate-500 sm:text-xs whitespace-nowrap">{tr('Личные данные', 'Personal data')}</p>
-          </div>
-        </Link>
-
-        <Link
-          to="/profile/test-results"
-          className="relative flex min-h-0 min-w-0 flex-col items-center gap-2 rounded-2xl border border-slate-100 bg-white px-2 py-3 text-center shadow-sm transition hover:border-brand/40 hover:bg-brand-soft/10 sm:px-3.5 sm:py-3.5"
-          aria-label={
-            skinTestWithoutSelfieCount > 0
-              ? `${tr('Тесты', 'Tests')}, ${tr('добавьте селфи к результату', 'add selfie to a saved result')}: ${skinTestWithoutSelfieCount}`
-              : tr('Тесты', 'Tests')
-          }
-        >
-          {skinTestWithoutSelfieCount > 0 && (
-            <span
-              className="absolute right-2 top-2 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold leading-none text-white shadow-sm ring-2 ring-white"
-              aria-hidden
-            >
-              {skinTestWithoutSelfieCount > 9 ? '9+' : skinTestWithoutSelfieCount}
-            </span>
-          )}
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-            </svg>
-          </span>
-          <div className="min-w-0 px-0.5">
-            <p className="text-center text-sm font-semibold text-slate-800 sm:text-base whitespace-nowrap">{tr('Тесты', 'Tests')}</p>
-            <p className="prose-ru mt-0.5 text-center text-[10px] text-slate-500 sm:text-xs whitespace-nowrap">
-              {lastSkinType ? (language === 'en' ? `Latest: ${lastSkinType}` : `Последний: ${lastSkinType}`) : tr('Последний: —', 'Latest: —')}
-            </p>
           </div>
         </Link>
 

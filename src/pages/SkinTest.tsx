@@ -27,6 +27,7 @@ import { SkinResultMetricsCharts } from '../components/SkinResultMetricsCharts';
 import { buildConcernMetricFocusForApi } from '../lib/concernMetricHighlight';
 import { selfieAnalysisToClientState } from '../lib/skinTestSelfie';
 import { buildSkinStateSummaryParagraph } from '../lib/skinTestStateSummary';
+import { createRecommendationSnapshot, trackRecommendationEvent } from '../lib/recommendationTracking';
 
 const MAX_TEST_COUNT = 2;
 
@@ -276,6 +277,8 @@ const PROFILE_STEPS_EN = [
   { key: 'age', label: 'Your age?', options: [['Under 20', 'age_1'], ['20-25', 'age_2'], ['26-30', 'age_3'], ['31-35', 'age_4'], ['36-40', 'age_5'], ['41-45', 'age_6'], ['45+', 'age_7']] as [string, string][] },
   { key: 'gender', label: 'Your gender?', options: [['Female', 'gen_f'], ['Male', 'gen_m']] as [string, string][] },
   { key: 'routine', label: 'How would you describe your skin routine?', options: [['Almost none', 'rut_1'], ['Basic routine only', 'rut_2'], ['Full routine', 'rut_3']] as [string, string][] },
+  { key: 'recent_irritation', label: 'In the last 3 months, have you had a reaction to skincare products, such as stinging, redness, itching, or burning?', options: [['Yes, often', 'irritation_often'], ['Sometimes', 'irritation_sometimes'], ['Rarely', 'irritation_rare'], ["I'm not sure", 'irritation_unknown']] as [string, string][] },
+  { key: 'fragrance_sensitivity', label: 'Does your skin react to fragrance, perfume, or essential oils in skincare?', options: [['Yes, I try to avoid them', 'fragrance_avoid'], ['Sometimes', 'fragrance_sometimes'], ['Usually no problem', 'fragrance_ok'], ["I'm not sure", 'fragrance_unknown']] as [string, string][] },
   { key: 'source', label: 'How did you hear about us?', options: [['Instagram / Social media', 'src_ig'], ['Friend recommendation', 'src_friend'], ['Yandex search', 'src_yandex'], ['Marketplaces', 'src_market'], ['Other', 'src_other']] as [string, string][] },
 ] as const;
 
@@ -438,6 +441,8 @@ export const SkinTest: React.FC = () => {
   const [cartToast, setCartToast] = useState(false);
   const [prevResultSkinType, setPrevResultSkinType] = useState<string | null>(null);
   const [prevResultAt, setPrevResultAt] = useState<string | null>(null);
+  /** 가장 최근 테스트 결과 PK — 과거(비최신) 결과에선 추천 노출을 막기 위함 */
+  const [latestResultId, setLatestResultId] = useState<string | null>(null);
   /** null = 로컬스토리지에서 쿠폰 장수 읽기 전(깜빡임 방지). 0이면 셀카 분석 UI 자체 숨김 */
   const [selfieCouponCount, setSelfieCouponCount] = useState<number | null>(null);
   const [selfieCouponNotice, setSelfieCouponNotice] = useState<string | null>(null);
@@ -492,6 +497,7 @@ export const SkinTest: React.FC = () => {
   const pendingAiPersistRef = useRef<Record<string, unknown> | null>(null);
   /** DB에서 결과/셀피 스냅샷 1회 로드 (같은 키 중복 방지) */
   const persistedSkinLoadKeyRef = useRef<string>('');
+  const recommendationSnapshotKeyRef = useRef<string>('');
 
   /** rowId가 늦게 확정돼도 큐잉된 selfie/ai 저장을 재시도 */
   const flushQueuedPersists = useCallback(async () => {
@@ -661,25 +667,28 @@ export const SkinTest: React.FC = () => {
     if (!supabase || !userId) {
       setPrevResultSkinType(null);
       setPrevResultAt(null);
+      setLatestResultId(null);
       return;
     }
     let cancelled = false;
     supabase
       .from('skin_test_results')
-      .select('skin_type, created_at')
+      .select('id, skin_type, created_at')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(1)
       .then(({ data }) => {
         if (cancelled) return;
-        const row = (data?.[0] as { skin_type?: string | null; created_at?: string | null } | undefined) ?? null;
+        const row = (data?.[0] as { id?: string | null; skin_type?: string | null; created_at?: string | null } | undefined) ?? null;
         setPrevResultSkinType(row?.skin_type ?? null);
         setPrevResultAt(row?.created_at ?? null);
+        setLatestResultId(row?.id ?? null);
       })
       .catch(() => {
         if (cancelled) return;
         setPrevResultSkinType(null);
         setPrevResultAt(null);
+        setLatestResultId(null);
       });
     return () => {
       cancelled = true;
@@ -1034,7 +1043,7 @@ export const SkinTest: React.FC = () => {
           });
 
         if (!cancelled) {
-          setRecommendedProductPreview({
+          const preview = {
             productId,
             name: productData.name ?? 'Beauty box',
             thumb1,
@@ -1042,8 +1051,59 @@ export const SkinTest: React.FC = () => {
             composition,
             prp_price: productData.prp_price != null ? Number(productData.prp_price) : null,
             rrp_price: productData.rrp_price != null ? Number(productData.rrp_price) : null,
-            status: 'ok',
+            status: 'ok' as const,
+          };
+          setRecommendedProductPreview({
+            ...preview,
           });
+          const skinTestResultId = pendingSkinTestResultRowIdRef.current;
+          const snapshotKey = `${userId ?? 'anon'}:${skinTestResultId ?? 'no-row'}:${result.type}:${productId}`;
+          if (userId && skinTestResultId && recommendationSnapshotKeyRef.current !== snapshotKey) {
+            recommendationSnapshotKeyRef.current = snapshotKey;
+            void createRecommendationSnapshot({
+              userId,
+              skinTestResultId,
+              skinType: result.type,
+              baumannScores: result.scores,
+              selfieMetrics: selfieAnalyzeResult?.skin_metrics ?? null,
+              recommendedProductId: productId,
+              recommendedItems: composition.map((item) => ({
+                component_id: item.id,
+                sku_id: item.sku_id ?? null,
+                name: item.name,
+                product_type: item.product_type ?? null,
+                is_customized: item.is_customized,
+              })),
+              skinFitScore: 82,
+              boxFitScore: composition.length > 0 ? 84 : null,
+              confidenceScore: selfieAnalyzeResult ? 86 : 72,
+              reasonCodes: ['skin_type_slot_match', ...(selfieAnalyzeResult ? ['selfie_metrics_available'] : [])],
+              context: {
+                language,
+                country,
+                currency,
+                region_code: regionCode,
+                age_code: profileData.age ?? null,
+                concern_code: profileData.concern ?? null,
+                recent_irritation: profileData.recent_irritation ?? null,
+                fragrance_sensitivity: profileData.fragrance_sensitivity ?? null,
+              },
+            }).then((snapshot) => {
+              if (!snapshot) return;
+              void trackRecommendationEvent({
+                userId,
+                eventType: 'recommendation_viewed',
+                recommendationSnapshotId: snapshot.id,
+                skinTestResultId,
+                productId,
+                metadata: {
+                  source: 'skin_test_result_preview',
+                  skin_type: result.type,
+                  product_name: preview.name,
+                },
+              });
+            });
+          }
         }
       } catch {
         if (!cancelled) terminalFetchFailed();
@@ -1052,7 +1112,18 @@ export const SkinTest: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [result?.type, language]);
+  }, [
+    result?.type,
+    resultSyncNonce,
+    language,
+    userId,
+    currency,
+    country,
+    regionCode,
+    profileData.age,
+    profileData.concern,
+    selfieAnalyzeResult,
+  ]);
 
   /** AI 분석 호출:
    * - 새 테스트 결과(쿼리 없음): 1회 생성 허용
@@ -1212,6 +1283,17 @@ export const SkinTest: React.FC = () => {
   const canAddRecommendedToCart =
     recommendedProductPreview?.status === 'ok' && !!recommendedProductPreview.productId;
 
+  /**
+   * 과거(비최신) 결과를 열어본 경우 — 추천은 그 시점의 피부·재고 기준이라 최신성이 떨어짐.
+   * 신뢰 보호를 위해 과거 결과에선 제품 추천/구매 CTA를 숨기고 재검사를 안내한다.
+   */
+  const isViewingPastResult =
+    !!userId &&
+    resultRowIdFromQueryOk &&
+    !!resultRowIdQueryParam &&
+    !!latestResultId &&
+    resultRowIdQueryParam !== latestResultId;
+
   const handleAddRecommendedToCart = () => {
     const p = recommendedProductPreview;
     if (!p || p.status !== 'ok' || !p.productId) return;
@@ -1225,6 +1307,16 @@ export const SkinTest: React.FC = () => {
       imageUrl: thumb,
       originalPrice: prp != null && rrp != null ? rrp : undefined,
       currency,
+    });
+    void trackRecommendationEvent({
+      userId,
+      eventType: 'add_to_cart',
+      productId: p.productId,
+      metadata: {
+        source: 'skin_test_recommendation',
+        product_name: p.name,
+        skin_type: result?.type ?? null,
+      },
     });
     setCartToast(true);
   };
@@ -1352,6 +1444,8 @@ export const SkinTest: React.FC = () => {
               skin_type: type,
               concern_text: concernText || null,
               baumann_scores,
+              recent_irritation: profileData.recent_irritation ?? null,
+              fragrance_sensitivity: profileData.fragrance_sensitivity ?? null,
             })
             .select('id')
             .single()
@@ -2518,8 +2612,28 @@ export const SkinTest: React.FC = () => {
             </div>
           )}
 
+          {/* 과거(비최신) 결과: 추천 대신 «기록 + 재검사» 안내 */}
+          {isViewingPastResult && (
+            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-5 sm:px-6 sm:py-6">
+              <p className="text-sm font-semibold text-slate-800">
+                {isEn ? 'This is a past result' : 'Это прошлый результат'}
+              </p>
+              <p className="mt-2 text-xs leading-relaxed text-slate-600 sm:text-sm">
+                {isEn
+                  ? 'Skin and our lineup change over time, so we only show product recommendations for your latest test. Retake the test for a fresh, accurate pick.'
+                  : 'Кожа и наш ассортимент со временем меняются, поэтому рекомендации мы показываем только для последнего теста. Пройдите тест заново для точного подбора.'}
+              </p>
+              <Link
+                to="/skin-test"
+                className="mt-4 inline-flex min-h-11 items-center justify-center rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-brand/90"
+              >
+                {isEn ? 'Retake test' : 'Пройти заново'}
+              </Link>
+            </div>
+          )}
+
           {/* Персональный выбор SEMO */}
-          {!(userId && selfieFirstFlow) && <div className="mt-3 rounded-xl border border-brand/20 bg-brand-soft/25 px-3 py-4 sm:px-5 sm:py-5 md:px-6 md:py-6">
+          {!(userId && selfieFirstFlow) && !isViewingPastResult && <div className="mt-3 rounded-xl border border-brand/20 bg-brand-soft/25 px-3 py-4 sm:px-5 sm:py-5 md:px-6 md:py-6">
             <p className="text-sm font-medium tracking-wide text-brand">
               {recommendedProductPreview?.status === 'ok' && recommendedProductPreview.name?.trim()
                 ? (isEn ? `SEMO personal pick: ${recommendedProductPreview.name.trim()}` : `Персональный выбор SEMO : ${recommendedProductPreview.name.trim()}`)
@@ -2588,7 +2702,7 @@ export const SkinTest: React.FC = () => {
 
 
           {/* CTA 섹션 */}
-          {!(userId && selfieFirstFlow) && <div className="mt-10 flex flex-col items-center gap-4">
+          {!(userId && selfieFirstFlow) && !isViewingPastResult && <div className="mt-10 flex flex-col items-center gap-4">
 
             {/* ── 비로그인: 회원가입 유도 배너 ── */}
             {!userId && (
@@ -2617,6 +2731,18 @@ export const SkinTest: React.FC = () => {
             <div className="mx-auto flex w-full max-w-md flex-row items-stretch justify-center gap-2 sm:max-w-lg sm:gap-3">
               <Link
                 to={getRecommendationPath(result.type)}
+                onClick={() => {
+                  void trackRecommendationEvent({
+                    userId,
+                    eventType: 'recommended_product_clicked',
+                    productId: recommendedProductPreview?.productId ?? null,
+                    metadata: {
+                      source: 'skin_test_result_cta',
+                      skin_type: result.type,
+                      product_name: recommendedProductPreview?.name ?? null,
+                    },
+                  });
+                }}
                 className={`inline-flex min-h-11 items-center justify-center rounded-full border border-brand bg-white px-3 py-2.5 text-center text-xs font-medium text-brand transition hover:bg-brand-soft/25 sm:px-4 sm:text-sm ${
                   canAddRecommendedToCart ? 'min-w-0 flex-1 basis-0' : 'w-full max-w-[240px]'
                 }`}

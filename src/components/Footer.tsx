@@ -19,6 +19,12 @@ export const Footer: React.FC = () => {
             {t(language, 'footer', 'faq')}
           </Link>
         </div>
+        <div className="mb-3 text-xs text-slate-400">
+          {t(language, 'footer', 'partnership')}:{' '}
+          <a href="mailto:semo@semo-box.com" className="hover:text-brand hover:underline">
+            semo@semo-box.com
+          </a>
+        </div>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs text-slate-400">
             © {year} SEMO box. {t(language, 'footer', 'rights')}

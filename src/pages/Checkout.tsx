@@ -26,6 +26,7 @@ import { validateShippingComplete } from '../lib/shippingValidation';
 import { clampDigits } from '../lib/digitsOnly';
 import { detectCountryFromPhone, formatIntlPhoneByCountry, type PhoneCountry } from '../lib/phoneIntl';
 import { formatCurrencyAmount } from '../lib/market';
+import { getLatestRecommendationSnapshot, trackRecommendationEvent } from '../lib/recommendationTracking';
 import { CustomsPassportNotice } from '../components/CustomsPassportNotice';
 import { InnHelpTooltip } from '../components/InnHelpTooltip';
 import { accountPrimaryCtaClass, accountResendOutlineCtaClass } from '../lib/accountLinkUi';
@@ -140,7 +141,7 @@ export const Checkout: React.FC = () => {
   } | null>(null);
   const [userPoints, setUserPoints] = useState<number>(0);
   const [membershipCoupons, setMembershipCoupons] = useState<
-    { id: string; amount: number; expires_at: string; used_at: string | null }[]
+    { id: string; amount: number; expires_at: string; used_at: string | null; tier?: string | null }[]
   >([]);
   const [selectedCouponId, setSelectedCouponId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -255,13 +256,13 @@ export const Checkout: React.FC = () => {
 
       const { data: coupons } = await supabase
         .from('membership_coupons')
-        .select('id, amount, expires_at, used_at')
+        .select('id, amount, expires_at, used_at, tier')
         .eq('user_id', userId)
         .is('used_at', null)
         .gt('expires_at', new Date().toISOString())
         .order('expires_at', { ascending: true });
       setMembershipCoupons(
-        (coupons as { id: string; amount: number; expires_at: string; used_at: string | null }[]) ?? [],
+        (coupons as { id: string; amount: number; expires_at: string; used_at: string | null; tier?: string | null }[]) ?? [],
       );
       setSelectedCouponId(null);
       setShippingLoaded(true);
@@ -556,7 +557,12 @@ export const Checkout: React.FC = () => {
   const clampedPointsToUse = Math.min(pointsToUse, effectivePointsMax, total);
   const selectedCoupon = membershipCoupons.find((c) => c.id === selectedCouponId) ?? null;
   const maxCouponDiscount = Math.max(0, total - clampedPointsToUse);
-  const couponDiscount = selectedCoupon ? Math.min(selectedCoupon.amount, maxCouponDiscount) : 0;
+  // gift_box tier = 선물권 쿠폰: amount는 0이지만 전체 주문금액 할인 적용
+  const couponDiscount = selectedCoupon
+    ? selectedCoupon.tier === 'gift_box'
+      ? maxCouponDiscount
+      : Math.min(selectedCoupon.amount, maxCouponDiscount)
+    : 0;
   const finalAmount = total - clampedPointsToUse - couponDiscount;
 
   const handleConfirmOrder = async () => {
@@ -603,6 +609,19 @@ export const Checkout: React.FC = () => {
       // 주문 스냅샷: 당시 상품명·가격을 orders.items / snapshot_items에 저장. 관리자가 이후 상품 가격을 바꿔도 과거 주문 금액은 변경되지 않음.
       const snapshotItems = items.map((i) => ({ id: i.id, name: i.name, quantity: i.quantity, price: i.price }));
       const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+      const latestRecommendation = getLatestRecommendationSnapshot();
+      void trackRecommendationEvent({
+        userId,
+        eventType: 'checkout_started',
+        recommendationSnapshotId: latestRecommendation?.id ?? null,
+        skinTestResultId: latestRecommendation?.skinTestResultId ?? null,
+        productId: latestRecommendation?.recommendedProductId ?? null,
+        metadata: {
+          total_cents: Math.round(total * 100),
+          final_cents: snapshotCents,
+          items: snapshotItems,
+        },
+      });
 
       // CS 방어: 결제 버튼 클릭 시점 로그 (타임라인 증거). 실패해도 주문 흐름은 계속
       try {
@@ -653,11 +672,21 @@ export const Checkout: React.FC = () => {
 
       // 사용 포인트(코펙): Admin 주문 목록 "사용 포인트" 컬럼 표시용
       const pointsUsedCents = Math.round(clampedPointsToUse * 100);
-      const buildPayloads = (includePointsUsed = true) => ({
+      const recommendationOrderFields =
+        latestRecommendation && latestRecommendation.userId === userId
+          ? {
+              recommendation_snapshot_id: latestRecommendation.id,
+              skin_test_result_id: latestRecommendation.skinTestResultId ?? null,
+              skin_type_at_purchase: latestRecommendation.skinType ?? null,
+              recommendation_match_score: latestRecommendation.skinFitScore ?? null,
+            }
+          : {};
+      const buildPayloads = (includePointsUsed = true, includeRecommendation = true) => ({
         full: orderNumberOpt({
           user_id: userId,
           total_cents: snapshotCents,
           ...(includePointsUsed ? { points_used: pointsUsedCents } : {}),
+          ...(includeRecommendation ? recommendationOrderFields : {}),
           status: 'pending',
           items: snapshotItems,
           receiver_name: receiverName,
@@ -676,6 +705,7 @@ export const Checkout: React.FC = () => {
           user_id: userId,
           total_cents: snapshotCents,
           ...(includePointsUsed ? { points_used: pointsUsedCents } : {}),
+          ...(includeRecommendation ? recommendationOrderFields : {}),
           status: 'pending',
           items: snapshotItems,
           receiver_name: receiverName,
@@ -690,6 +720,7 @@ export const Checkout: React.FC = () => {
           user_id: userId,
           total_cents: snapshotCents,
           ...(includePointsUsed ? { points_used: pointsUsedCents } : {}),
+          ...(includeRecommendation ? recommendationOrderFields : {}),
           status: 'pending',
           items: snapshotItems,
           receiver_name: receiverName,
@@ -711,19 +742,21 @@ export const Checkout: React.FC = () => {
         const { order_number: _, ...rest } = o;
         return rest;
       };
-      const payloadsNoOrderNumber = (includePointsUsed = true) => ({
-        full: stripOrderNumber(buildPayloads(includePointsUsed).full as Record<string, unknown>),
-        minimal: stripOrderNumber(buildPayloads(includePointsUsed).minimal as Record<string, unknown>),
-        minimalNoTest: stripOrderNumber(buildPayloads(includePointsUsed).minimalNoTest as Record<string, unknown>),
-        absoluteMinimal: stripOrderNumber(buildPayloads(includePointsUsed).absoluteMinimal as Record<string, unknown>),
+      const payloadsNoOrderNumber = (includePointsUsed = true, includeRecommendation = true) => ({
+        full: stripOrderNumber(buildPayloads(includePointsUsed, includeRecommendation).full as Record<string, unknown>),
+        minimal: stripOrderNumber(buildPayloads(includePointsUsed, includeRecommendation).minimal as Record<string, unknown>),
+        minimalNoTest: stripOrderNumber(buildPayloads(includePointsUsed, includeRecommendation).minimalNoTest as Record<string, unknown>),
+        absoluteMinimal: stripOrderNumber(buildPayloads(includePointsUsed, includeRecommendation).absoluteMinimal as Record<string, unknown>),
       });
 
       let orderRow: { id: string; order_number?: string | null } | null = null;
       let orderError: { code?: string; message?: string; details?: unknown } | null = null;
 
       const selectCols = (withOrderNumber: boolean) => (withOrderNumber ? 'id, order_number' : 'id');
-      const runInsert = async (withOrderNumber: boolean, includePointsUsed = true) => {
-        const payloads = withOrderNumber ? buildPayloads(includePointsUsed) : payloadsNoOrderNumber(includePointsUsed);
+      const runInsert = async (withOrderNumber: boolean, includePointsUsed = true, includeRecommendation = true) => {
+        const payloads = withOrderNumber
+          ? buildPayloads(includePointsUsed, includeRecommendation)
+          : payloadsNoOrderNumber(includePointsUsed, includeRecommendation);
         const sel = selectCols(withOrderNumber);
         const { data: fullData, error: fullError } = await supabase.from('orders').insert(payloads.full).select(sel).single();
         if (!fullError) return fullData as { id: string; order_number?: string | null };
@@ -751,6 +784,20 @@ export const Checkout: React.FC = () => {
         if (!orderRow && orderError && (orderError.message?.includes('order_number') || orderError.message?.includes('column'))) {
           orderError = null;
           orderRow = await runInsert(false, false);
+        }
+      }
+      if (
+        !orderRow &&
+        orderError &&
+        ['recommendation_snapshot_id', 'skin_test_result_id', 'skin_type_at_purchase', 'recommendation_match_score'].some((col) =>
+          orderError?.message?.includes(col),
+        )
+      ) {
+        orderError = null;
+        orderRow = await runInsert(true, true, false);
+        if (!orderRow && orderError && (orderError.message?.includes('order_number') || orderError.message?.includes('column'))) {
+          orderError = null;
+          orderRow = await runInsert(false, true, false);
         }
       }
 
@@ -836,6 +883,20 @@ export const Checkout: React.FC = () => {
         }
       }
 
+      void trackRecommendationEvent({
+        userId,
+        eventType: 'purchase_completed',
+        recommendationSnapshotId: latestRecommendation?.id ?? null,
+        skinTestResultId: latestRecommendation?.skinTestResultId ?? null,
+        productId: latestRecommendation?.recommendedProductId ?? null,
+        orderId,
+        metadata: {
+          order_number: orderNumberForDisplay,
+          total_cents: snapshotCents,
+          items: snapshotItems,
+        },
+      });
+
       if (clampedPointsToUse > 0) {
         const { error: pointsErr } = await supabase.rpc('apply_points_delta', {
           p_user_id: userId,
@@ -855,7 +916,9 @@ export const Checkout: React.FC = () => {
         }
       }
 
-      if (selectedCoupon && couponDiscount > 0) {
+      // gift_box 쿠폰은 couponDiscount=0이어도 사용 처리 (주문금액 전액 할인)
+      const shouldMarkCouponUsed = selectedCoupon && (couponDiscount > 0 || selectedCoupon.tier === 'gift_box');
+      if (shouldMarkCouponUsed) {
         try {
           await supabase
             .from('membership_coupons')
@@ -1419,11 +1482,14 @@ export const Checkout: React.FC = () => {
                     </button>
                     {membershipCoupons.map((c) => {
                       const expires = new Date(c.expires_at);
-                      const label = `${c.amount} ₽ · до ${expires.toLocaleDateString('ru-RU', {
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric',
-                      })}`;
+                      const isGiftBox = c.tier === 'gift_box';
+                      const label = isGiftBox
+                        ? `🎁 Подарочный сертификат · до ${expires.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })}`
+                        : `${c.amount} ₽ · до ${expires.toLocaleDateString('ru-RU', {
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric',
+                          })}`;
                       const selected = selectedCouponId === c.id;
                       return (
                         <button

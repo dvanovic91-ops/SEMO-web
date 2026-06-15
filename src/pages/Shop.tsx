@@ -768,6 +768,34 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
         </>
       )}
 
+      {/* ── 선물권 배너 (뷰티박스 탭에만 표시) ── */}
+      {layoutCategory === 'beauty' && (
+        <section className="mx-auto mt-10 max-w-2xl px-1 sm:px-0">
+          <Link
+            to="/gift-voucher"
+            className="group flex flex-col gap-4 overflow-hidden rounded-2xl border border-brand/20 bg-gradient-to-br from-brand-soft/70 via-brand-soft/50 to-white px-5 py-5 shadow-sm transition hover:border-brand/35 hover:shadow-md sm:flex-row sm:items-center sm:gap-6 sm:px-6 sm:py-6"
+          >
+            <span className="text-5xl" role="img" aria-label="gift">🎁</span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-brand">
+                {language === 'en' ? 'Gift' : 'Подарок'}
+              </p>
+              <h2 className="mt-0.5 text-base font-semibold text-slate-900 sm:text-lg">
+                {language === 'en' ? 'SEMO Gift Voucher' : 'Подарочный сертификат SEMO'}
+              </h2>
+              <p className="mt-1 text-sm leading-5 text-slate-500">
+                {language === 'en'
+                  ? 'Gift a personalised K-beauty box — products matched to her skin. 10 000 ₽ · Valid 1 year.'
+                  : 'Подари персонализированный K-beauty бокс — продукты под её кожу. 10 000 ₽ · Действует год.'}
+              </p>
+            </div>
+            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition group-hover:bg-brand/90">
+              {language === 'en' ? 'Buy →' : 'Купить →'}
+            </span>
+          </Link>
+        </section>
+      )}
+
       {showAddedToast && (
         <div
           className="fixed bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-slate-800 px-5 py-2.5 text-sm font-medium text-white shadow-lg md:bottom-6"

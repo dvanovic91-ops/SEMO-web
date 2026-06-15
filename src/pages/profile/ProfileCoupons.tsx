@@ -18,6 +18,9 @@ type CouponRow = {
 };
 
 function couponTypeLabelRu(c: CouponRow): string {
+  if (c.tier === 'gift_box') {
+    return 'Gift voucher';
+  }
   if (c.tier === 'special' || (c.quarter_label ?? '').startsWith('special-')) {
     return 'Special coupon';
   }
@@ -103,35 +106,67 @@ export const ProfileCoupons: React.FC = () => {
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, [refresh]);
 
+  const isEn = language === 'en';
+  const tr = (en: string, ru: string) => (isEn ? en : ru);
+
   const handleRedeemPromoCode = async () => {
     const raw = promoCodeInput.trim();
     if (!raw || !supabase || !targetUserId) return;
     setPromoRedeemLoading(true);
     setPromoRedeemMessage(null);
     const p_code = raw.toUpperCase();
+
     try {
+      // 선물권 코드 (SEMO-GIFT-XXXX) → redeem_gift_voucher RPC로 라우팅
+      if (p_code.startsWith('SEMO-GIFT-')) {
+        const { data, error } = await supabase.rpc('redeem_gift_voucher', { p_code, p_user_id: targetUserId });
+        if (error) {
+          if (error.message.includes('function') || error.code === 'PGRST202') {
+            setPromoRedeemMessage(tr(
+              'Gift voucher activation is temporarily unavailable. Please contact support.',
+              'Активация сертификата временно недоступна. Обратитесь в поддержку.',
+            ));
+          } else {
+            setPromoRedeemMessage(error.message || tr('Failed to activate voucher.', 'Не удалось активировать сертификат.'));
+          }
+          return;
+        }
+        const ok = data && typeof data === 'object' && (data as { ok?: boolean }).ok === true;
+        if (ok) {
+          setPromoRedeemMessage(tr('Gift voucher activated! Box coupon has been added.', 'Подарочный сертификат активирован! Купон на бокс добавлен.'));
+          setPromoCodeInput('');
+          refresh();
+        } else {
+          const err = (data as { error?: string } | null)?.error;
+          setPromoRedeemMessage(err || tr('Code is invalid or already used.', 'Код недействителен или уже использован.'));
+        }
+        return;
+      }
+
+      // 일반 프로모 코드 → redeem_promo_code RPC
       const { data, error } = await supabase.rpc('redeem_promo_code', { p_code });
       if (error) {
         if (error.message.includes('function') || error.code === 'PGRST202') {
-          setPromoRedeemMessage(
+          setPromoRedeemMessage(tr(
             'Promo code activation is temporarily unavailable. Please contact support or try again later.',
-          );
+            'Активация промокода временно недоступна. Попробуйте позже или обратитесь в поддержку.',
+          ));
         } else {
-          setPromoRedeemMessage(error.message || 'Failed to activate code.');
+          setPromoRedeemMessage(error.message || tr('Failed to activate code.', 'Не удалось активировать код.'));
         }
         return;
       }
       const ok = data && typeof data === 'object' && (data as { ok?: boolean }).ok === true;
       if (ok) {
-        setPromoRedeemMessage('Promo code activated. Coupon has been added.');
+        setPromoRedeemMessage(tr('Promo code activated. Coupon has been added.', 'Промокод активирован. Купон добавлен.'));
         setPromoCodeInput('');
         refresh();
       } else {
         const err = (data as { error?: string } | null)?.error;
-        setPromoRedeemMessage(err || 'Code is invalid or already used.');
+        setPromoRedeemMessage(err || tr('Code is invalid or already used.', 'Код недействителен или уже использован.'));
       }
     } catch (e) {
-      setPromoRedeemMessage(e instanceof Error ? e.message : 'Network error.');
+      setPromoRedeemMessage(e instanceof Error ? e.message : tr('Network error.', 'Ошибка сети.'));
     } finally {
       setPromoRedeemLoading(false);
     }
@@ -172,12 +207,12 @@ export const ProfileCoupons: React.FC = () => {
         >
           <div className="min-w-0">
             <h2 className="text-sm font-semibold text-slate-900">
-              {language === 'en' ? 'Promo code' : 'Промокод'}
+              {language === 'en' ? 'Promo / Gift code' : 'Промокод / Подарочный сертификат'}
             </h2>
             <p className="mt-0.5 text-xs text-slate-500">
               {language === 'en'
-                ? 'Have a code? Tap to enter — it adds to your list below.'
-                : 'Есть код? Нажмите, чтобы ввести — купон появится в списке ниже.'}
+                ? 'Have a promo or gift voucher code? Tap to enter — it will appear in your list below.'
+                : 'Есть промокод или код подарочного сертификата? Введите — купон появится в списке ниже.'}
             </p>
           </div>
           <svg
@@ -198,7 +233,7 @@ export const ProfileCoupons: React.FC = () => {
                 type="text"
                 value={promoCodeInput}
                 onChange={(e) => setPromoCodeInput(e.target.value)}
-                placeholder={language === 'en' ? 'Example: SEMO-2026-XXXX' : 'Например: SEMO-2026-XXXX'}
+                placeholder={language === 'en' ? 'Example: SEMO-GIFT-XXXXXXXX or SEMO-2026-XXXX' : 'Например: SEMO-GIFT-XXXXXXXX или SEMO-2026-XXXX'}
                 autoComplete="off"
                 className="min-h-11 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
               />
@@ -269,23 +304,36 @@ export const ProfileCoupons: React.FC = () => {
               const isUsed = !!c.used_at;
               const isExpired = !isUsed && expires.getTime() < now.getTime();
               const statusText = isUsed
-                ? 'Used'
+                ? language === 'en' ? 'Used' : 'Использован'
                 : isExpired
-                  ? 'Expired'
-                  : `Valid until ${expires.toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })}`;
+                  ? language === 'en' ? 'Expired' : 'Истёк'
+                  : language === 'en'
+                    ? `Valid until ${expires.toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })}`
+                    : `До ${expires.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}`;
+              const isGiftBox = c.tier === 'gift_box';
               return (
                 <li
                   key={c.id}
-                  className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-4 py-3 text-sm"
+                  className={`flex items-center justify-between gap-3 rounded-xl px-4 py-3 text-sm ${
+                    isGiftBox
+                      ? 'border-2 border-brand/30 bg-brand-soft/10'
+                      : 'border border-slate-100 bg-white'
+                  }`}
                 >
                   <div className="min-w-0">
                     <p className="font-medium text-slate-800">
-                      {c.amount} ₽ · {couponTypeLabelRu(c)}
+                      {isGiftBox
+                        ? `🎁 ${language === 'en' ? 'Gift voucher · 1 SEMO Box' : 'Подарочный сертификат · 1 SEMO Box'}`
+                        : `${c.amount} ₽ · ${couponTypeLabelRu(c)}`}
                     </p>
                     <p className="text-xs text-slate-500">
-                      {c.tier === 'special' || (c.quarter_label ?? '').startsWith('special-')
-                        ? 'Special campaign · valid for 2 weeks from issue date'
-                        : 'Quarterly program · expiry shown in end date'}
+                      {isGiftBox
+                        ? language === 'en'
+                          ? 'Covers full box cost — apply at checkout'
+                          : 'Покрывает полную стоимость бокса — применить при оформлении'
+                        : c.tier === 'special' || (c.quarter_label ?? '').startsWith('special-')
+                          ? language === 'en' ? 'Special campaign · valid for 2 weeks from issue date' : 'Специальная акция · действует 2 недели с даты выдачи'
+                          : language === 'en' ? 'Quarterly program · expiry shown in end date' : 'Ежеквартальная программа · срок указан в дате'}
                     </p>
                   </div>
                   <span

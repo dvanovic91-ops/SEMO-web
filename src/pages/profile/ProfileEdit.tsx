@@ -612,9 +612,19 @@ export const ProfileEdit: React.FC = () => {
                         onClick={async () => {
                           setPwError('');
                           setPwSuccess(false);
+                          if (!pwCurrent) { setPwError('Введите текущий пароль.'); return; }
                           if (!pwNew || pwNew.length < 6) { setPwError('Новый пароль не менее 6 символов.'); return; }
                           if (pwNew !== pwConfirm) { setPwError('Пароли не совпадают.'); return; }
                           if (!supabase) { setPwError('Сервис недоступен.'); return; }
+                          // 기존 비밀번호 검증
+                          const { error: authError } = await supabase.auth.signInWithPassword({
+                            email: safeUserEmail,
+                            password: pwCurrent,
+                          });
+                          if (authError) {
+                            setPwError('Неверный текущий пароль.');
+                            return;
+                          }
                           const { error } = await supabase.auth.updateUser({ password: pwNew });
                           if (error) {
                             setPwError(error.message === 'New password should be different from the old password.' ? 'Новый пароль должен отличаться.' : error.message);

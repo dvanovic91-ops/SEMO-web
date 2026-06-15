@@ -25,6 +25,7 @@ import { getSkuCompositionDisplayParts } from '../lib/skuMarketingDescriptions';
 import { resolveSkuStorefrontName } from '../lib/skuStorefrontTitle';
 import { formatStorefrontDate } from '../lib/formatStorefrontDate';
 import { stripLegacyProductMultilineField } from '../lib/legacyMockContent';
+import { trackRecommendationEvent } from '../lib/recommendationTracking';
 
 type Product = {
   id: string;
@@ -1077,6 +1078,16 @@ export const ProductDetail: React.FC = () => {
       originalPrice: prp != null && rrp != null ? rrp : undefined,
       currency,
     });
+    void trackRecommendationEvent({
+      userId,
+      eventType: 'add_to_cart',
+      productId: product.id,
+      metadata: {
+        source: 'product_detail',
+        product_name: product.name,
+        category: product.category ?? null,
+      },
+    });
     setCartToast(true);
   };
 
@@ -1145,6 +1156,20 @@ export const ProductDetail: React.FC = () => {
   const effectiveCatalog = (catalogParam || product?.category || 'beauty') as 'beauty' | 'inner_beauty' | 'hair_beauty';
   const backCatalogPath = effectiveCatalog === 'inner_beauty' ? '/inner-beauty' : effectiveCatalog === 'hair_beauty' ? '/hair-beauty' : '/shop';
   const backCatalogLabel = effectiveCatalog === 'inner_beauty' ? 'Fit box' : effectiveCatalog === 'hair_beauty' ? 'Hair box' : 'Beauty box';
+
+  useEffect(() => {
+    if (!product?.id) return;
+    void trackRecommendationEvent({
+      userId,
+      eventType: 'recommended_product_clicked',
+      productId: product.id,
+      metadata: {
+        source: 'product_detail_view',
+        product_name: product.name,
+        category: product.category ?? null,
+      },
+    });
+  }, [product?.id, product?.name, product?.category, userId]);
 
   const addToCartNavRef = useRef(handleAddToCart);
   addToCartNavRef.current = handleAddToCart;

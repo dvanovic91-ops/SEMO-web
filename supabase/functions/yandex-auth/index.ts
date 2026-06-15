@@ -70,6 +70,7 @@ function getClientIp(req: Request): string {
 // ── redirect_uri 허용 목록 ──
 const ALLOWED_REDIRECT_URIS = new Set([
   'https://semo-box.com/auth/yandex/callback',
+  'https://semo-box.ru/auth/yandex/callback',
   'http://localhost:5173/auth/yandex/callback',
   'http://localhost:3001/auth/yandex/callback',
 ]);

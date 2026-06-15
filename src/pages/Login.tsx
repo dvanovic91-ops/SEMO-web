@@ -17,6 +17,35 @@ const inputClass =
 const FORGOT_COOLDOWN_SEC = 60;
 const YANDEX_OAUTH_STATE_KEY = 'semo_yandex_oauth_state';
 
+// 브루트포스 방지 상수
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOCKOUT_DURATION_MS = 60_000; // 60초
+const LS_ATTEMPTS_KEY = 'semo_login_attempts';
+const LS_LOCKOUT_KEY = 'semo_login_lockout_until';
+
+function getStoredAttempts(): number {
+  try { return parseInt(localStorage.getItem(LS_ATTEMPTS_KEY) ?? '0', 10) || 0; } catch { return 0; }
+}
+function getLockoutRemainingSec(): number {
+  try {
+    const until = parseInt(localStorage.getItem(LS_LOCKOUT_KEY) ?? '0', 10);
+    return until > Date.now() ? Math.ceil((until - Date.now()) / 1000) : 0;
+  } catch { return 0; }
+}
+function recordFailedAttempt(): number {
+  try {
+    const attempts = getStoredAttempts() + 1;
+    localStorage.setItem(LS_ATTEMPTS_KEY, String(attempts));
+    if (attempts >= MAX_LOGIN_ATTEMPTS) {
+      localStorage.setItem(LS_LOCKOUT_KEY, String(Date.now() + LOCKOUT_DURATION_MS));
+    }
+    return attempts;
+  } catch { return 0; }
+}
+function clearLoginAttempts() {
+  try { localStorage.removeItem(LS_ATTEMPTS_KEY); localStorage.removeItem(LS_LOCKOUT_KEY); } catch { /* noop */ }
+}
+
 function formatMmSs(totalSec: number): string {
   const s = Math.max(0, Math.min(totalSec, 99 * 60 + 59));
   const m = Math.floor(s / 60);
@@ -89,6 +118,7 @@ export const Login: React.FC = () => {
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginLoading, setLoginLoading] = useState(false);
+  const [lockoutSec, setLockoutSec] = useState(() => getLockoutRemainingSec());
   const [forgotOpen, setForgotOpen] = useState(false);
   const [forgotLoading, setForgotLoading] = useState(false);
   const [forgotMessage, setForgotMessage] = useState<string | null>(null);
@@ -123,6 +153,17 @@ export const Login: React.FC = () => {
     }, 1000);
     return () => window.clearTimeout(id);
   }, [forgotCooldownSeconds]);
+
+  // 로그인 잠금 카운트다운
+  useEffect(() => {
+    if (lockoutSec <= 0) return undefined;
+    const id = window.setTimeout(() => {
+      const remaining = getLockoutRemainingSec();
+      setLockoutSec(remaining);
+      if (remaining === 0) clearLoginAttempts();
+    }, 1000);
+    return () => window.clearTimeout(id);
+  }, [lockoutSec]);
 
   if (!initialized) {
     return (
@@ -200,6 +241,13 @@ export const Login: React.FC = () => {
       return;
     }
 
+    // 잠금 상태 확인
+    const currentLockout = getLockoutRemainingSec();
+    if (currentLockout > 0) {
+      setLockoutSec(currentLockout);
+      return;
+    }
+
     setRememberMe(rememberMe);
     setLoginLoading(true);
     try {
@@ -208,16 +256,35 @@ export const Login: React.FC = () => {
         password,
       });
       if (error) {
+        const attempts = recordFailedAttempt();
+        const remaining = getLockoutRemainingSec();
+        if (remaining > 0) {
+          setLockoutSec(remaining);
+          setLoginError(
+            language === 'en'
+              ? `Too many failed attempts. Try again in ${remaining}s.`
+              : `Слишком много попыток. Повторите через ${remaining} сек.`,
+          );
+          return;
+        }
+        const attemptsLeft = MAX_LOGIN_ATTEMPTS - attempts;
         const msg = (error.message || '').toLowerCase();
         if (msg.includes('email not confirmed') || msg.includes('not confirmed')) {
           setLoginError(tt.loginEmailNotConfirmed);
         } else if (msg.includes('invalid login credentials') || msg.includes('invalid_credentials') || msg.includes('wrong') || msg.includes('password')) {
-          setLoginError(tt.loginInvalidCredentials);
+          setLoginError(
+            attemptsLeft > 0
+              ? `${tt.loginInvalidCredentials} (${language === 'en' ? `${attemptsLeft} attempts left` : `осталось попыток: ${attemptsLeft}`})`
+              : tt.loginInvalidCredentials,
+          );
         } else {
           setLoginError(error.message || tt.loginGenericFail);
         }
         return;
       }
+      // 로그인 성공 시 카운터 초기화
+      clearLoginAttempts();
+      setLockoutSec(0);
       if (data?.session) {
         await applySession(data.session);
       }
@@ -431,10 +498,14 @@ export const Login: React.FC = () => {
           </div>
           <button
             type="submit"
-            disabled={loginLoading}
+            disabled={loginLoading || lockoutSec > 0}
             className="min-h-11 w-full rounded-full bg-brand py-3 text-base font-semibold text-white transition hover:bg-brand/90 disabled:opacity-60"
           >
-            {loginLoading ? tt.loginLoading : tt.login}
+            {loginLoading
+              ? tt.loginLoading
+              : lockoutSec > 0
+                ? (language === 'en' ? `Locked — ${lockoutSec}s` : `Заблокировано — ${lockoutSec} сек`)
+                : tt.login}
           </button>
         </form>
       </div>

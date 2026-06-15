@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { IS_RU_REGION } from '../lib/siteRegion';
 
 export type AppLanguage = 'ru' | 'en';
 export type AppCurrency = 'RUB' | 'USD' | 'KZT' | 'UZS';
@@ -30,10 +31,14 @@ const COUNTRY_KEY = 'semo_country';
 const ENTRY_PARAM = 'semo_entry';
 
 export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  /** 첫 페인트: 글로벌(.com) 기본 — IP·저장값·semo_entry가 덮어씀 */
-  const [country, setCountry] = useState<AppCountry>('AE');
-  const [language, setLanguage] = useState<AppLanguage>('en');
-  const [currency, setCurrency] = useState<AppCurrency>('USD');
+  /**
+   * 첫 페인트 기본값:
+   * - .ru 배포(IS_RU_REGION): 러시아/벨라루스 전용 → RU·ru·RUB
+   * - 글로벌(.com): AE·en·USD (IP·저장값·semo_entry가 덮어씀)
+   */
+  const [country, setCountry] = useState<AppCountry>(IS_RU_REGION ? 'RU' : 'AE');
+  const [language, setLanguage] = useState<AppLanguage>(IS_RU_REGION ? 'ru' : 'en');
+  const [currency, setCurrency] = useState<AppCurrency>(IS_RU_REGION ? 'RUB' : 'USD');
   /** localStorage 초기 읽기가 끝나기 전에는 저장 effect가 돌면 안 됨 */
   const [storageLoaded, setStorageLoaded] = useState(false);
   // 사용자가 직접 언어/통화를 변경한 뒤에는, IP 기반 자동설정이 늦게 도착해 값을 덮어쓰지 않도록 막는다.
@@ -99,7 +104,8 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setCurrency(savedCurrency);
       }
       // 첫 방문자(저장값 없음): ru 로케일이면 RU·руб·RU, 아니면 IP 기반
-      if (!savedLang && !savedCurrency && !savedCountry) {
+      // .ru 배포는 러시아/벨라루스 전용이라 IP 조회 없이 RU 기본값 유지
+      if (!IS_RU_REGION && !savedLang && !savedCurrency && !savedCountry) {
         const navLang = (typeof navigator !== 'undefined' ? navigator.language || '' : '').toLowerCase();
         if (navLang.startsWith('ru')) {
           userInteractedRef.current = true;
