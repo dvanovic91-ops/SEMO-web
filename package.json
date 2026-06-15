@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "share": "vite build && vite preview",
     "lint": "eslint src --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "ship": "node scripts/bump-and-push.js"
+    "ship": "node scripts/bump-and-push.js",
+    "deploy:ru": "bash scripts/deploy-ru.sh"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.47.0",

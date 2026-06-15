@@ -26,4 +26,14 @@ execSync(`git add . && git commit -m "자동 업데이트${newVersion}" && git p
   stdio: 'inherit',
   cwd: path.join(__dirname, '..'),
 });
-console.log('푸시까지 완료.');
+console.log('푸시까지 완료 (.com → Vercel 자동 배포).');
+
+const deployRu = path.join(__dirname, 'deploy-ru.sh');
+if (process.env.SKIP_RU_DEPLOY === '1') {
+  console.log('SKIP_RU_DEPLOY=1 → .ru VM 배포 생략.');
+} else if (fs.existsSync(deployRu)) {
+  console.log('.ru(Yandex VM) 프론트 배포 시작…');
+  execSync(`bash "${deployRu}"`, { stdio: 'inherit', cwd: path.join(__dirname, '..') });
+} else {
+  console.warn('deploy-ru.sh 없음 → .ru 배포 생략.');
+}
