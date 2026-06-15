@@ -11,7 +11,9 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 // ── CORS (semo-box.com + 로컬 개발) ──
 const ALLOWED_ORIGINS = new Set([
   'https://semo-box.com',
+  'https://www.semo-box.com',
   'https://semo-box.ru',
+  'https://www.semo-box.ru',
   'http://localhost:5173',
   'http://localhost:3001',
 ]);
@@ -172,11 +174,21 @@ Deno.serve(async (req) => {
     let userEmail: string;
     let isNew = false;
 
-    const { data: userByEmail } = await supabase
+    const { data: userByEmailRow } = await supabase
       .from('profiles')
       .select('id, email')
       .eq('email', yandexEmail)
       .maybeSingle();
+
+    // auth.users 는 삭제됐는데 profiles 행만 남은 경우(재가입 실패 원인) → 정리 후 신규 가입
+    let userByEmail = userByEmailRow;
+    if (userByEmail?.id) {
+      const { data: authUser, error: authErr } = await supabase.auth.admin.getUserById(userByEmail.id);
+      if (authErr || !authUser?.user) {
+        await supabase.from('profiles').delete().eq('id', userByEmail.id);
+        userByEmail = null;
+      }
+    }
 
     if (userByEmail?.id) {
       userId = userByEmail.id;

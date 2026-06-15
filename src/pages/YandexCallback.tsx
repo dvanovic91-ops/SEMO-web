@@ -2,21 +2,27 @@
  * Yandex OAuth 콜백 페이지.
  * Yandex에서 ?code=... 로 리다이렉트 → Edge Function 호출 → 세션 생성 → 홈으로 이동
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { getYandexOAuthRedirectUri } from '../lib/auth';
 import { useI18n } from '../context/I18nContext';
+import { useAuth } from '../context/AuthContext';
 import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../components/SemoPageSpinner';
 
 const YANDEX_OAUTH_STATE_KEY = 'semo_yandex_oauth_state';
 
 export const YandexCallback: React.FC = () => {
   const navigate = useNavigate();
+  const { applySession } = useAuth();
   const { setCountry, setLanguage, setCurrency } = useI18n();
   const [error, setError] = useState<string | null>(null);
+  const startedRef = useRef(false);
 
   useEffect(() => {
+    if (startedRef.current) return;
+    startedRef.current = true;
+
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
     const state = params.get('state');
@@ -32,16 +38,20 @@ export const YandexCallback: React.FC = () => {
       return;
     }
     const expectedState = sessionStorage.getItem(YANDEX_OAUTH_STATE_KEY);
-    sessionStorage.removeItem(YANDEX_OAUTH_STATE_KEY);
     if (!state || !expectedState || state !== expectedState) {
-      setError('Недействительный OAuth state.');
+      setError('Недействительный OAuth state. Попробуйте войти снова.');
       return;
     }
+    sessionStorage.removeItem(YANDEX_OAUTH_STATE_KEY);
 
     if (!supabase) {
       setError('Сервис временно недоступен.');
       return;
     }
+
+    const timeoutId = window.setTimeout(() => {
+      setError('Превышено время ожидания. Попробуйте войти снова.');
+    }, 45000);
 
     (async () => {
       const redirectUri = getYandexOAuthRedirectUri();
@@ -65,8 +75,8 @@ export const YandexCallback: React.FC = () => {
           return;
         }
 
-        // verifyOtp로 세션 생성
-        const { error: otpErr } = await supabase.auth.verifyOtp({
+        // verifyOtp로 세션 생성 → applySession으로 AuthContext 즉시 반영 (이메일 로그인과 동일)
+        const { data: otpData, error: otpErr } = await supabase.auth.verifyOtp({
           token_hash: result.token_hash,
           type: 'magiclink',
         });
@@ -76,17 +86,23 @@ export const YandexCallback: React.FC = () => {
           return;
         }
 
+        if (otpData?.session) {
+          await applySession(otpData.session);
+        }
+
         // 얀덱스 진입은 러시아권 기본(로컬 EN/USD 저장값 덮어씀 — 헤더에서 변경 가능)
         setCountry('RU');
         setLanguage('ru');
         setCurrency('RUB');
 
-        navigate('/', { replace: true });
+        navigate(result.is_new ? '/register/shipping' : '/', { replace: true });
       } catch (err) {
         setError((err as Error).message);
+      } finally {
+        window.clearTimeout(timeoutId);
       }
     })();
-  }, [navigate]);
+  }, [navigate, applySession, setCountry, setLanguage, setCurrency]);
 
   if (error) {
     return (
