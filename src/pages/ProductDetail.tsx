@@ -26,6 +26,7 @@ import { resolveSkuStorefrontName } from '../lib/skuStorefrontTitle';
 import { formatStorefrontDate } from '../lib/formatStorefrontDate';
 import { stripLegacyProductMultilineField } from '../lib/legacyMockContent';
 import { trackRecommendationEvent } from '../lib/recommendationTracking';
+import { resolveDetailBackNavigation } from '../lib/buildBoxNavigation';
 
 type Product = {
   id: string;
@@ -539,6 +540,26 @@ export const ProductDetail: React.FC = () => {
     }, 15000);
     loadingTimeoutRef.current = t;
 
+    if (!isUuid(currentId) && !FALLBACK_PRODUCTS[currentId]) {
+      if (loadingTimeoutRef.current != null) {
+        window.clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
+      setProduct(null);
+      setComponents([]);
+      setReviews([]);
+      setLoadError(
+        currentId.startsWith('custom-build')
+          ? language === 'en'
+            ? 'Custom boxes open from Build your box'
+            : 'Свой бокс открывается в разделе «Собери свой бокс»'
+          : language === 'en'
+            ? 'Product not found'
+            : 'Товар не найден',
+      );
+      return;
+    }
+
     if (!isUuid(currentId) && FALLBACK_PRODUCTS[currentId]) {
       if (loadingTimeoutRef.current != null) {
         window.clearTimeout(loadingTimeoutRef.current);
@@ -637,7 +658,6 @@ export const ProductDetail: React.FC = () => {
                 brand: sku?.brand ?? null,
                 country_of_origin: sku?.country_of_origin ?? null,
                 name: resolveSkuStorefrontName({
-                  display_name: sku?.display_name,
                   name_en: sku?.name_en,
                   name: sku?.name,
                   fallbackName: r.name,
@@ -1156,6 +1176,12 @@ export const ProductDetail: React.FC = () => {
   const effectiveCatalog = (catalogParam || product?.category || 'beauty') as 'beauty' | 'inner_beauty' | 'hair_beauty';
   const backCatalogPath = effectiveCatalog === 'inner_beauty' ? '/inner-beauty' : effectiveCatalog === 'hair_beauty' ? '/hair-beauty' : '/shop';
   const backCatalogLabel = effectiveCatalog === 'inner_beauty' ? 'Fit box' : effectiveCatalog === 'hair_beauty' ? 'Hair box' : 'Beauty box';
+  const { path: backPath, label: backLabel } = resolveDetailBackNavigation(
+    searchParams.get('from'),
+    backCatalogPath,
+    backCatalogLabel,
+    isEn,
+  );
 
   useEffect(() => {
     if (!product?.id) return;
@@ -1203,7 +1229,7 @@ export const ProductDetail: React.FC = () => {
         {loadError === 'timeout' && <p className="text-slate-600">{language === 'en' ? 'Loading took too long.' : 'Загрузка заняла слишком много времени.'}</p>}
         {!id?.trim() && !loadError && <p className="text-slate-600">{language === 'en' ? 'Product not found.' : 'Товар не найден.'}</p>}
         <p className="mt-4">
-          <Link to={backCatalogPath} className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> {backCatalogLabel}</Link>
+          <Link to={backPath} className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> {backLabel}</Link>
         </p>
       </main>
     );
@@ -1269,7 +1295,7 @@ export const ProductDetail: React.FC = () => {
       )}
 
       <p className="mb-6">
-        <Link to={backCatalogPath} className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> {backCatalogLabel}</Link>
+        <Link to={backPath} className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"><BackArrow /> {backLabel}</Link>
       </p>
 
       <article className="space-y-8">

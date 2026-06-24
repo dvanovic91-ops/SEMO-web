@@ -7,10 +7,12 @@ import { supabase } from '../lib/supabase';
 import { useCart } from '../context/CartContext';
 import { useNotifications, type NotificationRow } from '../hooks/useNotifications';
 import { notificationKindBadgeRu, resolveNotificationHref } from '../lib/notificationNavigation';
-import { SEMO_BOX_SUBMENU, isSemoBoxSubmenuPath } from '../lib/semoBoxSubmenu';
+import { getSemoBoxSubmenu, isSemoBoxSubmenuPath } from '../lib/semoBoxSubmenu';
+import { isNonProductCartItemId } from '../lib/cartItemLink';
 import { formatCurrencyAmount } from '../lib/market';
 import { formatStorefrontDateTimeShort } from '../lib/formatStorefrontDate';
 import { t } from '../i18n/messages';
+import { SemoBoxLogo } from './SemoBoxLogo';
 const navLinkBase =
   'text-sm tracking-wide transition-colors border-b-2 border-transparent pb-1';
 
@@ -332,6 +334,8 @@ export const Navbar: React.FC = () => {
     setSemoBoxPinned(false);
   }, [location.pathname]);
 
+  const semoBoxSubmenuItems = useMemo(() => getSemoBoxSubmenu(), []);
+
   /** 장바구니 미리보기 패널 — 데스크톱(헤더) / 모바일(시트) 공용 내용 */
   const cartPanelInner = (
     <>
@@ -353,13 +357,19 @@ export const Navbar: React.FC = () => {
           <p className="py-6 text-center text-sm text-slate-500">{t(language, 'navbar', 'cartEmpty')}</p>
         ) : (
           <ul className="space-y-3">
-            {items.map((it) => (
+            {items.map((it) => {
+              const cartItemLink = isNonProductCartItemId(it.id)
+                ? it.id.startsWith('custom-build')
+                  ? '/shop/build?review=1'
+                  : null
+                : `/product/${it.id}`;
+              const CartItemWrap = cartItemLink ? Link : 'div';
+              return (
               <li key={it.id} className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
-                {/* Cart.tsx 모바일과 동일: 사진(좌) | 제목 → 수량(좌)+가격(우, clamp) — 상품명·이미지 클릭 시 상세 */}
                 <div className="grid grid-cols-[3.5rem_1fr] gap-x-3 gap-y-2">
-                  <Link
-                    to={`/product/${it.id}`}
-                    className="contents"
+                  <CartItemWrap
+                    {...(cartItemLink ? { to: cartItemLink } : {})}
+                    className={cartItemLink ? 'contents' : 'contents cursor-default'}
                     onClick={() => setCartPopoverOpen(false)}
                   >
                     <div className="row-span-2 flex h-14 w-14 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-white">
@@ -370,7 +380,7 @@ export const Navbar: React.FC = () => {
                       )}
                     </div>
                     <p className="min-w-0 text-sm font-medium leading-snug text-slate-900 line-clamp-2">{it.name}</p>
-                  </Link>
+                  </CartItemWrap>
                   <div className="flex min-w-0 items-center justify-between gap-2">
                     <div className="flex shrink-0 items-center gap-0.5">
                       <button
@@ -404,7 +414,8 @@ export const Navbar: React.FC = () => {
                   </div>
                 </div>
               </li>
-            ))}
+            );
+            })}
           </ul>
         )}
       </div>
@@ -438,7 +449,7 @@ export const Navbar: React.FC = () => {
    */
   const mobileSemoSubmenuRowEl = (
     <div className="flex w-full min-w-0 items-stretch gap-x-0 px-0">
-      {SEMO_BOX_SUBMENU.map((sub) => {
+      {semoBoxSubmenuItems.map((sub) => {
         const line = sub.shortLabel ?? sub.label;
         const ariaWhenShort = sub.shortLabel != null && sub.shortLabel !== sub.label ? sub.label : undefined;
         return (
@@ -541,8 +552,7 @@ export const Navbar: React.FC = () => {
           ) : (
             <div className="flex w-full flex-1 items-center justify-center md:hidden">
               <Link to="/" className="flex shrink-0 items-center" aria-label="SEMO box">
-                <span className="font-semibold tracking-[0.2em] text-brand">SEMO </span>
-                <span className="font-semibold tracking-[0.2em] text-slate-700">box</span>
+                <SemoBoxLogo />
               </Link>
             </div>
           )}
@@ -550,8 +560,7 @@ export const Navbar: React.FC = () => {
           {/* md+: 로고 | 가운데(텍스트 메뉴 또는 상품 가격+В корзину) | 아이콘 */}
           <div className="hidden min-w-0 flex-1 items-center gap-3 md:flex">
             <Link to="/" className="relative z-20 flex shrink-0 items-center" aria-label="SEMO box">
-              <span className="font-semibold tracking-[0.2em] text-brand">SEMO </span>
-              <span className="font-semibold tracking-[0.2em] text-slate-700">box</span>
+              <SemoBoxLogo />
             </Link>
             {/* flex-1 + justify-center 만 쓰면 우측 툴바가 넓어 메뉴가 왼쪽으로 치우침 — translate-x 로 보정(값 키우면 언어·화폐 버튼과 간격 축소) */}
             <div className="flex min-w-0 flex-1 items-center justify-center px-1">
@@ -926,7 +935,7 @@ export const Navbar: React.FC = () => {
           onMouseLeave={semoBoxLeave}
         >
           <nav className="mx-auto flex max-w-7xl items-center justify-center gap-x-8 px-4 py-[calc(0.5rem+0.5vw)] lg:gap-x-12">
-            {SEMO_BOX_SUBMENU.map((sub) => (
+            {semoBoxSubmenuItems.map((sub) => (
               <NavLink
                 key={sub.to}
                 to={sub.to}
@@ -1368,7 +1377,7 @@ export const Navbar: React.FC = () => {
                   SEMO Box
                 </div>
                 <div className="ml-0 mt-1 flex flex-col gap-1 pl-3">
-                  {SEMO_BOX_SUBMENU.map((sub) => (
+                  {semoBoxSubmenuItems.map((sub) => (
                     <NavLink
                       key={sub.to}
                       to={sub.to}

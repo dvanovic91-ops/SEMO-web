@@ -6,6 +6,18 @@ import { supabase } from '../lib/supabase';
 import { useI18n } from '../context/I18nContext';
 import { formatCurrencyAmount } from '../lib/market';
 
+import { isNonProductCartItemId } from '../lib/cartItemLink';
+
+function ProductLink({ id, className, children }: { id: string; className?: string; children: React.ReactNode }) {
+  if (isNonProductCartItemId(id)) {
+    if (id.startsWith('custom-build')) {
+      return <Link to="/shop/build?review=1" className={className}>{children}</Link>;
+    }
+    return <div className={className}>{children}</div>;
+  }
+  return <Link to={`/product/${id}`} className={className}>{children}</Link>;
+}
+
 export const Cart: React.FC = () => {
   const { userId } = useAuth();
   const { language, currency } = useI18n();
@@ -85,23 +97,17 @@ export const Cart: React.FC = () => {
           <li key={item.id} className="rounded-xl border border-slate-100 bg-white p-4">
             {/* 모바일: 왼쪽 사진(2행) | 오른쪽 제목 → 다음 행 수량(왼) + 가격 2줄(오른, clamp로 포맷 유지) */}
             <div className="grid grid-cols-[3.5rem_1fr] gap-x-3 gap-y-2 sm:hidden">
-              <Link
-                to={`/product/${item.id}`}
-                className="row-span-2 flex h-14 w-14 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-50"
-              >
+              <ProductLink id={item.id} className="row-span-2 flex h-14 w-14 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-50">
                 {item.imageUrl ? (
                   <img src={item.imageUrl} alt={item.name} className="h-full w-full object-cover" />
                 ) : (
                   <span className="flex h-full w-full items-center justify-center text-xs text-slate-400">{tt.slot}</span>
                 )}
-              </Link>
+              </ProductLink>
               <div className="flex min-w-0 items-start justify-between gap-2">
-                <Link
-                  to={`/product/${item.id}`}
-                  className="min-w-0 flex-1 text-sm font-medium leading-snug text-slate-900 line-clamp-2 hover:text-brand"
-                >
+                <ProductLink id={item.id} className="min-w-0 flex-1 text-sm font-medium leading-snug text-slate-900 line-clamp-2 hover:text-brand">
                   {item.name}
-                </Link>
+                </ProductLink>
                 <button
                   type="button"
                   onClick={() => removeItem(item.id)}
@@ -146,19 +152,16 @@ export const Cart: React.FC = () => {
 
             {/* 데스크톱: 한 줄 그리드 */}
             <div className="hidden sm:grid sm:grid-cols-[3.5rem_minmax(0,1fr)_auto_auto_auto] sm:items-center sm:gap-4">
-              <Link
-                to={`/product/${item.id}`}
-                className="flex h-14 w-14 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-50"
-              >
+              <ProductLink id={item.id} className="flex h-14 w-14 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-50">
                 {item.imageUrl ? (
                   <img src={item.imageUrl} alt={item.name} className="h-full w-full object-cover" />
                 ) : (
                   <span className="flex h-full w-full items-center justify-center text-xs text-slate-400">{tt.slot}</span>
                 )}
-              </Link>
-              <Link to={`/product/${item.id}`} className="min-w-0 truncate font-medium text-slate-900 hover:text-brand">
+              </ProductLink>
+              <ProductLink id={item.id} className="min-w-0 truncate font-medium text-slate-900 hover:text-brand">
                 {item.name}
-              </Link>
+              </ProductLink>
               <div className="flex items-center gap-1.5 text-sm tabular-nums">
                 {item.originalPrice != null && item.originalPrice > 0 && (
                   <span className="text-slate-500 line-through">{formatPrice(item.originalPrice * item.quantity)}</span>

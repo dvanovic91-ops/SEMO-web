@@ -7,7 +7,8 @@ import {
   upsertIngredientLibraryFromSkuId,
   type IngredientLibraryRow,
 } from '../../lib/ingredientLibrary';
-import { stripLegacyMockHeroClaimPrefix } from '../../lib/skuMarketingDescriptions';
+import { resolveAdminSkuDisplayLabel } from '../../lib/skuStorefrontTitle';
+import { BOX_SLOT_LABELS, BOX_SLOT_ORDER, type BoxSlotKey } from '../../lib/buildBoxCatalog';
 import { supabase } from '../../lib/supabase';
 import { getSkinApiBaseUrl, skinApiHeaders } from '../../lib/skinApiBaseUrl';
 import {
@@ -214,6 +215,45 @@ function buildClaimContextApiFields(sku: Partial<SkuItem> | null | undefined): {
   if (hook) o.brand_story_hook = hook;
   if (themes) o.consumer_theme_summary = themes;
   return o;
+}
+
+/** 박스빌더 태그: RU·EN 표기 */
+const BENEFIT_LABEL_BOX: Record<string, { ru: string; en: string }> = {
+  hydrating:   { ru: 'Увлажнение',       en: 'Hydrating' },
+  soothing:    { ru: 'Успокоение',        en: 'Soothing' },
+  brightening: { ru: 'Осветление',        en: 'Brightening' },
+  anti_aging:  { ru: 'Антивозрастной',   en: 'Anti-aging' },
+  oil_control: { ru: 'Контроль жирности', en: 'Oil control' },
+  barrier:     { ru: 'Барьер',            en: 'Barrier' },
+  exfoliating: { ru: 'Отшелушивание',    en: 'Exfoliating' },
+  antioxidant: { ru: 'Антиоксидант',     en: 'Antioxidant' },
+  firming:     { ru: 'Упругость',         en: 'Firming' },
+  acne:        { ru: 'Против акне',       en: 'Acne care' },
+  uv_protection:{ ru: 'SPF защита',       en: 'SPF protection' },
+};
+
+function deriveBoxBuilderTags(
+  ingredientsJson: unknown[] | null | undefined,
+): { ru: string; en: string } {
+  if (!Array.isArray(ingredientsJson) || ingredientsJson.length === 0) {
+    return { ru: '', en: '' };
+  }
+  const tagCount: Record<string, number> = {};
+  for (const ing of ingredientsJson) {
+    const tags = (ing as { benefit_tags?: string[] }).benefit_tags ?? [];
+    for (const t of tags) {
+      tagCount[t] = (tagCount[t] ?? 0) + 1;
+    }
+  }
+  const top2 = Object.entries(tagCount)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+    .map(([t]) => t);
+  if (top2.length === 0) return { ru: '', en: '' };
+  return {
+    ru: top2.map((t) => BENEFIT_LABEL_BOX[t]?.ru ?? t).join(' · '),
+    en: top2.map((t) => BENEFIT_LABEL_BOX[t]?.en ?? t).join(' · '),
+  };
 }
 
 /** 효능 태그 → 한국어 */
@@ -996,6 +1036,14 @@ type SkuItem = {
   claim_brand_hook?: string | null;
   /** 외부 의견 테마 요약 — 수집 시 한국어 우선 권장 */
   consumer_theme_summary?: string | null;
+  /** Собери свой бокс — 슬롯 (cleanser 등), 슬롯당 최대 3개 노출 */
+  box_builder_slot?: BoxSlotKey | null;
+  box_builder_sort_order?: number;
+  box_builder_tag_ru?: string | null;
+  box_builder_tag_en?: string | null;
+  baumann_types?: string[] | null;
+  baumann_recommend_reason_ru?: string | null;
+  baumann_recommend_reason_en?: string | null;
 };
 
 type StockTx = {
@@ -1692,7 +1740,7 @@ export function InventoryTab() {
         const { data, error: snapErr } = await supabase
           .from('sku_items')
           .select(
-            'ingredients_raw, key_ingredients, key_ingredients_desc, description, display_name, memo, image_url, ingredients_json, ingredients_status, safety_stock, unit, is_active, category, product_type, volume_label, country_of_origin, how_to_use, how_to_use_en, how_to_use_ru, claim_brand_hook, consumer_theme_summary',
+            'ingredients_raw, key_ingredients, key_ingredients_desc, description, display_name, memo, image_url, ingredients_json, ingredients_status, safety_stock, unit, is_active, category, product_type, volume_label, country_of_origin, how_to_use, how_to_use_en, how_to_use_ru, claim_brand_hook, consumer_theme_summary, box_builder_slot, box_builder_sort_order, box_builder_tag_ru, box_builder_tag_en, baumann_types, baumann_recommend_reason_ru, baumann_recommend_reason_en',
           )
           .eq('id', editingSku.id)
           .single();
@@ -1751,6 +1799,13 @@ export function InventoryTab() {
             how_to_use_ru: p.how_to_use_ru?.trim() || null,
             claim_brand_hook: p.claim_brand_hook?.trim() || null,
             consumer_theme_summary: p.consumer_theme_summary?.trim() || null,
+            box_builder_slot: p.box_builder_slot || null,
+            box_builder_sort_order: p.box_builder_sort_order ?? 0,
+            box_builder_tag_ru: p.box_builder_tag_ru?.trim() || '',
+            box_builder_tag_en: p.box_builder_tag_en?.trim() || '',
+            baumann_types: p.baumann_types ?? null,
+            baumann_recommend_reason_ru: p.baumann_recommend_reason_ru ?? null,
+            baumann_recommend_reason_en: p.baumann_recommend_reason_en ?? null,
           }
         : {
             name: editingSku.name.trim(),
@@ -1786,6 +1841,12 @@ export function InventoryTab() {
               p.consumer_theme_summary,
               dbSnap?.consumer_theme_summary,
             ),
+            box_builder_slot: p.box_builder_slot !== undefined
+              ? (p.box_builder_slot || null)
+              : ((dbSnap?.box_builder_slot as BoxSlotKey | null) ?? null),
+            box_builder_sort_order: p.box_builder_sort_order ?? (Number(dbSnap?.box_builder_sort_order) || 0),
+            box_builder_tag_ru: mergeTextFieldForSkuUpdate(p.box_builder_tag_ru, dbSnap?.box_builder_tag_ru) ?? '',
+            box_builder_tag_en: mergeTextFieldForSkuUpdate(p.box_builder_tag_en, dbSnap?.box_builder_tag_en) ?? '',
           };
 
       const heroSelectionApi = buildHeroSelectionApiFields(payload.product_type);
@@ -1848,7 +1909,15 @@ export function InventoryTab() {
       setAutoFetchAfterSave(true);
       await loadSkus();
     } catch (err) {
-      showToast('저장 실패: ' + (err as Error).message, 'error');
+      const msg = (err as Error).message ?? '저장 실패';
+      if (msg.includes('box_builder_slot')) {
+        showToast(
+          '저장 실패: box_builder_slot 컬럼 없음 — Supabase SQL Editor에서 migrations/20260618030000_sku_items_box_builder.sql 실행 필요',
+          'error',
+        );
+      } else {
+        showToast('저장 실패: ' + msg, 'error');
+      }
     } finally {
       setSaving(false);
     }
@@ -2326,7 +2395,9 @@ export function InventoryTab() {
                   )}
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between text-xs">
-                      <span className="truncate font-medium text-slate-700">{sku.name}</span>
+                      <span className="truncate font-medium text-slate-700">
+                        {resolveAdminSkuDisplayLabel({ display_name: sku.display_name, name: sku.name, name_en: sku.name_en })}
+                      </span>
                       <span className={`shrink-0 font-semibold ${danger ? 'text-red-500' : warn ? 'text-amber-500' : 'text-emerald-600'}`}>
                         {sku.current_stock} {sku.unit}
                         {sku.safety_stock > 0 && <span className="font-normal text-slate-400"> / 안전재고 {sku.safety_stock}</span>}
@@ -2355,9 +2426,6 @@ export function InventoryTab() {
       ) : (
         <div className="space-y-3">
           {skus.map((sku) => {
-            const fullInciCount = Array.isArray(sku.ingredients_json) ? sku.ingredients_json.length : 0;
-            const showIngredientRefetchInline =
-              sku.ingredients_status === 'done' && fullInciCount > 0;
             return (
             <div key={sku.id} className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
               {/* 썸네일+본문 | 액션: sm+ 한 줄(예전과 유사). 모바일은 액션을 아래로 내려 가로 스크롤 방지 */}
@@ -2378,536 +2446,17 @@ export function InventoryTab() {
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="truncate text-sm font-semibold text-slate-900">{sku.name}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="truncate text-sm font-semibold text-slate-900">
+                      {resolveAdminSkuDisplayLabel({ display_name: sku.display_name, name: sku.name, name_en: sku.name_en })}
+                    </p>
                     {!sku.is_active && <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] text-slate-500">비활성</span>}
-                    {/* 성분 분석 상태 뱃지 */}
-                    {(() => {
-                      const st = sku.ingredients_status;
-                      if (!st || st === 'pending') return (
-                        <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-400">⏳ 성분 미등록</span>
-                      );
-                      if (st === 'fetching') return (
-                        <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-500 animate-pulse">🔄 수집 중…</span>
-                      );
-                      if (st === 'done') {
-                        const cnt = sku.ingredients_json ? (sku.ingredients_json as unknown[]).length : 0;
-                        const parsed = cnt > 0 ? parseIngredientsJson(sku.ingredients_json as unknown[]) : [];
-                        const skuLibMap = ingredientLibMaps[sku.id];
-                        const parsedWithAvoid = parsed.map((ing) => {
-                          if (!skuLibMap) return ing;
-                          const nk = normalizeInciKey(ing.name, ing.name_lower);
-                          const libRow = skuLibMap.get(nk) ?? skuLibMap.get(ing.name_lower.trim().toLowerCase());
-                          if (!libRow) return ing;
-                          return {
-                            ...ing,
-                            avoid_skin_types: libRow.avoid_skin_types?.length ? libRow.avoid_skin_types : ing.avoid_skin_types,
-                            benefit_tags: libRow.benefit_tags?.length ? libRow.benefit_tags : ing.benefit_tags,
-                            axis_scores:
-                              libRow.axis_scores && Object.keys(libRow.axis_scores).length > 0
-                                ? libRow.axis_scores
-                                : ing.axis_scores,
-                          };
-                        });
-                        const axisResults = parsedWithAvoid.length > 0 ? computeAxisScores(parsedWithAvoid) : [];
-                        const AXIS_COLORS: Record<string, string> = {
-                          D: 'bg-sky-100 text-sky-700 border-sky-300',
-                          O: 'bg-amber-100 text-amber-700 border-amber-300',
-                          S: 'bg-emerald-100 text-emerald-700 border-emerald-300',
-                          R: 'bg-orange-100 text-orange-700 border-orange-300',
-                          P: 'bg-violet-100 text-violet-700 border-violet-300',
-                          N: 'bg-slate-100 text-slate-500 border-slate-300',
-                          W: 'bg-rose-100 text-rose-700 border-rose-300',
-                          T: 'bg-slate-100 text-slate-500 border-slate-300',
-                        };
-                        const AXIS_KO: Record<string, string> = {
-                          D: '건성', O: '지성', S: '민감성', R: '저항성',
-                          P: '색소성', N: '비색소', W: '주름성', T: '탄력성',
-                        };
-                        const AXIS_BENEFIT_LABEL: Record<string, string> = {
-                          D: '보습·장벽', O: '피지조절·각질', S: '진정·장벽',
-                          R: '자극성분', P: '브라이트닝·항산화', N: '(중립)',
-                          W: '안티에이징·퍼밍', T: '(중립)',
-                        };
-                        const axisFocus = getAxisDisplayForProductType(sku.product_type);
-                        const typeSummary = getProductTypeSummaryKo(sku.product_type);
-                        return (
-                          <span className="flex w-full min-w-0 flex-col gap-1.5">
-                            <span className="inline-flex flex-wrap items-center gap-1.5">
-                            <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-600">
-                              ✅ 전 성분 업로드 완료 {cnt > 0 ? `(${cnt}개)` : ''}
-                            </span>
-                            {cnt > 0 && (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleFullInci(sku)}
-                                  className="rounded border border-emerald-200 bg-white px-2 py-0.5 text-[10px] font-medium text-emerald-700 hover:bg-emerald-50"
-                                >
-                                  {expandedFullInciBySku.has(sku.id) ? '전성분 닫기' : '전성분 보기'}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleFetchIngredients(sku)}
-                                  disabled={fetchingIngredientId === sku.id}
-                                  className="rounded border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
-                                >
-                                  {fetchingIngredientId === sku.id ? '수집 중…' : '성분 재수집'}
-                                </button>
-                              </>
-                            )}
-                            </span>
-                            {cnt > 0 && axisResults.length > 0 && (
-                              <>
-                                <p className="text-[10px] leading-snug text-slate-500">
-                                  <span className="font-medium text-slate-600">[{sku.product_type?.trim() || '유형 미지정'}] </span>
-                                  {typeSummary}
-                                </p>
-                                <span className="inline-flex flex-wrap items-center gap-1">
-                                  {axisFocus.endpoints.map((letter) => {
-                                    const ar = axisResultForEndpoint(axisResults, letter);
-                                    const pct = pctForEndpoint(axisResults, letter);
-                                    const cls =
-                                      AXIS_COLORS[letter] ?? 'bg-slate-100 text-slate-500 border-slate-300';
-                                    const [a1, a2] = ar?.pair ?? [letter, ''];
-                                    const [p1, p2] = ar?.pcts ?? [0, 0];
-                                    const a1Cnt =
-                                      ar?.details.filter((d) => d.axisLabel === a1 && d.contribution === 'benefit').length ?? 0;
-                                    const a2Cnt =
-                                      ar?.details.filter((d) => d.axisLabel === a2 && d.contribution === 'benefit').length ?? 0;
-                                    const penCnt = ar?.details.filter((d) => d.contribution === 'penalty').length ?? 0;
-                                    return (
-                                      <span key={letter} className="relative group/axend">
-                                        <span
-                                          className={`cursor-default rounded border px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${cls}`}
-                                        >
-                                          {letter} {AXIS_KO[letter]} {pct ?? '—'}%
-                                        </span>
-                                        {ar && (
-                                          <span className="pointer-events-none absolute left-0 top-full z-50 mt-1 hidden min-w-[200px] rounded-lg border border-slate-200 bg-white p-2 shadow-lg group-hover/axend:block">
-                                            <span className="block text-[10px] text-slate-700">
-                                              <span className="font-semibold text-slate-800">{AXIS_KO[a1]}({a1})</span> {p1}%
-                                              {a1Cnt > 0 && (
-                                                <span className="text-slate-500"> — {AXIS_BENEFIT_LABEL[a1]} 기여 {a1Cnt}건</span>
-                                              )}
-                                            </span>
-                                            <span className="block text-[10px] text-slate-700">
-                                              <span className="font-semibold text-slate-800">{AXIS_KO[a2]}({a2})</span> {p2}%
-                                              {a2Cnt > 0 && (
-                                                <span className="text-slate-500"> — {AXIS_BENEFIT_LABEL[a2]} 기여 {a2Cnt}건</span>
-                                              )}
-                                            </span>
-                                            <span
-                                              className={`mt-1 block border-t border-slate-100 pt-1 text-[10px] ${penCnt > 0 ? 'text-rose-600' : 'text-slate-400'}`}
-                                            >
-                                              이 쌍 관련 주의 성분: {penCnt > 0 ? `${penCnt}건` : '없음'}
-                                            </span>
-                                          </span>
-                                        )}
-                                      </span>
-                                    );
-                                  })}
-                                </span>
-                              </>
-                            )}
-                          </span>
-                        );
-                      }
-                      if (st === 'failed') return (
-                        <span className="rounded bg-red-50 px-1.5 py-0.5 text-[10px] text-red-500">❌ 수집 실패</span>
-                      );
-                    })()}
                   </div>
-                  {(() => {
-                    /* 목록 부제목: ② 등록 행과 동일하게 영문 브랜드 + 영문 상품명 우선 (없으면 예전 데이터용 display_name) */
-                    const subBrand = sku.brand?.trim() || '';
-                    const subProduct = (sku.name_en?.trim() || sku.display_name?.trim() || '') || '';
-                    if (!subBrand && !subProduct) return null;
-                    return (
-                      <p className="text-xs text-slate-600">
-                        {subBrand && <span className="font-medium">{subBrand}</span>}
-                        {subBrand && subProduct && ' · '}
-                        {subProduct}
-                      </p>
-                    );
-                  })()}
                   <p className="mt-1 text-xs text-slate-500">
                     재고: <span className={`font-semibold ${sku.safety_stock > 0 && sku.current_stock <= sku.safety_stock ? 'text-red-500' : 'text-slate-800'}`}>{sku.current_stock}</span>
                     {sku.safety_stock > 0 && <> / 안전재고: {sku.safety_stock}</>}
                     {' '}({sku.unit})
                   </p>
-                  {sku.description && (() => {
-                    // key_ingredients_desc가 있으면 description 내 ✨ 줄은 중복이므로 제거
-                    const hasHeroes = sku.key_ingredients_desc && sku.key_ingredients_desc.length > 0;
-                    const descText = hasHeroes
-                      ? sku.description.split('\n').filter((l) => !l.trim().startsWith('✨')).join('\n').trim()
-                      : sku.description;
-                    return descText ? <SkuCardDescription text={descText} /> : null;
-                  })()}
-                  {sku.key_ingredients_desc && sku.key_ingredients_desc.length > 0 && (() => {
-                    const claim = sku.key_ingredients_desc.find((h) => h.name === '__claim__');
-                    const ingredients = sku.key_ingredients_desc.filter((h) => h.name !== '__claim__');
-                    const hasHeroI18n = ingredients.some((h) => (h.en?.trim() || h.ru?.trim()));
-                    return (
-                      <div className="mt-2 rounded-lg bg-orange-50 p-2">
-                        {(() => {
-                          const claimKoRaw = claim?.ko?.trim()
-                            ? stripLegacyMockHeroClaimPrefix(claim.ko)
-                            : '';
-                          const hasClaim = !!claimKoRaw;
-                          if (!hasClaim && sku.ingredients_status !== 'done') return null;
-                          return (
-                            <div className="mb-2 rounded-md border border-orange-200 bg-white px-2.5 py-1.5">
-                              <div className="flex items-start justify-between gap-2">
-                                <p className="min-w-0 flex-1 text-[9px] font-semibold uppercase tracking-wider text-orange-600">
-                                  핵심 마케팅문구
-                                </p>
-                                {sku.ingredients_status === 'done' && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleGenerateClaimOnly(sku)}
-                                    disabled={
-                                      generatingClaimSkuId === sku.id ||
-                                      regeneratingHeroSkuId === sku.id ||
-                                      fetchingIngredientId === sku.id
-                                    }
-                                    className="shrink-0 rounded-full border border-orange-200 bg-orange-50 px-2 py-0.5 text-[10px] font-semibold text-orange-700 hover:bg-orange-100 disabled:opacity-50"
-                                  >
-                                    {generatingClaimSkuId === sku.id ? '생성 중…' : '✍️ 마케팅문구'}
-                                  </button>
-                                )}
-                              </div>
-                              {hasClaim ? (
-                                <p className="mt-1 text-[11px] font-medium leading-snug text-orange-900">{claimKoRaw}</p>
-                              ) : (
-                                <p className="mt-1 text-[10px] leading-snug text-amber-800">
-                                  아직 없습니다. Gemini 키가 있을 때「✍️ 마케팅문구」로 한 줄을 생성하거나, 히어로 재선정 시 함께 생성됩니다.
-                                </p>
-                              )}
-                            </div>
-                          );
-                        })()}
-                        {ingredients.length > 0 && (
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="min-w-0 flex-1 text-[10px] font-semibold uppercase tracking-wider text-orange-500">
-                                핵심 성분별 설명 & 마케팅문구 ({ingredients.length}개)
-                              </p>
-                              {sku.ingredients_status === 'done' && (
-                                <button
-                                  type="button"
-                                  onClick={() => void handleRegenerateHeroIngredients(sku)}
-                                  disabled={
-                                    regeneratingHeroSkuId === sku.id ||
-                                    generatingClaimSkuId === sku.id ||
-                                    fetchingIngredientId === sku.id
-                                  }
-                                  title="전성분 패널에서 성분을 정확히 3개 체크한 뒤 누르면, 그 3개를 히어로로 고정하고 소구·설명만 갱신합니다. 체크가 3개가 아니면 AI가 전성분에서 다시 3개를 고릅니다. INCI 재수집 없음."
-                                  className="shrink-0 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-800 hover:bg-violet-100 disabled:opacity-50"
-                                >
-                                  {regeneratingHeroSkuId === sku.id ? '재선정 중…' : '🎯 AI 핵심 재선정'}
-                                </button>
-                              )}
-                            </div>
-                            {heroSelectionAuditBySku[sku.id] ? (
-                              <div className="rounded-lg border border-violet-200 bg-violet-50/90 p-2.5 text-[10px] leading-snug text-slate-800">
-                                <p className="font-bold text-violet-900">핵심 선정 검수 (마지막 AI 재선정 기준)</p>
-                                <p className="mt-0.5 text-[9px] text-violet-700/90">
-                                  이 블록은 DB에 저장되지 않습니다. 새로고침·다시 열면 사라집니다.
-                                </p>
-                                <p className="mt-1 text-slate-700">
-                                  {heroSelectionAuditBySku[sku.id]!.rationale_ko}
-                                </p>
-                                <div className="mt-2 grid gap-2 sm:grid-cols-3">
-                                  <div>
-                                    <p className="font-semibold text-violet-800">최종 3종</p>
-                                    <ul className="mt-0.5 space-y-1">
-                                      {heroSelectionAuditBySku[sku.id]!.final_picks.map((r) => (
-                                        <li key={r.name_lower} className="text-slate-700">
-                                          <span className="font-medium">{toKoName(r.display)}</span>
-                                          <span className="text-slate-500">
-                                            {' '}
-                                            · {r.concentration_band} · #{r.position}
-                                          </span>
-                                          {r.tags?.length ? (
-                                            <span className="mt-0.5 block text-[9px] text-slate-500">
-                                              {r.tags.map((t) => BENEFIT_TAG_KO[t] ?? t).join(', ')}
-                                            </span>
-                                          ) : null}
-                                        </li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                  <div>
-                                    <p className="font-semibold text-amber-800">고득점인데 탈락 (비교용)</p>
-                                    <ul className="mt-0.5 space-y-1">
-                                      {heroSelectionAuditBySku[sku.id]!.eliminated_high_scorers.map((r) => (
-                                        <li key={r.name_lower} className="text-slate-700">
-                                          {toKoName(r.display)}
-                                          <span className="text-slate-500">
-                                            {' '}
-                                            · score {r.score ?? '—'} · #{r.position}
-                                          </span>
-                                        </li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                  <div>
-                                    <p className="font-semibold text-slate-700">빠른 교체 (3번째 슬롯)</p>
-                                    <p className="text-[9px] text-slate-500">
-                                      체크 3개를 현재 최종 1·2번 + 후보로 맞춘 뒤, 아래 전성분에서 반영하거나 재선정하세요.
-                                    </p>
-                                    <div className="mt-1 flex flex-wrap gap-1">
-                                      {heroSelectionAuditBySku[sku.id]!.final_picks.length >= 3 &&
-                                        heroSelectionAuditBySku[sku.id]!.swap_suggestions.map((s) => (
-                                          <button
-                                            key={s.name_lower}
-                                            type="button"
-                                            onClick={() => {
-                                              const f = heroSelectionAuditBySku[sku.id]!.final_picks;
-                                              setSelectedInciForHero((prev) => ({
-                                                ...prev,
-                                                [sku.id]: [f[0].name_lower, f[1].name_lower, s.name_lower],
-                                              }));
-                                              showToast(
-                                                '3번째 성분을 이 후보로 바꿔 체크했습니다. 전성분 패널에서 반영 또는 재선정하세요.',
-                                                'info',
-                                              );
-                                            }}
-                                            className="rounded border border-violet-200 bg-white px-1.5 py-0.5 text-[9px] font-medium text-violet-800 hover:bg-violet-100"
-                                          >
-                                            3→{toKoName(s.display)}
-                                          </button>
-                                        ))}
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            ) : null}
-                            <ul className="space-y-2">
-                              {ingredients.map((h) => (
-                                <li key={h.name} className="rounded-md border border-orange-100/80 bg-white/90 px-2 py-1.5">
-                                  <p
-                                    className="flex min-w-0 items-center gap-1.5 text-[11px] leading-snug"
-                                    title={`${h.name}: ${h.ko}`}
-                                  >
-                                    <span className="shrink-0 font-semibold text-orange-900">✨ {h.name}</span>
-                                    <span className="shrink-0 text-slate-300" aria-hidden>
-                                      ·
-                                    </span>
-                                    <span className="min-w-0 truncate font-normal text-slate-800">{h.ko}</span>
-                                  </p>
-                                  {expandedHeroI18nBySku.has(sku.id) && (h.en || h.ru) && (
-                                    <div className="mt-1.5 space-y-0.5 border-t border-orange-50 pt-1.5 text-[10px] leading-snug text-slate-600">
-                                      {h.en ? <p><span className="font-medium text-slate-500">EN</span> {h.en}</p> : null}
-                                      {h.ru ? <p><span className="font-medium text-slate-500">RU</span> {h.ru}</p> : null}
-                                    </div>
-                                  )}
-                                </li>
-                              ))}
-                            </ul>
-                            {hasHeroI18n && (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setExpandedHeroI18nBySku((prev) => {
-                                    const next = new Set(prev);
-                                    if (next.has(sku.id)) next.delete(sku.id);
-                                    else next.add(sku.id);
-                                    return next;
-                                  })
-                                }
-                                className="text-[10px] font-semibold text-orange-600 underline decoration-orange-300 underline-offset-2 hover:text-orange-800"
-                              >
-                                {expandedHeroI18nBySku.has(sku.id) ? '영문·러시아 문구 접기' : '영문·러시아 문구 보기'}
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()}
-                  {sku.ingredients_status === 'done' &&
-                    (!sku.key_ingredients_desc || sku.key_ingredients_desc.length === 0) &&
-                    Array.isArray(sku.ingredients_json) &&
-                    (sku.ingredients_json as unknown[]).length > 0 && (
-                      <div className="mt-2 rounded-lg border border-violet-200 bg-violet-50/80 p-2.5">
-                        <p className="mb-2 text-[10px] leading-snug text-violet-900">
-                          <span className="font-semibold">핵심 성분·마케팅 블록이 비어 있습니다.</span> DB{' '}
-                          <code className="rounded bg-violet-100/90 px-0.5">key_ingredients_desc</code>에 히어로
-                          3종·문구가 없어 위 오렌지 카드가 보이지 않습니다. 전성분은 있으니 아래로 복구하세요.
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => void handleRegenerateHeroIngredients(sku)}
-                          disabled={
-                            regeneratingHeroSkuId === sku.id ||
-                            generatingClaimSkuId === sku.id ||
-                            fetchingIngredientId === sku.id
-                          }
-                          className="rounded-full border border-violet-300 bg-white px-3 py-1 text-[10px] font-semibold text-violet-800 hover:bg-violet-100 disabled:opacity-50"
-                        >
-                          {regeneratingHeroSkuId === sku.id ? '재선정 중…' : '🎯 AI 핵심 재선정'}
-                        </button>
-                      </div>
-                    )}
-                  {/* 전성분 리스트: 한국어명 + 성분별 마케팅(한글) + ★ 후보 + 3개 선택 → 핵심 문구 덮어쓰기 */}
-                  {sku.ingredients_status === 'done' &&
-                    expandedFullInciBySku.has(sku.id) &&
-                    (() => {
-                      const parsed = parseIngredientsJson(sku.ingredients_json as unknown[]);
-                      if (parsed.length === 0) {
-                        return <p className="mt-2 text-xs text-amber-600">전성분 JSON이 비어 있습니다. 성분 재수집을 시도해 보세요.</p>;
-                      }
-                      const heroLowerSet = buildHeroNameLowerSet(sku.key_ingredients_desc);
-                      const picked = selectedInciForHero[sku.id] ?? [];
-                      const heroStarByLower = new Map<string, boolean>();
-                      for (const x of parsed) {
-                        heroStarByLower.set(
-                          x.name_lower,
-                          isAiHighlightedIngredient(x, heroLowerSet, sku.product_type),
-                        );
-                      }
-                      const sorted = [...parsed].sort((a, b) => {
-                        const sa = heroStarByLower.get(a.name_lower) ?? false;
-                        const sb = heroStarByLower.get(b.name_lower) ?? false;
-                        if (sa !== sb) return sa ? -1 : 1;
-                        return (a.position ?? 0) - (b.position ?? 0);
-                      });
-                      return (
-                        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3">
-                          <div className="mb-2 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                              전체 성분 (한국어) · # = 전성분 순번(함량 높을수록 앞) · ★ = 히어로 후보(상단 정렬) ·
-                              정제수·범용 보습/용매·방부 등은 제외
-                            </p>
-                            <p className="text-[10px] text-slate-400">
-                              선택 {picked.length}/3 — 위 오렌지 카드는 <span className="font-semibold text-slate-600">저장된 값</span>입니다. 반영 버튼을 눌러야 갱신됩니다.
-                            </p>
-                          </div>
-                          {libraryEnrichingSkuIds.has(sku.id) ? (
-                            <p className="mb-2 text-[10px] text-slate-500">라이브러리 요약(Gemini) 생성 중…</p>
-                          ) : null}
-                          <ul className="max-h-72 space-y-2 overflow-y-auto pr-1">
-                            {sorted.map((ing) => {
-                              const star = heroStarByLower.get(ing.name_lower) ?? false;
-                              const libMap = ingredientLibMaps[sku.id];
-                              const nk = normalizeInciKey(ing.name, ing.name_lower);
-                              const libRow = libMap?.get(nk) ?? libMap?.get(ing.name_lower.trim().toLowerCase()) ?? null;
-                              const effectLine = resolveIngredientEffectLine(ing, libRow, sku.product_type, {
-                                skinApiOffline: skinApiHealth === 'offline',
-                                libraryEnrichPending: libraryEnrichingSkuIds.has(sku.id),
-                                geminiMissingOnServer: serverGeminiConfigured === false,
-                              });
-                              const koLabel = toKoName(ing.name);
-                              const checked = picked.includes(ing.name_lower);
-                              const tierOn = Boolean(libRow?.tier_active ?? ing.tier_active);
-                              const tierBusy = tierToggleBusyKey === `${sku.id}:${nk}`;
-                              return (
-                                <li
-                                  key={`${sku.id}-${ing.position}-${ing.name_lower}`}
-                                  className="flex gap-2 rounded-lg border border-slate-100 bg-white px-2 py-2 text-[11px] leading-snug"
-                                >
-                                  <label className="flex min-w-0 flex-1 cursor-pointer gap-2">
-                                    <input
-                                      type="checkbox"
-                                      checked={checked}
-                                      onChange={() => toggleInciHeroSelect(sku.id, ing.name_lower)}
-                                      className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-brand focus:ring-brand"
-                                    />
-                                    <span className="min-w-0 flex-1">
-                                      <span className="font-semibold text-slate-800">
-                                        <span
-                                          className="mr-1 inline-block rounded bg-slate-200/90 px-1 py-0 text-[9px] font-mono font-normal text-slate-600"
-                                          title="전성분 표시 순서(앞일수록 통상 함량 큼)"
-                                        >
-                                          #{ing.position ?? '—'}
-                                        </span>
-                                        {star ? <span className="mr-0.5 text-amber-500" title="핵심 후보">★</span> : null}
-                                        {koLabel}
-                                      </span>
-                                      {ing.benefit_tags && ing.benefit_tags.length > 0 && (
-                                        <span className="mt-0.5 flex flex-wrap gap-1">
-                                          {ing.benefit_tags.map((t) => (
-                                            <span key={t} className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] text-slate-500">
-                                              {BENEFIT_TAG_KO[t] ?? t}
-                                            </span>
-                                          ))}
-                                        </span>
-                                      )}
-                                      <p className="mt-1 truncate text-[10px] text-slate-600" title={effectLine}>
-                                        {effectLine}
-                                      </p>
-                                    </span>
-                                  </label>
-                                  <label className="flex shrink-0 cursor-pointer flex-col items-end gap-0.5 border-l border-slate-100 pl-2 text-[9px] text-slate-500">
-                                    <span className="flex items-center gap-1 whitespace-nowrap">
-                                      <input
-                                        type="checkbox"
-                                        checked={tierOn}
-                                        disabled={tierBusy}
-                                        onChange={() => void handleToggleIngredientTierActive(sku, ing, libRow)}
-                                        className="h-3.5 w-3.5 rounded border-slate-300 text-brand focus:ring-brand"
-                                      />
-                                      티어 액티브
-                                    </span>
-                                    <span className="max-w-[7rem] text-right text-[8px] leading-tight text-slate-400" title="뒤 순번이어도 점수에서 앞쪽처럼 반영">
-                                      순서 가중 보정
-                                    </span>
-                                  </label>
-                                </li>
-                              );
-                            })}
-                          </ul>
-                          {picked.length === 3 ? (
-                            <div className="mt-3 rounded-lg border border-dashed border-violet-200 bg-violet-50/60 px-2.5 py-2">
-                              <p className="text-[10px] font-semibold text-violet-800">반영 시 핵심 3문구 미리보기</p>
-                              <ul className="mt-1.5 space-y-1">
-                                {picked.map((nl) => {
-                                  const ing = sorted.find((x) => x.name_lower === nl);
-                                  if (!ing) return null;
-                                  const nk = normalizeInciKey(ing.name, ing.name_lower);
-                                  const libRow =
-                                    ingredientLibMaps[sku.id]?.get(nk) ??
-                                    ingredientLibMaps[sku.id]?.get(ing.name_lower.trim().toLowerCase()) ??
-                                    null;
-                                  const m = resolveMarketingTriple(
-                                    ing.name,
-                                    ingredientInciLookupKey(ing),
-                                    sku.product_type,
-                                  );
-                                  const libKo = libRow?.description_ko?.trim();
-                                  const line = m.isTemplate && libKo ? libKo : m.ko;
-                                  return (
-                                    <li
-                                      key={nl}
-                                      className="truncate text-[10px] leading-snug text-slate-700"
-                                      title={`${ing.name}: ${line}`}
-                                    >
-                                      <span className="font-semibold text-slate-800">{ing.name}</span>
-                                      <span className="text-slate-500"> · </span>
-                                      {line}
-                                    </li>
-                                  );
-                                })}
-                              </ul>
-                            </div>
-                          ) : null}
-                          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-3">
-                            <button
-                              type="button"
-                              disabled={picked.length !== 3 || savingHeroSkuId === sku.id}
-                              onClick={() => void handleApplyHeroFromFullList(sku)}
-                              className="rounded-full bg-brand px-4 py-1.5 text-xs font-semibold text-white disabled:opacity-40 hover:bg-brand/90"
-                            >
-                              {savingHeroSkuId === sku.id ? '저장 중…' : '선택 3개를 핵심 문구로 적용'}
-                            </button>
-                            <span className="text-[10px] text-slate-400">브랜드 히어로 소구문구(__claim__)는 유지됩니다.</span>
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  {sku.memo && <p className="mt-0.5 text-[11px] text-slate-400">메모: {sku.memo}</p>}
                 </div>
                 </div>
                 <div className="flex w-full shrink-0 flex-wrap content-start gap-1.5 sm:max-w-[min(100%,22rem)] sm:justify-end">
@@ -2923,24 +2472,20 @@ export function InventoryTab() {
                     className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50">
                     이력
                   </button>
-                  {!showIngredientRefetchInline && (
-                    <button
-                      type="button"
-                      onClick={() => handleFetchIngredients(sku)}
-                      disabled={fetchingIngredientId === sku.id}
-                      className={`rounded-full px-2.5 py-1 text-xs font-medium disabled:opacity-50 ${
-                        sku.ingredients_status === 'done'
-                          ? 'border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                          : 'border border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100'
-                      }`}
-                    >
-                      {fetchingIngredientId === sku.id
-                        ? '수집 중…'
-                        : sku.ingredients_status === 'done'
-                          ? '성분 재수집'
-                          : '🧪 성분 분석'}
-                    </button>
-                  )}
+                  <button type="button" onClick={() => handleFetchIngredients(sku)}
+                    disabled={fetchingIngredientId === sku.id}
+                    className={`rounded-full px-2.5 py-1 text-xs font-medium disabled:opacity-50 ${
+                      sku.ingredients_status === 'done'
+                        ? 'border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                        : 'border border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100'
+                    }`}
+                  >
+                    {fetchingIngredientId === sku.id
+                      ? '수집 중…'
+                      : sku.ingredients_status === 'done'
+                        ? '성분 재수집'
+                        : '🧪 성분 분석'}
+                  </button>
                   <button type="button" onClick={() => {
                     setEditingSku(sku);
                     {
@@ -3133,6 +2678,105 @@ export function InventoryTab() {
                       value={editingSku.memo ?? ''}
                       onChange={(e) => setEditingSku((p) => p ? { ...p, memo: e.target.value } : p)} />
                   </div>
+
+                  {/* ── 📦 박스빌더 태그 ── */}
+                  {(editingSku as Partial<SkuItem>).box_builder_slot && (
+                    <div className="sm:col-span-2 rounded-xl border border-violet-200 bg-violet-50/60 p-3">
+                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-base">📦</span>
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-violet-700">
+                            박스빌더 태그
+                          </p>
+                          <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-medium text-violet-600">
+                            슬롯: {BOX_SLOT_LABELS[(editingSku as Partial<SkuItem>).box_builder_slot as BoxSlotKey]?.en ?? (editingSku as Partial<SkuItem>).box_builder_slot}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const ij = (editingSku as Partial<SkuItem>).ingredients_json as unknown[] | null;
+                            const tags = deriveBoxBuilderTags(ij);
+                            if (!tags.ru && !tags.en) {
+                              alert('성분 데이터(ingredients_json)가 없어 태그를 생성할 수 없습니다.\n먼저 AI 성분 분석을 실행해 주세요.');
+                              return;
+                            }
+                            setEditingSku((p) => p ? { ...p, box_builder_tag_ru: tags.ru, box_builder_tag_en: tags.en } : p);
+                          }}
+                          className="rounded-full border border-violet-300 bg-white px-3 py-1 text-[10px] font-semibold text-violet-700 hover:bg-violet-100 transition"
+                        >
+                          🔄 성분으로 재생성
+                        </button>
+                      </div>
+                      <p className="mb-2 text-[10px] leading-snug text-violet-600/80">
+                        박스빌더(「박스 만들기」) 카드에 표시되는 효능 태그입니다. 직접 수정하거나, 성분 분석 완료 후 「재생성」 버튼으로 자동 채울 수 있습니다.
+                      </p>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <div>
+                          <label className="mb-1 block text-[10px] font-medium text-violet-700">태그 (러시아어)</label>
+                          <input
+                            type="text"
+                            className="w-full rounded-lg border border-violet-200 bg-white px-2.5 py-2 text-xs text-slate-800 placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-300"
+                            placeholder="예: Увлажнение · Успокоение"
+                            value={(editingSku as Partial<SkuItem>).box_builder_tag_ru ?? ''}
+                            onChange={(e) => setEditingSku((p) => p ? { ...p, box_builder_tag_ru: e.target.value } : p)}
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-[10px] font-medium text-violet-700">태그 (영어)</label>
+                          <input
+                            type="text"
+                            className="w-full rounded-lg border border-violet-200 bg-white px-2.5 py-2 text-xs text-slate-800 placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-300"
+                            placeholder="예: Hydrating · Soothing"
+                            value={(editingSku as Partial<SkuItem>).box_builder_tag_en ?? ''}
+                            onChange={(e) => setEditingSku((p) => p ? { ...p, box_builder_tag_en: e.target.value } : p)}
+                          />
+                        </div>
+                      </div>
+                      {!(editingSku as Partial<SkuItem>).box_builder_tag_ru && !(editingSku as Partial<SkuItem>).box_builder_tag_en && (
+                        <p className="mt-2 text-[10px] text-amber-600">
+                          ⚠ 태그가 비어 있습니다. 박스빌더 카드에 효능이 표시되지 않습니다.
+                        </p>
+                      )}
+
+                      {/* ── 바우만 피부타입 (자동 생성, 읽기 전용) ── */}
+                      {((editingSku as Partial<SkuItem>).baumann_types?.length ?? 0) > 0 && (
+                        <div className="mt-3 border-t border-violet-200 pt-3">
+                          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-violet-700">
+                            👑 Gemini 추천 피부타입
+                            <span className="ml-1.5 rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-medium text-violet-500">자동 생성 · 읽기 전용</span>
+                          </p>
+                          <div className="mb-2 flex flex-wrap gap-1">
+                            {((editingSku as Partial<SkuItem>).baumann_types ?? []).map((code) => (
+                              <span key={code} className="rounded-md bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-700">
+                                {code}
+                              </span>
+                            ))}
+                          </div>
+                          {(editingSku as Partial<SkuItem>).baumann_recommend_reason_ru && (
+                            <p className="text-[10px] leading-snug text-slate-600">
+                              <span className="font-medium text-violet-600">RU:</span> {(editingSku as Partial<SkuItem>).baumann_recommend_reason_ru}
+                            </p>
+                          )}
+                          {(editingSku as Partial<SkuItem>).baumann_recommend_reason_en && (
+                            <p className="mt-0.5 text-[10px] leading-snug text-slate-500">
+                              <span className="font-medium text-slate-400">EN:</span> {(editingSku as Partial<SkuItem>).baumann_recommend_reason_en}
+                            </p>
+                          )}
+                          <p className="mt-1.5 text-[9px] text-slate-400">
+                            데이터가 부정확하면 성분 재수집 후 자동 갱신됩니다.
+                          </p>
+                        </div>
+                      )}
+                      {(editingSku as Partial<SkuItem>).box_builder_slot && !((editingSku as Partial<SkuItem>).baumann_types?.length) && (
+                        <div className="mt-3 border-t border-violet-200 pt-2">
+                          <p className="text-[10px] text-slate-400">
+                            👑 바우만 피부타입: 미생성 — 「전체 강제 재수집」 또는 성분 재수집 후 자동 생성됩니다.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <div className="flex items-center sm:col-span-2">
                     <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-600">

@@ -23,8 +23,6 @@ function normSpaces(s: string): string {
 
 /**
  * 짧은 카피(display)와 긴 공식명(name_en)이 같은 제품을 가리킬 때 긴 쪽을 택함.
- * - 접두어 일치
- * - 또는 (의미 있는 길이일 때) 한 줄이 다른 줄에 부분 문자열로 포함
  */
 export function mergeLatinSkuTitles(a: string, b: string): string {
   const x = a.trim();
@@ -47,38 +45,32 @@ function hasHangul(s: string): boolean {
 }
 
 /**
- * 세트 구성·구성품 상세 제목.
- * - ru/en 스토어: 라틴 후보(display_name, name_en, 라틴 fallback)를 병합해 짧은 표시명이 긴 공식명에 흡수되도록 함.
- * - language === 'ko' 일 때만 sku.name(한글) 우선.
+ * 스토어front 제품명 (.com 영어 · .ru 러시아 UI — 제품명·브랜드는 영문 INCI/라틴 유지).
+ *
+ * `display_name`(한글)은 **관리자 제품관리 탭 전용** — 스토어에서는 절대 사용하지 않음.
  */
 export function resolveSkuStorefrontName(opts: {
+  /** @deprecated 스토어front에서 무시 — InventoryTab 등 관리자 UI 전용 */
   display_name?: string | null;
   name_en?: string | null;
   name?: string | null;
   fallbackName?: string | null;
-  /** 앱 언어(ru|en). 한글 상품명 우선은 'ko'일 때만 적용 */
   language?: string;
 }): string {
-  const language = (opts.language ?? '').trim();
-  const d = sanitizeDisplayName(opts.display_name);
   const en = (opts.name_en ?? '').trim();
-  const ko = (opts.name ?? '').trim();
+  const skuName = (opts.name ?? '').trim();
   const fb = (opts.fallbackName ?? '').trim();
 
-  if (language === 'ko' && ko && hasHangul(ko)) {
-    return ko;
-  }
-
   let bestLatin = '';
-  for (const cand of [d, en, fb]) {
+  for (const cand of [en, skuName, fb]) {
     if (!cand || hasHangul(cand)) continue;
     bestLatin = bestLatin ? mergeLatinSkuTitles(bestLatin, cand) : cand;
   }
-  if (!bestLatin) bestLatin = (d || en || '').trim();
+  if (!bestLatin && en) bestLatin = en;
+  if (!bestLatin && skuName && !hasHangul(skuName)) bestLatin = skuName;
   if (!bestLatin && fb && !hasHangul(fb)) bestLatin = fb;
 
-  if (bestLatin) return bestLatin;
-  return ko || fb || '—';
+  return bestLatin || '—';
 }
 
 /** 카드 한 줄 제목: 공백·하이픈·괄호 뒤 라틴/키릴 소문자만 대문자 (한글 등은 유지) */
@@ -112,4 +104,17 @@ export function formatCompositionDisplayTitle(
     return formatStorefrontLineTitle(p);
   }
   return `${formatStorefrontLineTitle(b)} - ${formatStorefrontLineTitle(p)}`;
+}
+
+/** 관리자 InventoryTab 등 — 한글 display_name 표시용 (스토어 API 금지) */
+export function resolveAdminSkuDisplayLabel(opts: {
+  display_name?: string | null;
+  name?: string | null;
+  name_en?: string | null;
+}): string {
+  const d = sanitizeDisplayName(opts.display_name);
+  if (d) return d;
+  const ko = (opts.name ?? '').trim();
+  if (ko && hasHangul(ko)) return ko;
+  return (opts.name_en ?? opts.name ?? '').trim() || '—';
 }

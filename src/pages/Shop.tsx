@@ -16,12 +16,15 @@ import {
   parseCatalogVisibleByRoom,
   type CatalogSlotRoom,
 } from '../lib/catalogSlotRooms';
+import { BoxBuilderSkuCatalog } from '../components/BoxBuilderSkuCatalog';
+import { BuildBoxEntryBanner } from '../components/BuildBoxEntryBanner';
 import { isLegacyMockCatalogProductName } from '../lib/legacyMockContent';
 
 /** 슬롯 또는 폴백 상품 타입 */
 type ShopItem = {
   id: string;
   name: string;
+  brand?: string | null;
   price: number;
   originalPrice: number | null;
   imageUrl: string | null;
@@ -75,7 +78,7 @@ function ShopProductCard({ product, onAddToCart, layoutCategory, layout, archive
   const archive = Boolean(archiveMode);
   const formatPrice = (price: number) => formatCurrencyAmount(price, currency);
   const articleBase =
-    'flex w-full min-w-0 flex-col items-stretch rounded-xl border border-slate-200/80 bg-white md:min-h-[420px] md:items-center shadow-[0_1px_8px_-4px_rgba(15,23,42,0.18)]';
+    'flex h-full w-full min-w-0 flex-col items-stretch rounded-xl border border-slate-200/80 bg-white md:min-h-[420px] md:items-center shadow-[0_1px_8px_-4px_rgba(15,23,42,0.18)]';
   const archiveTone = archive ? ' grayscale contrast-[0.92]' : '';
   const pad =
     layout === 'mobile-stack'
@@ -83,8 +86,8 @@ function ShopProductCard({ product, onAddToCart, layoutCategory, layout, archive
       : 'px-4 pt-4 pb-6 sm:px-6 sm:pt-5 sm:pb-6';
 
   const titleClass = archive
-    ? 'prose-ru text-center text-base font-medium leading-snug tracking-wide text-slate-500 md:text-sm'
-    : 'prose-ru text-center text-base font-medium leading-snug tracking-wide text-slate-800 md:text-sm';
+    ? 'prose-ru line-clamp-2 min-h-[2.75rem] text-center text-base font-medium leading-snug tracking-wide text-slate-500 md:min-h-[2.5rem] md:text-sm'
+    : 'prose-ru line-clamp-2 min-h-[2.75rem] text-center text-base font-medium leading-snug tracking-wide text-slate-800 md:min-h-[2.5rem] md:text-sm';
 
   /** 모바일 1열: 장바구니 버튼 가로 절반·가운데 / 캐러셀·md+: 기존 */
   const cartBtnWidth =
@@ -103,6 +106,11 @@ function ShopProductCard({ product, onAddToCart, layoutCategory, layout, archive
 
   const cardTop = (
     <>
+      {product.brand && (
+        <p className="mb-0.5 text-center text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+          {product.brand}
+        </p>
+      )}
       <p className={titleClass}>{product.name}</p>
       <div className="mt-2 w-full min-w-0 md:mt-0">
         <ShopCardImage
@@ -364,6 +372,7 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
   const [items, setItems] = useState<ShopItem[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [carouselIndex, setCarouselIndex] = useState(0);
+  const [giftPrice, setGiftPrice] = useState<number>(10000);
   const touchStartX = useRef(0);
 
   useEffect(() => {
@@ -379,13 +388,16 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
     setCatalogLoading(true);
     (async () => {
       try {
-        const [{ data: slotData, error: slotErr }, { data: visRow }] = await Promise.all([
+        const [{ data: slotData, error: slotErr }, { data: visRow }, { data: giftRow }] = await Promise.all([
           supabase
             .from(CATALOG_ROOM_SLOTS_TABLE)
             .select('id, slot_index, title, description, image_url, product_id, link_url')
             .eq('catalog_room', layoutCategory),
           supabase.from('site_settings').select('value').eq('key', CATALOG_SLOT_VISIBLE_BY_ROOM_KEY).maybeSingle(),
+          supabase.from('site_settings').select('value').eq('key', 'gift_voucher_price_rub').maybeSingle(),
         ]);
+        const giftVal = Number((giftRow as { value?: string } | null)?.value ?? 10000);
+        if (Number.isFinite(giftVal) && giftVal > 0) setGiftPrice(giftVal);
         if (slotErr) {
           console.warn('[ShopCatalog] catalog_room_slots:', slotErr.message);
           const visMapErr = parseCatalogVisibleByRoom(visRow?.value);
@@ -437,6 +449,7 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
           string,
           {
             name?: string | null;
+            brand?: string | null;
             rrp_price: number | null;
             prp_price: number | null;
             image_url: string | null;
@@ -447,6 +460,29 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
         > = {};
         // 1) 슬롯에 연결된 상품 — catalog_room 으로 룸이 이미 정해졌으므로, 관리자가 슬롯에 넣은 UUID는 products.category 와 무관하게 표시한다.
         //    (예전에는 category 불일치 시 맵에서 빼 2칸만 노출되는 버그가 있었음 — 슬롯이 진실 소스.)
+        // SKU brand/영문명 조회 (product_components → sku_items join)
+        const skuBrandMap: Record<string, { brand: string; nameEn: string }> = {};
+        if (productIds.length > 0) {
+          const { data: compRows } = await supabase
+            .from('product_components')
+            .select('product_id, sku_items(brand, name, name_en)')
+            .in('product_id', productIds)
+            .order('sort_order', { ascending: true });
+          for (const comp of compRows ?? []) {
+            const pid = (comp as { product_id?: string }).product_id;
+            const sku = Array.isArray((comp as { sku_items?: unknown }).sku_items)
+              ? ((comp as { sku_items?: unknown[] }).sku_items?.[0] as { brand?: string | null; name?: string | null; name_en?: string | null } | undefined)
+              : ((comp as { sku_items?: { brand?: string | null; name?: string | null; name_en?: string | null } }).sku_items);
+            if (pid && sku && !skuBrandMap[pid]) {
+              const skuBrand = sku.brand?.trim() || null;
+              const skuNameEn = sku.name_en?.trim() || sku.name?.trim() || null;
+              if (skuBrand || skuNameEn) {
+                skuBrandMap[pid] = { brand: skuBrand ?? '', nameEn: skuNameEn ?? '' };
+              }
+            }
+          }
+        }
+
         if (productIds.length > 0) {
           let slotProdRes = await supabase.from('products').select(PRODUCTS_SELECT_FULL).in('id', productIds);
           if (slotProdRes.error) {
@@ -483,8 +519,10 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
                   layoutCategory,
                 );
               }
+              const skuInfo = skuBrandMap[p.id];
               productsMap[p.id] = {
-                name: p.name ?? null,
+                name: skuInfo?.nameEn || p.name || null,
+                brand: skuInfo?.brand || null,
                 rrp_price: p.rrp_price,
                 prp_price: p.prp_price,
                 image_url: p.image_url ?? null,
@@ -525,6 +563,7 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
           return {
             id: productId ?? `slot-${s.slot_index}`,
             name: (product?.name?.trim() || s.title || `Слот ${s.slot_index + 1}`).trim(),
+            brand: product?.brand?.trim() || null,
             price,
             originalPrice,
             imageUrl,
@@ -634,6 +673,8 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
         ) : null}
       </header>
 
+      {layoutCategory === 'beauty' && <BuildBoxEntryBanner />}
+
       {catalogLoading ? (
         <div className={SEMO_SECTION_LOADING_CLASS} aria-busy="true">
           <SemoPageSpinner />
@@ -700,7 +741,7 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
                 {items.map((product) => (
                   <div
                     key={product.id}
-                    className="flex shrink-0 flex-col px-2 sm:px-3"
+                    className="flex h-full shrink-0 flex-col px-2 sm:px-3"
                     style={{ width: items.length <= Math.floor(VISIBLE_DESKTOP)
                       ? `${Math.min(itemWidthPercentDesktop, 100 / Math.max(items.length, 1))}%`
                       : `${itemWidthPercentDesktop}%`
@@ -768,32 +809,18 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
         </>
       )}
 
-      {/* ── 선물권 배너 (뷰티박스 탭에만 표시) ── */}
+      {/* ── 선물권 링크 (뷰티박스 탭에만 표시) ── */}
       {layoutCategory === 'beauty' && (
-        <section className="mx-auto mt-10 max-w-2xl px-1 sm:px-0">
+        <div className="mx-auto mt-6 flex justify-center">
           <Link
             to="/gift-voucher"
-            className="group flex flex-col gap-4 overflow-hidden rounded-2xl border border-brand/20 bg-gradient-to-br from-brand-soft/70 via-brand-soft/50 to-white px-5 py-5 shadow-sm transition hover:border-brand/35 hover:shadow-md sm:flex-row sm:items-center sm:gap-6 sm:px-6 sm:py-6"
+            className="group inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-medium text-slate-500 shadow-sm transition hover:border-slate-300 hover:text-slate-700"
           >
-            <span className="text-5xl" role="img" aria-label="gift">🎁</span>
-            <div className="min-w-0 flex-1">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-brand">
-                {language === 'en' ? 'Gift' : 'Подарок'}
-              </p>
-              <h2 className="mt-0.5 text-base font-semibold text-slate-900 sm:text-lg">
-                {language === 'en' ? 'SEMO Gift Voucher' : 'Подарочный сертификат SEMO'}
-              </h2>
-              <p className="mt-1 text-sm leading-5 text-slate-500">
-                {language === 'en'
-                  ? 'Gift a personalised K-beauty box — products matched to her skin. 10 000 ₽ · Valid 1 year.'
-                  : 'Подари персонализированный K-beauty бокс — продукты под её кожу. 10 000 ₽ · Действует год.'}
-              </p>
-            </div>
-            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition group-hover:bg-brand/90">
-              {language === 'en' ? 'Buy →' : 'Купить →'}
-            </span>
+            <span role="img" aria-label="gift">🎁</span>
+            {language === 'en' ? `SEMO Gift Voucher · ${giftPrice.toLocaleString()} ₽` : `Подарочный сертификат SEMO · ${giftPrice.toLocaleString()} ₽`}
+            <span className="text-slate-400 transition group-hover:text-slate-600">→</span>
           </Link>
-        </section>
+        </div>
       )}
 
       {showAddedToast && (
@@ -809,9 +836,55 @@ export function ShopCatalog({ category: layoutCategory, pageTitle, pageSubtitle 
   );
 }
 
-export const Shop: React.FC = () => (
-  <ShopCatalog category="beauty" pageTitle="Beauty box" pageSubtitle="S/S 2026 SEMO selection" />
-);
+export const Shop: React.FC = () => {
+  const { language } = useI18n();
+  const [giftPrice, setGiftPrice] = useState<number>(10000);
+
+  useEffect(() => {
+    if (!supabase) return;
+    void supabase
+      .from('site_settings')
+      .select('value')
+      .eq('key', 'gift_voucher_price_rub')
+      .maybeSingle()
+      .then(({ data }) => {
+        const giftVal = Number((data as { value?: string } | null)?.value ?? 10000);
+        if (Number.isFinite(giftVal) && giftVal > 0) setGiftPrice(giftVal);
+      }, () => { /* keep default */ });
+  }, []);
+
+  return (
+    <main className="mx-auto min-w-0 w-full max-w-[96rem] px-3 py-5 sm:px-6 sm:py-10 md:px-8 md:py-14">
+      <header className="mb-6 md:mb-10">
+        <h1 className="text-center text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl md:text-4xl">
+          Beauty box
+        </h1>
+        <p className="prose-ru mx-auto mt-4 max-w-2xl text-center text-sm font-bold italic leading-relaxed text-brand sm:text-base">
+          S/S 2026 SEMO selection
+        </p>
+      </header>
+
+      <BuildBoxEntryBanner />
+
+      {/* 카테고리별 개별 SKU 카탈로그 */}
+      <div className="mx-auto max-w-[88rem]">
+        <BoxBuilderSkuCatalog />
+      </div>
+
+      {/* 선물권 링크 */}
+      <div className="mx-auto mt-8 flex justify-center">
+        <Link
+          to="/gift-voucher"
+          className="group inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-medium text-slate-500 shadow-sm transition hover:border-slate-300 hover:text-slate-700"
+        >
+          <span role="img" aria-label="gift">🎁</span>
+          {language === 'en' ? `SEMO Gift Voucher · ${giftPrice.toLocaleString()} ₽` : `Подарочный сертификат SEMO · ${giftPrice.toLocaleString()} ₽`}
+          <span className="text-slate-400 transition group-hover:text-slate-600">→</span>
+        </Link>
+      </div>
+    </main>
+  );
+};
 
 /** 히스토리 페이지 등에서 카드 재사용 */
 export { ShopProductCard };

@@ -72,6 +72,11 @@ export function validateShippingComplete(form: Partial<ShippingFormCamel>): { ok
   return { ok: true };
 }
 
+/** 배송·신원 필드가 결제/주문에 필요한 수준으로 모두 채워졌는지 */
+export function isShippingComplete(form: Partial<ShippingFormCamel>): boolean {
+  return validateShippingComplete(form).ok;
+}
+
 /**
  * 배송 필드를 하나라도 채웠으면 반드시 전체 검사. 아무것도 안 채웠으면 ok(프로필 이름·телефон만 저장 가능).
  */

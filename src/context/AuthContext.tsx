@@ -142,13 +142,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         (session.user.email ? session.user.email.split('@')[0] : '') ||
         'Гость';
       try {
-        const { data: existing } = await supabase
+        const { data: existing, error: nameErr } = await supabase
           .from('profiles')
           .select('name')
           .eq('id', session.user.id)
           .single();
+        // 조회 성공 + name 없을 때만 초기화 (에러 시 덮어쓰지 않음)
+        const queryOk = !nameErr || nameErr.code === 'PGRST116'; // PGRST116 = row not found
         const hasName = !!existing?.name?.trim();
-        if (!hasName) {
+        if (queryOk && !hasName) {
           await supabase.from('profiles').upsert(
             { id: session.user.id, name: displayName.trim() || null },
             { onConflict: 'id' }
@@ -241,6 +243,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 sessionStorage.setItem(onceKey, '1');
                 const mini = await loginWithMiniApp(supabase!, SUPABASE_URL);
                 if (mini.ok && !cancelled) {
+                  if (mini.isNew) {
+                    try {
+                      sessionStorage.setItem('semo_post_signup_redirect', '/profile/edit');
+                    } catch {
+                      /* */
+                    }
+                  }
                   const { data: { session: afterTg } } = await supabase!.auth.getSession();
                   if (afterTg?.user) {
                     void applySession(afterTg);

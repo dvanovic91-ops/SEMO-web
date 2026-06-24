@@ -67,7 +67,7 @@ export const AuthCallback: React.FC = () => {
         if (!h || h.length < 3) return '/profile';
         const q = new URLSearchParams(h.startsWith('#') ? h.slice(1) : h);
         const t = q.get('type');
-        if (t === 'signup' || t === 'email' || t === 'magiclink') return '/profile';
+        if (t === 'signup' || t === 'email' || t === 'magiclink') return '/profile/edit';
       } catch {
         /* ignore */
       }

@@ -40,6 +40,7 @@ interface AddressSuggestProps {
   country?: string;
   /** Google Places 자동완성 후보·지도 UI 언어 */
   mapsUiLanguage?: 'ru' | 'en';
+  readOnly?: boolean;
 }
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
@@ -49,7 +50,7 @@ const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefine
 
 const GooglePlacesField: React.FC<
   Omit<AddressSuggestProps, 'country'> & { country: string; mapsUiLanguage?: 'ru' | 'en' }
-> = ({ label, placeholder, title, value, onChange, onPartsChange, country, mapsUiLanguage = 'en' }) => {
+> = ({ label, placeholder, title, value, onChange, onPartsChange, country, mapsUiLanguage = 'en', readOnly }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const onChangeRef = useRef(onChange);
   const onPartsRef = useRef(onPartsChange);
@@ -58,9 +59,10 @@ const GooglePlacesField: React.FC<
 
   const [mapsReady, setMapsReady] = useState(false);
   const [usePlainInput, setUsePlainInput] = useState(!GOOGLE_KEY);
+  const lockedClass = readOnly ? `${inputClass} cursor-default bg-slate-50` : inputClass;
 
   useEffect(() => {
-    if (!GOOGLE_KEY || usePlainInput) return;
+    if (readOnly || !GOOGLE_KEY || usePlainInput) return;
     const input = inputRef.current;
     if (!input) return;
     let cancelled = false;
@@ -94,7 +96,7 @@ const GooglePlacesField: React.FC<
         window.google.maps.event.clearInstanceListeners(ac);
       }
     };
-  }, [country, mapsUiLanguage, usePlainInput]);
+  }, [country, mapsUiLanguage, usePlainInput, readOnly]);
 
   useEffect(() => {
     const el = inputRef.current;
@@ -108,11 +110,12 @@ const GooglePlacesField: React.FC<
         <label className="mb-1 block text-sm font-medium text-slate-700">{label}</label>
         <input
           type="text"
-          className={inputClass}
+          className={lockedClass}
           placeholder={placeholder}
           title={title}
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          readOnly={readOnly}
+          onChange={readOnly ? undefined : (e) => onChange(e.target.value)}
         />
       </div>
     );
@@ -125,11 +128,12 @@ const GooglePlacesField: React.FC<
         <input
           ref={inputRef}
           type="text"
-          className={inputClass}
+          className={lockedClass}
           placeholder={placeholder}
           title={title}
           defaultValue={value}
-          onChange={(e) => onChange(e.target.value)}
+          readOnly={readOnly}
+          onChange={readOnly ? undefined : (e) => onChange(e.target.value)}
         />
         {!mapsReady && (
           <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
@@ -150,6 +154,7 @@ export const AddressSuggest: React.FC<AddressSuggestProps> = ({
   onPartsChange,
   country = 'RU',
   mapsUiLanguage = 'en',
+  readOnly,
 }) => {
   const mode = resolveAddressSuggestMode(country);
   const [query, setQuery] = useState(value);
@@ -234,6 +239,7 @@ export const AddressSuggest: React.FC<AddressSuggestProps> = ({
         onPartsChange={onPartsChange}
         country={country}
         mapsUiLanguage={mapsUiLanguage}
+        readOnly={readOnly}
       />
     );
   }
@@ -244,11 +250,12 @@ export const AddressSuggest: React.FC<AddressSuggestProps> = ({
         <label className="mb-1 block text-sm font-medium text-slate-700">{label}</label>
         <input
           type="text"
-          className={inputClass}
+          className={readOnly ? `${inputClass} cursor-default bg-slate-50` : inputClass}
           placeholder={placeholder}
           title={title}
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          readOnly={readOnly}
+          onChange={readOnly ? undefined : (e) => onChange(e.target.value)}
         />
       </div>
     );
@@ -259,17 +266,26 @@ export const AddressSuggest: React.FC<AddressSuggestProps> = ({
       <label className="mb-1 block text-sm font-medium text-slate-700">{label}</label>
       <input
         type="text"
-        className={inputClass}
+        className={readOnly ? `${inputClass} cursor-default bg-slate-50` : inputClass}
         placeholder={placeholder}
         title={title}
         value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        onFocus={() => {
-          if (suggestions.length > 0) setOpen(true);
-        }}
-        onBlur={() => {
-          setTimeout(() => setOpen(false), 150);
-        }}
+        readOnly={readOnly}
+        onChange={readOnly ? undefined : (e) => setQuery(e.target.value)}
+        onFocus={
+          readOnly
+            ? undefined
+            : () => {
+                if (suggestions.length > 0) setOpen(true);
+              }
+        }
+        onBlur={
+          readOnly
+            ? undefined
+            : () => {
+                setTimeout(() => setOpen(false), 150);
+              }
+        }
       />
       {loading && (
         <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">

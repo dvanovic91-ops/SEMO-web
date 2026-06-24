@@ -5,6 +5,10 @@ export type SkuIngredientLine = {
   name: string;
   name_lower: string;
   position: number;
+  /** Python ingredient_fetcher가 SENSITIZING_INGREDIENTS 기준으로 표시한 주의 성분 여부 */
+  is_sensitizing: boolean;
+  /** Python INGREDIENT_BENEFIT_MAP 기준 효능 태그 목록 */
+  benefit_tags: string[];
 };
 
 /**
@@ -39,7 +43,11 @@ export function parseSkuIngredientsJson(raw: unknown[] | null | undefined): SkuI
     if (!name.trim()) continue;
     const name_lower = typeof o.name_lower === 'string' ? o.name_lower : name.toLowerCase();
     const position = typeof o.position === 'number' ? o.position : out.length + 1;
-    out.push({ name, name_lower, position });
+    const is_sensitizing = o.is_sensitizing === true;
+    const benefit_tags = Array.isArray(o.benefit_tags)
+      ? (o.benefit_tags as unknown[]).filter((t): t is string => typeof t === 'string')
+      : [];
+    out.push({ name, name_lower, position, is_sensitizing, benefit_tags });
   }
   return out;
 }

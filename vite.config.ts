@@ -9,10 +9,10 @@ import react from '@vitejs/plugin-react-swc';
  */
 const disableHmr = process.env.NO_HMR === '1' || process.env.VITE_NO_HMR === '1';
 
-/** 브라우저는 항상 동일 출처 `/skin-api/*` 로 요청 → CORS·HTTPS→HTTP 차단 회피 (백엔드는 127.0.0.1:5001) */
+/** 브라우저는 항상 동일 출처 `/skin-api/*` 로 요청 → Oracle Cloud Flask 서버로 프록시 */
 const skinApiProxy = {
   '/skin-api': {
-    target: 'http://127.0.0.1:5001',
+    target: 'http://139.185.33.168:5001',
     changeOrigin: true,
     rewrite: (path: string) => path.replace(/^\/skin-api/, '') || '/',
   },

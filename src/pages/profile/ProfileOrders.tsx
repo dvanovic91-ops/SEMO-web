@@ -12,6 +12,7 @@ import {
   type FulfillmentTracking,
 } from '../../lib/fulfillmentTracking';
 import { normalizeOrderStatus, ORDER_STATUS_LABEL_RU, type OrderShipmentStatus } from '../../lib/orderStatusRu';
+import { resolveSkuStorefrontName } from '../../lib/skuStorefrontTitle';
 import { supabase } from '../../lib/supabase';
 
 export type OrderItem = { id: string; name: string; quantity: number; price: number };
@@ -446,7 +447,12 @@ export const ProfileOrders: React.FC = () => {
         const next: Record<string, FeedbackItemOption[]> = {};
         ((data ?? []) as ProductComponentOptionRow[]).forEach((row) => {
           const sku = row.sku_items;
-          const name = String(sku?.display_name ?? sku?.name_en ?? sku?.name ?? row.name ?? '').trim();
+          const name = resolveSkuStorefrontName({
+            name_en: sku?.name_en,
+            name: sku?.name,
+            fallbackName: row.name ?? null,
+            language,
+          }).trim();
           if (!row.product_id || !name) return;
           const id = String(row.sku_id ?? `${row.product_id}:${row.sort_order ?? name}`).trim();
           if (!next[row.product_id]) next[row.product_id] = [];
@@ -461,7 +467,7 @@ export const ProfileOrders: React.FC = () => {
         });
         setComponentItemsByProductId(next);
       });
-  }, [orders]);
+  }, [orders, language]);
 
   /** 알림에서 ?order=uuid 로 진입 시 해당 카드로 스크롤 */
   useEffect(() => {

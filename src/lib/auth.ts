@@ -1,6 +1,6 @@
 /**
  * OAuth 연동 — 구글/얀덱스 로그인·가입 리다이렉트 URL 생성.
- * 실제 가입·로그인은 백엔드 callback에서 처리 후, 신규 사용자는 /register/shipping으로 보냄.
+ * 실제 가입·로그인은 백엔드 callback에서 처리 후, 신규 사용자는 /profile/edit(개인·배송 정보)으로 보냄.
  *
  * 필요 환경 변수 (.env):
  * - VITE_GOOGLE_CLIENT_ID   — Google Cloud Console OAuth 2.0 클라이언트 ID

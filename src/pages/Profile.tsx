@@ -7,6 +7,8 @@ import { AuthInitializingScreen } from '../components/SemoPageSpinner';
 import { approximateScoresFromSkinTypeCode } from '../data/skinTestData';
 import { formatSkinTypeShort } from '../lib/skinTypeDisplay';
 import { hasSelfieAnalysisSnapshot, selfieAnalysisToClientState } from '../lib/skinTestSelfie';
+import { fetchShippingAddressRow, shippingRowToFormFields } from '../lib/profileDeliveryDb';
+import { isShippingComplete } from '../lib/shippingValidation';
 
 type DbProfileState = {
   name: string | null;
@@ -50,6 +52,170 @@ function parseBaumannScores(raw: unknown, skinType: string | null): Record<1 | 2
     return { 1: read('1'), 2: read('2'), 3: read('3'), 4: read('4') };
   }
   return skinType ? approximateScoresFromSkinTypeCode(skinType) : EMPTY_SKIN_SCORES;
+}
+
+// ─── 피부 타입별 공감 인사이트 (Baumann 16조합) ─────────────────
+const SKIN_INSIGHTS: Record<string, { ru: string; en: string }> = {
+  // ── 지성(O) ────────────────────────────────────────────────────
+  OSPW: {
+    ru: 'После умывания кожа ощущается стянутой, но уже через пару часов начинает блестеть — классический признак обезвоженной жирной кожи. Воспаления оставляют тёмные следы надолго, а к вечеру макияж нередко «плывёт».',
+    en: 'Skin feels tight after cleansing but turns shiny within hours — a hallmark of dehydrated-oily skin. Blemishes leave dark marks that linger for months, and makeup often doesn\'t last the day.',
+  },
+  OSPT: {
+    ru: 'Кожа активно блестит, легко краснеет от новых средств или стресса, а любое воспаление оставляет след. Зато упругость хорошая — морщины пока не беспокоят.',
+    en: 'Skin gets shiny quickly and reddens easily from new products or stress; any blemish tends to leave a mark. The bright side: firmness is good and wrinkles aren\'t a concern yet.',
+  },
+  OSNW: {
+    ru: 'Кожа реагирует на многое: краснеет, щиплет, не принимает новые средства — и при этом ещё блестит в течение дня. Тон ровный, но со временем появляются первые признаки потери упругости.',
+    en: 'Skin reacts to a lot — redness, stinging, trouble with new products — and gets shiny throughout the day too. Skin tone is even, but early signs of aging are starting to show.',
+  },
+  OSNT: {
+    ru: 'Жирная и чувствительная, но упругая кожа с ровным тоном — главная проблема это блеск и периодическое раздражение. Уход должен быть лёгким и без лишних ингредиентов.',
+    en: 'Oily and sensitive but firm, with an even tone — the main challenge is shine and occasional irritation. A light, minimal routine works best.',
+  },
+  ORPW: {
+    ru: 'Кожа выносливая и хорошо переносит уход, но поры стали заметнее, тон потускнел, и появились первые морщины. Хорошая новость — ретинол и кислоты кожа принимает без протестов.',
+    en: 'Resilient skin that handles most products well, but pores are enlarging, tone is uneven, and first wrinkles are appearing. The good news: retinol and acids are well tolerated.',
+  },
+  ORPT: {
+    ru: 'Жирная и стойкая кожа с хорошей упругостью — но неровный тон и следы от воспалений не дают радоваться полностью. Кислоты и осветляющие средства хорошо переносятся и дают результат.',
+    en: 'Oily and resilient with good firmness — but uneven tone and post-blemish marks are the main frustration. Acids and brightening actives are well tolerated and effective.',
+  },
+  ORNW: {
+    ru: 'Кожа жирная и выносливая, тон радует своей ровностью — но с возрастом заметна потеря упругости. Самое время для профилактики: ретинол и антиоксиданты кожа воспримет хорошо.',
+    en: 'Oily and resilient with an even tone — but firmness is starting to decrease with age. A great time for prevention: retinol and antioxidants are well tolerated.',
+  },
+  ORNT: {
+    ru: 'Одна из наиболее беспроблемных комбинаций: жирная, выносливая, с ровным тоном и хорошей упругостью. Главная задача — контролировать блеск и поры, не перегружая кожу лишними средствами.',
+    en: 'One of the most low-maintenance combinations: oily, resilient, even-toned and firm. The main goal is managing shine and pores without overloading the skin.',
+  },
+  // ── 건성(D) ────────────────────────────────────────────────────
+  DSPW: {
+    ru: 'Кожа стягивается после умывания, может шелушиться и краснеть от малейшего раздражителя — а поверх этого ещё пятна и морщины. Тональный крем ложится неровно на сухие участки. Уход нужен мягкий, питательный и с защитой от UV.',
+    en: 'Skin feels tight after cleansing, may flake and redden from the slightest irritant — plus pigmentation and wrinkles add to the picture. Foundation tends to settle unevenly on dry patches. Gentle, nourishing, UV-protective care is essential.',
+  },
+  DSPT: {
+    ru: 'Кожа сухая и реактивная: стягивается, шелушится, реагирует на новые средства — и при этом склонна к пятнам и неровному тону. Зато упругость хорошая, морщины пока не беспокоят.',
+    en: 'Dry and reactive: tight, flaky, sensitive to new products — and prone to pigmentation spots. The upside: firmness is good and wrinkles aren\'t a concern yet.',
+  },
+  DSNW: {
+    ru: 'Кожа тонкая, сухая и очень чувствительная — легко раздражается, шелушится, и при этом начинает терять упругость. Тон ровный — это радует, но бережный уход с питательными компонентами здесь обязателен.',
+    en: 'Thin, dry and very sensitive — irritates easily, flakes, and is starting to lose firmness. Skin tone is even, which is a plus, but gentle nourishing care is a must.',
+  },
+  DSNT: {
+    ru: 'Сухая чувствительная кожа, которая стягивается после умывания и краснеет от ветра или нового крема. Хорошо то, что тон ровный и упругость в порядке — уход должен быть простым и успокаивающим.',
+    en: 'Dry, sensitive skin that tightens after cleansing and reddens from wind or a new cream. The good news: even tone and good firmness. Keep the routine simple and soothing.',
+  },
+  DRPW: {
+    ru: 'Кожа сухая, с заметными возрастными изменениями: морщины, неровный тон, потеря упругости. Зато выносливая — хорошо реагирует на активный уход с ретинолом, витамином С и пептидами.',
+    en: 'Dry skin with visible aging signs: wrinkles, uneven tone, loss of firmness. But resilient — it responds well to actives like retinol, vitamin C, and peptides.',
+  },
+  DRPT: {
+    ru: 'Кожа сухая, но стойкая: хорошо переносит большинство средств, упругость в порядке. Главный вопрос — сухость и неравномерный тон. Кислоты и осветляющие сыворотки здесь будут кстати.',
+    en: 'Dry but resilient: tolerates most products well, firmness is good. Main concerns: dryness and uneven pigmented tone. Acids and brightening serums work well here.',
+  },
+  DRNW: {
+    ru: 'Кожа сухая и начинает показывать возраст — морщины и потеря тонуса становятся заметнее. Зато тон ровный и кожа стойкая, хорошо принимает активный уход. Приоритет — питание и ретинол.',
+    en: 'Dry skin that\'s aging — wrinkles and loss of firmness are becoming visible. But tone is even and resilient skin responds well to actives. Priority: nourishment and retinol.',
+  },
+  DRNT: {
+    ru: 'Кожа сухая, но в целом всё хорошо: ровный тон, хорошая упругость, никакой особой реактивности. Единственная задача — восполнять влагу и питать кожу достаточно.',
+    en: 'Dry skin, but overall in great shape: even tone, good firmness, no particular reactivity. The only task is keeping skin well-hydrated and nourished.',
+  },
+};
+
+function getSkinInsightText(scores: Record<1 | 2 | 3 | 4, number>, isEn: boolean): string {
+  const key = [
+    scores[1] < 0 ? 'O' : 'D',
+    scores[2] > 0 ? 'S' : 'R',
+    scores[3] > 0 ? 'P' : 'N',
+    scores[4] > 0 ? 'W' : 'T',
+  ].join('');
+  const insight = SKIN_INSIGHTS[key];
+  if (!insight) return isEn ? 'Take the test to see your skin profile.' : 'Пройдите тест для персонального профиля.';
+  return isEn ? insight.en : insight.ru;
+}
+
+type SkinAxisCardInfo = {
+  categoryLabel: string;
+  label: string;
+  hint: string;
+  bg: string;
+  border: string;
+  text: string;
+  sub: string;
+  dotColor: string;
+  dots: number;
+};
+
+function buildSkinOneLiner(scores: Record<1 | 2 | 3 | 4, number>, isEn: boolean): string {
+  // 부호 규칙: 축1 음수=지성, 양수=건성 / 축2 양수=민감, 음수=강함 / 축3 양수=색소, 음수=균일 / 축4 양수=주름, 음수=탄력
+  const axes: { idx: 1 | 2 | 3 | 4; abs: number }[] = ([1, 2, 3, 4] as const).map((i) => ({
+    idx: i,
+    abs: Math.abs(scores[i]),
+  }));
+  axes.sort((a, b) => b.abs - a.abs);
+
+  const axisLabel = (idx: 1 | 2 | 3 | 4): string => {
+    const s = scores[idx];
+    if (idx === 1) return s < 0 ? (isEn ? 'oily' : 'жирная') : (isEn ? 'dry' : 'сухая');
+    if (idx === 2) return s > 0 ? (isEn ? 'sensitive' : 'чувствительная') : (isEn ? 'resilient' : 'устойчивая');
+    if (idx === 3) return s > 0 ? (isEn ? 'pigmented' : 'с пигментацией') : (isEn ? 'even tone' : 'ровный тон');
+    return s > 0 ? (isEn ? 'aging' : 'возрастная') : (isEn ? 'firm' : 'упругая');
+  };
+
+  const top = axes.slice(0, 2).map(({ idx }) => axisLabel(idx));
+
+  const hintMap: Record<string, string> = {
+    'жирная+чувствительная':  'лёгкие гели без отдушек, низкий pH',
+    'жирная+устойчивая':      'лёгкие гели и кислотные тонеры',
+    'жирная+с пигментацией':  'ниацинамид, AHA-кислоты и SPF',
+    'жирная+возрастная':      'лёгкие сыворотки с ретинолом и SPF',
+    'сухая+чувствительная':   'мягкие увлажняющие средства без отдушек',
+    'сухая+устойчивая':       'питательные кремы и масла',
+    'сухая+с пигментацией':   'увлажнение + витамин С для выравнивания тона',
+    'сухая+возрастная':       'плотный крем с ретинолом и пептидами',
+    'oily+sensitive':         'light fragrance-free gels, low pH cleansers',
+    'oily+resilient':         'light gels and gentle exfoliating toners',
+    'oily+pigmented':         'niacinamide, AHA acids and SPF',
+    'oily+aging':             'lightweight retinol serums and SPF',
+    'dry+sensitive':          'gentle fragrance-free moisturisers',
+    'dry+resilient':          'nourishing creams and facial oils',
+    'dry+pigmented':          'hydration + vitamin C for even tone',
+    'dry+aging':              'rich retinol cream and peptides',
+  };
+  const key = top.join('+');
+  const hint = hintMap[key] ?? (isEn ? 'build a personalised box' : 'собери персональный бокс');
+  const typeStr = top[0] ?? '';
+  const capitalised = typeStr.charAt(0).toUpperCase() + typeStr.slice(1);
+  return isEn
+    ? `${capitalised}${top[1] ? ` & ${top[1]}` : ''} skin — ${hint}`
+    : `${capitalised}${top[1] ? ` · ${top[1]}` : ''} — ${hint}`;
+}
+
+function getSkinAxisCard(axisIdx: 1 | 2 | 3 | 4, score: number, isEn: boolean): SkinAxisCardInfo {
+  const abs = Math.abs(score);
+  const dots = abs >= 4 ? 5 : abs >= 3 ? 4 : abs >= 2 ? 3 : abs >= 1 ? 2 : 1;
+
+  // 부호 규칙: 축1 음수=지성, 양수=건성 / 축2 양수=민감, 음수=강함 / 축3 양수=색소, 음수=균일 / 축4 양수=주름, 음수=탄력
+  if (axisIdx === 1) {
+    const categoryLabel = isEn ? 'Oiliness' : 'Жирность';
+    if (score < 0) return { categoryLabel, label: isEn ? 'Oily' : 'Жирная', hint: isEn ? 'Light gel texture, foam cleanser' : 'Лёгкий гель, пенка для умывания', bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-900', sub: 'text-amber-700', dotColor: '#f59e0b', dots };
+    return { categoryLabel, label: isEn ? 'Dry' : 'Сухая', hint: isEn ? 'Rich cream, oil-based cleanser' : 'Жирный крем, масляный клинсер', bg: 'bg-sky-50', border: 'border-sky-200', text: 'text-sky-900', sub: 'text-sky-600', dotColor: '#0ea5e9', dots };
+  }
+  if (axisIdx === 2) {
+    const categoryLabel = isEn ? 'Sensitivity' : 'Чувствит.';
+    if (score > 0) return { categoryLabel, label: isEn ? 'Sensitive' : 'Чувствительная', hint: isEn ? 'Fragrance-free, gentle formulas' : 'Без отдушек, мягкие формулы', bg: 'bg-rose-50', border: 'border-rose-200', text: 'text-rose-900', sub: 'text-rose-700', dotColor: '#f43f5e', dots };
+    return { categoryLabel, label: isEn ? 'Resilient' : 'Устойчивая', hint: isEn ? 'Tolerates most formulas well' : 'Хорошо переносит большинство средств', bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-900', sub: 'text-emerald-700', dotColor: '#10b981', dots };
+  }
+  if (axisIdx === 3) {
+    const categoryLabel = isEn ? 'Pigment' : 'Пигментация';
+    if (score > 0) return { categoryLabel, label: isEn ? 'Pigmented' : 'Пигментация', hint: isEn ? 'Niacinamide, vitamin C, SPF' : 'Ниацинамид, витамин С, SPF', bg: 'bg-purple-50', border: 'border-purple-200', text: 'text-purple-900', sub: 'text-purple-700', dotColor: '#a855f7', dots };
+    return { categoryLabel, label: isEn ? 'Even tone' : 'Ровный тон', hint: isEn ? 'Antioxidants + SPF for maintenance' : 'Антиоксиданты и SPF для профилактики', bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-900', sub: 'text-emerald-700', dotColor: '#10b981', dots };
+  }
+  const categoryLabel = isEn ? 'Aging' : 'Возраст';
+  if (score > 0) return { categoryLabel, label: isEn ? 'Aging' : 'Возрастная', hint: isEn ? 'Retinol, peptides, rich moisturiser' : 'Ретинол, пептиды, плотный крем', bg: 'bg-violet-50', border: 'border-violet-200', text: 'text-violet-900', sub: 'text-violet-700', dotColor: '#8b5cf6', dots };
+  return { categoryLabel, label: isEn ? 'Firm' : 'Упругая', hint: isEn ? 'Light antioxidants for prevention' : 'Антиоксиданты для профилактики', bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-900', sub: 'text-emerald-700', dotColor: '#10b981', dots };
 }
 
 // 페이지 전환(리마운트) 시 0.1초 정도 스켈레톤이 보이는 문제를 완화하기 위한
@@ -113,9 +279,8 @@ export const Profile: React.FC = () => {
   const [skinSummary, setSkinSummary] = useState<SkinSummaryState | null>(null);
   /** 저장된 결과 중 셀카 분석 없음(설문만) 건수 — Tests 타일 배지용 */
   const [skinTestWithoutSelfieCount, setSkinTestWithoutSelfieCount] = useState(0);
-  /** 헤더 배지: 사용 가능 멤버십 쿠폰 + 셀피 분석 프로젝트 수 (목록은 /profile/coupons) */
-  const [activeCouponCount, setActiveCouponCount] = useState<number | null>(null);
-  const [couponCountLoading, setCouponCountLoading] = useState(false);
+  /** null = 조회 중, true = 배송 정보 완료, false = 미완료(배지 표시) */
+  const [shippingComplete, setShippingComplete] = useState<boolean | null>(null);
   const currentUserIdRef = useRef<string | null>(null);
   currentUserIdRef.current = userId;
 
@@ -184,6 +349,21 @@ export const Profile: React.FC = () => {
     }
     void refreshProfile();
   }, [refreshProfile, userId]);
+
+  useEffect(() => {
+    if (!supabase || !userId) {
+      setShippingComplete(null);
+      return;
+    }
+    let cancelled = false;
+    void fetchShippingAddressRow(supabase, userId).then((row) => {
+      if (cancelled) return;
+      setShippingComplete(isShippingComplete(shippingRowToFormFields(row)));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
   // 마지막 тип кожи + 셀카 미완료 건수 + 홈 요약 패널용 점수
   useEffect(() => {
@@ -260,58 +440,17 @@ export const Profile: React.FC = () => {
       });
   }, [userId]);
 
-  const refreshActiveCouponCount = useCallback(() => {
-    if (!supabase || !userId) {
-      setActiveCouponCount(null);
-      setCouponCountLoading(false);
-      return;
-    }
-    const requestedUserId = userId;
-    setCouponCountLoading(true);
-    Promise.all([
-      supabase
-        .from('membership_coupons')
-        .select('expires_at, used_at')
-        .eq('user_id', requestedUserId),
-      supabase.from('selfie_coupon_balances').select('balance').eq('user_id', requestedUserId).maybeSingle(),
-    ])
-      .then(([mRes, sRes]) => {
-        if (currentUserIdRef.current !== requestedUserId) return;
-        const now = Date.now();
-        const rows = (mRes.data ?? []) as { expires_at: string; used_at: string | null }[];
-        const n = rows.filter((c) => !c.used_at && new Date(c.expires_at).getTime() >= now).length;
-        let selfie = 0;
-        if (!sRes.error && sRes.data != null) {
-          const raw = (sRes.data as { balance?: number | null }).balance;
-          if (typeof raw === 'number' && !Number.isNaN(raw)) selfie = Math.max(0, raw);
-        }
-        setActiveCouponCount(n + selfie);
-      })
-      .catch(() => {
-        if (currentUserIdRef.current !== requestedUserId) return;
-        setActiveCouponCount(null);
-      })
-      .finally(() => {
-        if (currentUserIdRef.current === requestedUserId) setCouponCountLoading(false);
-      });
-  }, [userId]);
-
-  useEffect(() => {
-    refreshActiveCouponCount();
-  }, [refreshActiveCouponCount]);
-
-  // 다른 탭으로 돌아오면 프로필·쿠폰 수 다시 불러오기
+  // 다른 탭으로 돌아오면 프로필 다시 불러오기
   useEffect(() => {
     const onVisibility = () => {
       if (document.visibilityState === 'visible') {
         refreshProfile();
-        refreshActiveCouponCount();
         void refreshEmailConfirmationFromServer();
       }
     };
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
-  }, [refreshProfile, refreshActiveCouponCount, refreshEmailConfirmationFromServer]);
+  }, [refreshProfile, refreshEmailConfirmationFromServer]);
 
   // profiles.email_verified_at 동기화(AuthContext) — JWT/auth만 보면 Confirm OFF 시 오표시
   useEffect(() => {
@@ -552,44 +691,6 @@ export const Profile: React.FC = () => {
                 </>
               )}
             </Link>
-            <Link
-              to="/profile/coupons"
-              className="inline-flex h-11 min-h-11 w-20 min-w-20 flex-col items-center justify-center gap-0 rounded-lg border border-brand/25 bg-white/90 px-0 py-1 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-brand-soft/55"
-              aria-busy={couponCountLoading}
-              aria-label={tr('Купоны', 'Coupons')}
-            >
-              {couponCountLoading ? (
-                <>
-                  <div className="flex h-[18px] w-full shrink-0 items-center justify-center">
-                    <span
-                      className="inline-block h-3.5 min-w-[2.5rem] animate-pulse rounded bg-slate-200/90"
-                      aria-hidden
-                    />
-                  </div>
-                  <div className="mt-1 flex h-[14px] w-full items-end justify-center">
-                    <span
-                      className="inline-block h-2 min-w-[1.25rem] animate-pulse rounded bg-slate-200/80"
-                      aria-hidden
-                    />
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="flex h-[18px] w-full shrink-0 items-center justify-center" aria-hidden title={tr('Купоны', 'Coupons')}>
-                    <svg className="h-[18px] w-[18px]" viewBox="0 0 30 20" fill="none">
-                      <rect x="1.2" y="2" width="27.6" height="16" rx="3" fill="#E8F6FF" stroke="#7CCAF2" strokeWidth="1.2" />
-                      <path d="M10.5 2.7v14.6" stroke="#7CCAF2" strokeWidth="1.2" strokeDasharray="2 2" />
-                      <path d="M19.6 6.6a1.7 1.7 0 1 1 0 3.4 1.7 1.7 0 0 1 0-3.4Zm-4.7 5.3 5.4-7.4" stroke="#2E6F99" strokeWidth="1.2" strokeLinecap="round" />
-                      <circle cx="14.3" cy="12.4" r="1.35" stroke="#2E6F99" strokeWidth="1.2" />
-                      <circle cx="21.2" cy="14.2" r="1.35" stroke="#2E6F99" strokeWidth="1.2" />
-                    </svg>
-                  </div>
-                  <div className="mt-1 flex h-[14px] w-full items-end justify-center">
-                    <span className="text-center text-[10px] font-semibold leading-none tabular-nums text-slate-700">{activeCouponCount ?? 0}</span>
-                  </div>
-                </>
-              )}
-            </Link>
           </div>
           {/* 모바일: 인사 아래 가운데 정렬 */}
           <div className="flex shrink-0 flex-row items-center justify-center gap-2 sm:hidden">
@@ -671,44 +772,6 @@ export const Profile: React.FC = () => {
                 </>
               )}
             </Link>
-            <Link
-              to="/profile/coupons"
-              className="inline-flex h-11 min-h-11 w-20 min-w-20 flex-col items-center justify-center gap-0 rounded-lg border border-brand/25 bg-white/90 px-0 py-1 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-brand-soft/55"
-              aria-busy={couponCountLoading}
-              aria-label={tr('Купоны', 'Coupons')}
-            >
-              {couponCountLoading ? (
-                <>
-                  <div className="flex h-[18px] w-full shrink-0 items-center justify-center">
-                    <span
-                      className="inline-block h-3.5 min-w-[2.5rem] animate-pulse rounded bg-slate-200/90"
-                      aria-hidden
-                    />
-                  </div>
-                  <div className="mt-1 flex h-[14px] w-full items-end justify-center">
-                    <span
-                      className="inline-block h-2 min-w-[1.25rem] animate-pulse rounded bg-slate-200/80"
-                      aria-hidden
-                    />
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="flex h-[18px] w-full shrink-0 items-center justify-center" aria-hidden title={tr('Купоны', 'Coupons')}>
-                    <svg className="h-[18px] w-auto max-w-[28px]" viewBox="0 0 30 20" fill="none">
-                      <rect x="1.2" y="2" width="27.6" height="16" rx="3" fill="#E8F6FF" stroke="#7CCAF2" strokeWidth="1.2" />
-                      <path d="M10.5 2.7v14.6" stroke="#7CCAF2" strokeWidth="1.2" strokeDasharray="2 2" />
-                      <path d="M19.6 6.6a1.7 1.7 0 1 1 0 3.4 1.7 1.7 0 0 1 0-3.4Zm-4.7 5.3 5.4-7.4" stroke="#2E6F99" strokeWidth="1.2" strokeLinecap="round" />
-                      <circle cx="14.3" cy="12.4" r="1.35" stroke="#2E6F99" strokeWidth="1.2" />
-                      <circle cx="21.2" cy="14.2" r="1.35" stroke="#2E6F99" strokeWidth="1.2" />
-                    </svg>
-                  </div>
-                  <div className="mt-1 flex h-[14px] w-full items-end justify-center">
-                    <span className="text-center text-[10px] font-semibold leading-none tabular-nums text-slate-700">{activeCouponCount ?? 0}</span>
-                  </div>
-                </>
-              )}
-            </Link>
           </div>
         </div>
       </div>
@@ -723,9 +786,9 @@ export const Profile: React.FC = () => {
               <p className="text-sm font-semibold text-slate-900 sm:text-base">
                 {tr('Мой профиль кожи', 'My skin profile')}
               </p>
-              {skinSummary ? (
-                <span className="rounded-full bg-white/90 px-2.5 py-1 text-xs font-semibold text-brand ring-1 ring-brand/20">
-                  {skinSummaryLabel}
+              {skinSummary?.skin_type ? (
+                <span className="rounded-full bg-white/90 px-2.5 py-1 text-xs font-semibold tracking-widest text-brand ring-1 ring-brand/20">
+                  {skinSummary.skin_type.toUpperCase()}
                 </span>
               ) : null}
               {skinSummary && !skinSummaryHasSelfie ? (
@@ -734,9 +797,9 @@ export const Profile: React.FC = () => {
                 </span>
               ) : null}
             </div>
-            <p className="mt-1 text-xs leading-5 text-slate-600 sm:text-sm">
+            <p className="mt-1 text-xs italic leading-relaxed text-slate-500 sm:text-sm">
               {skinSummary
-                ? tr('Последний тест отражён в кратких шкалах ниже.', 'Latest test reflected in the quick scores below.')
+                ? getSkinInsightText(skinScores, language === 'en')
                 : tr('Пройдите тест, чтобы увидеть персональный профиль кожи.', 'Take the test to see your personal skin profile.')}
             </p>
           </div>
@@ -749,27 +812,28 @@ export const Profile: React.FC = () => {
         </div>
 
         {skinSummary ? (
-          <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-            {miniSkinAxes.map((axis) => {
-              const c = Math.max(-10, Math.min(10, axis.value));
-              const markerLeft = `${50 + c * 5}%`;
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {([1, 2, 3, 4] as const).map((axisIdx) => {
+              const score = Math.max(-10, Math.min(10, skinScores[axisIdx]));
+              const card = getSkinAxisCard(axisIdx, score, language === 'en');
               return (
-                <div key={axis.label} className="rounded-xl border border-white/80 bg-white/90 px-3 py-3 shadow-sm">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="truncate text-[11px] font-semibold uppercase tracking-wide text-slate-500">{axis.label}</span>
-                    <span className="shrink-0 text-sm font-semibold tabular-nums text-brand">{c > 0 ? `+${c}` : c}</span>
+                <div key={axisIdx} className={`rounded-xl border ${card.border} ${card.bg} px-3 py-3`}>
+                  <p className={`text-[10px] font-semibold uppercase tracking-wide ${card.text} opacity-60`}>
+                    {card.categoryLabel}
+                  </p>
+                  <p className={`mt-1 text-sm font-semibold leading-snug ${card.text}`}>
+                    {card.label}
+                  </p>
+                  <div className="mt-2 flex gap-1">
+                    {[1, 2, 3, 4, 5].map((d) => (
+                      <span
+                        key={d}
+                        className="h-1.5 flex-1 rounded-full"
+                        style={{ background: d <= card.dots ? card.dotColor : '#e5e7eb' }}
+                      />
+                    ))}
                   </div>
-                  <div className="relative mt-3 h-2 rounded-full bg-slate-200">
-                    <span className="absolute left-1/2 top-1/2 h-2 w-px -translate-x-1/2 -translate-y-1/2 bg-slate-400/70" />
-                    <span
-                      className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand shadow-sm ring-2 ring-white"
-                      style={{ left: markerLeft }}
-                    />
-                  </div>
-                  <div className="mt-2 flex justify-between text-[10px] font-medium text-slate-400">
-                    <span>{axis.left}</span>
-                    <span>{axis.right}</span>
-                  </div>
+                  <p className={`mt-2 text-[10px] leading-snug ${card.sub}`}>{card.hint}</p>
                 </div>
               );
             })}
@@ -793,15 +857,24 @@ export const Profile: React.FC = () => {
         ) : null}
       </Link>
 
-      {/* 그래픽/아이콘 메뉴: 프로필·리뷰·주문 (카탈로그는 상단 네비 / SEMO Box에서만) */}
+      {/* 그래픽/아이콘 메뉴: 프로필·리뷰·쿠폰·주문 (카탈로그는 상단 네비 / SEMO Box에서만) */}
       <nav
-        className="mt-5 grid grid-cols-3 gap-2 sm:mt-8 sm:gap-3"
+        className="mt-5 grid grid-cols-2 gap-2 sm:mt-8 sm:grid-cols-4 sm:gap-3"
         aria-label="Profile menu"
       >
         <Link
           to="/profile/edit"
-          className="flex min-h-0 min-w-0 flex-col items-center gap-2 rounded-2xl border border-slate-100 bg-white px-2 py-3 text-center shadow-sm transition hover:border-brand/40 hover:bg-brand-soft/10 sm:px-3.5 sm:py-3.5"
+          className="relative flex min-h-0 min-w-0 flex-col items-center gap-2 rounded-2xl border border-slate-100 bg-white px-2 py-3 text-center shadow-sm transition hover:border-brand/40 hover:bg-brand-soft/10 sm:px-3.5 sm:py-3.5"
         >
+          {shippingComplete === false ? (
+            <span
+              className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-amber-400 text-[10px] font-bold leading-none text-slate-900 shadow-sm ring-2 ring-white sm:right-2 sm:top-2"
+              aria-label={tr('Заполните данные доставки', 'Complete shipping details')}
+              title={tr('Заполните данные доставки', 'Complete shipping details')}
+            >
+              !
+            </span>
+          ) : null}
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">
             <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
@@ -825,6 +898,21 @@ export const Profile: React.FC = () => {
           <div className="min-w-0 px-0.5">
             <p className="text-center text-sm font-semibold text-slate-800 sm:text-base whitespace-nowrap">{tr('Отзывы', 'Reviews')}</p>
             <p className="prose-ru mt-0.5 text-center text-[10px] text-slate-500 sm:text-xs whitespace-nowrap">{tr('Мои отзывы о товарах', 'My product reviews')}</p>
+          </div>
+        </Link>
+
+        <Link
+          to="/profile/coupons"
+          className="flex min-h-0 min-w-0 flex-col items-center gap-2 rounded-2xl border border-slate-100 bg-white px-2 py-3 text-center shadow-sm transition hover:border-brand/40 hover:bg-brand-soft/10 sm:px-3.5 sm:py-3.5"
+        >
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
+            </svg>
+          </span>
+          <div className="min-w-0 px-0.5">
+            <p className="text-center text-sm font-semibold text-slate-800 sm:text-base whitespace-nowrap">{tr('Купоны', 'Coupons')}</p>
+            <p className="prose-ru mt-0.5 text-center text-[10px] text-slate-500 sm:text-xs whitespace-nowrap">{tr('Скидки и сертификаты', 'Discounts & vouchers')}</p>
           </div>
         </Link>
 

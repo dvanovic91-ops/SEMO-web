@@ -274,7 +274,7 @@ export const Register: React.FC = () => {
         }
         setToastMessage(t.toastWelcome);
         window.setTimeout(() => setToastMessage(null), 2500);
-        navigate('/', { replace: true });
+        navigate('/profile/edit', { replace: true });
         return;
       }
 

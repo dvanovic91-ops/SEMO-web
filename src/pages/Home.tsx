@@ -2,21 +2,10 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useI18n } from '../context/I18nContext';
-import type { AppCurrency } from '../context/I18nContext';
-import { formatCurrencyAmount } from '../lib/market';
 import { formatStorefrontDate } from '../lib/formatStorefrontDate';
-import { loadProductMarketPrices } from '../lib/productMarketPrices';
-import {
-  CATALOG_ROOM_SLOTS_TABLE,
-  CATALOG_SLOT_ROW_PERSIST,
-  CATALOG_SLOT_VISIBLE_BY_ROOM_KEY,
-  clampCatalogVisibleCount,
-  parseCatalogVisibleByRoom,
-  type CatalogSlotRoom,
-} from '../lib/catalogSlotRooms';
-import { isLegacyMockCatalogProductName } from '../lib/legacyMockContent';
 import { JourneyStepImage } from '../components/JourneyStepImage';
 import { JOURNEY_INTRO_SUBLINE_CLASS, JOURNEY_STEPS } from '../data/journeySteps';
+import { BoxBuilderSkuCatalog } from '../components/BoxBuilderSkuCatalog';
 
 /* ─── 히어로 이미지 타입 ─── */
 type HeroSlide = { image_url: string; mobile_image_url?: string; link_url?: string };
@@ -339,78 +328,7 @@ function JourneyHomeSection() {
   );
 }
 
-/** 쇼케이스 카드: 스크롤로 구간 진입 시 아래에서 위로 한 번 등장 */
-function ShowcaseItemReveal({
-  children,
-  staggerIndex,
-}: {
-  children: React.ReactNode;
-  staggerIndex: number;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [shown, setShown] = useState(false);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const io = new IntersectionObserver(
-      ([e]) => {
-        if (e.isIntersecting) {
-          setShown(true);
-          io.disconnect();
-        }
-      },
-      { threshold: 0.08, rootMargin: '0px 0px -4% 0px' },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, []);
-  return (
-    <div
-      ref={ref}
-      className={`transform-gpu transition-[opacity,transform] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-auto md:duration-[780ms] md:will-change-transform ${
-        shown ? 'translate-y-0 opacity-100' : 'max-md:translate-y-6 translate-y-14 opacity-0'
-      }`}
-      style={{ transitionDelay: shown ? `${staggerIndex * 95}ms` : '0ms' }}
-    >
-      {children}
-    </div>
-  );
-}
-
-/* ─── 상품 쇼케이스 (카테고리별 탭) ─── */
-type ShowcaseItem = {
-  id: string;
-  name: string;
-  price: number;
-  originalPrice: number | null;
-  imageUrl: string | null;
-  secondImageUrl: string | null;
-};
-
-type MarketPriceRow = {
-  product_id: string;
-  currency: AppCurrency;
-  rrp_price: number | null;
-  prp_price: number | null;
-};
-
-type MarketPriceMap = Record<string, Partial<Record<AppCurrency, { rrp_price: number | null; prp_price: number | null }>>>;
-
-function resolveDisplayPrices(
-  baseRrp: number | null,
-  basePrp: number | null,
-  marketPrice?: { rrp_price: number | null; prp_price: number | null },
-) {
-  const hasMarket = marketPrice != null &&
-    (marketPrice.rrp_price != null || marketPrice.prp_price != null);
-  const useRrp = hasMarket ? (marketPrice!.rrp_price ?? baseRrp) : baseRrp;
-  const usePrp = hasMarket ? (marketPrice!.prp_price ?? marketPrice!.rrp_price ?? basePrp) : basePrp;
-  return {
-    price: usePrp ?? useRrp ?? 0,
-    originalPrice: usePrp != null && useRrp != null && usePrp !== useRrp ? useRrp : null,
-  };
-}
-
+/* ─── 상품 쇼케이스 (뷰티박스 SKU) ─── */
 type HomeReviewItem = {
   id: string;
   body: string | null;
@@ -424,254 +342,9 @@ type HomeReviewItem = {
   review_photos?: { image_url: string }[];
 };
 
-const SHOWCASE_TABS = [
-  { key: 'beauty', label: 'Beauty box', category: 'beauty' },
-  { key: 'inner', label: 'Fit box', category: 'inner_beauty' },
-  { key: 'hair', label: 'Hair box', category: 'hair_beauty' },
-] as const;
-
-function formatPrice(price: number, currency: 'RUB' | 'USD' | 'KZT' | 'UZS'): string {
-  return formatCurrencyAmount(price, currency);
-}
-
-function ShowcaseImageWithIndicator({
-  imageUrl,
-  secondImageUrl,
-  alt,
-}: {
-  imageUrl: string | null;
-  secondImageUrl: string | null;
-  alt: string;
-}) {
-  const images = [imageUrl, secondImageUrl].filter(Boolean) as string[];
-  const [activeIndex, setActiveIndex] = useState(0);
-  const touchStartXRef = useRef(0);
-
-  useEffect(() => {
-    setActiveIndex(0);
-  }, [imageUrl, secondImageUrl]);
-
-  const canSlide = images.length > 1;
-
-  const onTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (!canSlide) return;
-    touchStartXRef.current = e.touches[0].clientX;
-  };
-
-  const onTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (!canSlide) return;
-    const diff = e.changedTouches[0].clientX - touchStartXRef.current;
-    if (Math.abs(diff) < 28) return;
-    if (diff < 0) {
-      setActiveIndex((prev) => (prev + 1) % images.length);
-      return;
-    }
-    setActiveIndex((prev) => (prev - 1 + images.length) % images.length);
-  };
-
-  return (
-    <div
-      className="relative mb-4 flex h-40 w-full items-center justify-center overflow-hidden rounded-2xl bg-transparent sm:h-52"
-      onMouseEnter={() => {
-        if (canSlide) setActiveIndex(1);
-      }}
-      onMouseLeave={() => {
-        setActiveIndex(0);
-      }}
-      onTouchStart={onTouchStart}
-      onTouchEnd={onTouchEnd}
-    >
-      {images.length > 0 ? (
-        images.map((src, idx) => (
-          <img
-            key={`${src}-${idx}`}
-            src={src}
-            alt={alt}
-            className={`absolute inset-0 h-full w-full object-contain transition-opacity duration-300 ${
-              idx === activeIndex ? 'opacity-100' : 'opacity-0'
-            }`}
-          />
-        ))
-      ) : (
-        <span className="text-xs text-slate-300">Нет фото</span>
-      )}
-
-      {canSlide && (
-        <div className="pointer-events-none absolute bottom-2 left-1/2 flex -translate-x-1/2 items-center gap-1">
-          {images.map((_, idx) => (
-            <span
-              key={idx}
-              className={`h-1.5 rounded-full transition-all ${
-                idx === activeIndex ? 'w-4 bg-brand/90' : 'w-1.5 bg-slate-300/90'
-              }`}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function ProductShowcase() {
-  const { language, currency } = useI18n();
   const { ref: sectionRef, visible } = useScrollFadeIn(0.1);
-  const [activeTab, setActiveTab] = useState<string>('beauty');
-  const [products, setProducts] = useState<Record<string, ShowcaseItem[]>>({});
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!supabase) return;
-    (async () => {
-      setLoading(true);
-      try {
-        const [{ data: slotRowsRaw }, { data: visRow }] = await Promise.all([
-          supabase
-            .from(CATALOG_ROOM_SLOTS_TABLE)
-            .select('catalog_room, slot_index, title, image_url, product_id')
-            .in('catalog_room', ['beauty', 'inner_beauty', 'hair_beauty'])
-            .order('catalog_room', { ascending: true })
-            .order('slot_index', { ascending: true }),
-          supabase.from('site_settings').select('value').eq('key', CATALOG_SLOT_VISIBLE_BY_ROOM_KEY).maybeSingle(),
-        ]);
-
-        const visMap = parseCatalogVisibleByRoom(visRow?.value);
-        const ROOMS: CatalogSlotRoom[] = ['beauty', 'inner_beauty', 'hair_beauty'];
-        const byRoom = new Map<
-          CatalogSlotRoom,
-          { catalog_room: CatalogSlotRoom; slot_index: number; title: string | null; image_url: string | null; product_id: string | null }[]
-        >();
-        for (const r of ROOMS) byRoom.set(r, []);
-        for (const row of (slotRowsRaw ?? []) as {
-          catalog_room: CatalogSlotRoom;
-          slot_index: number;
-          title: string | null;
-          image_url: string | null;
-          product_id: string | null;
-        }[]) {
-          byRoom.get(row.catalog_room)?.push(row);
-        }
-
-        type SlotRow = {
-          slot_index: number;
-          title: string | null;
-          image_url: string | null;
-          product_id: string | null;
-          groupKey: CatalogSlotRoom;
-        };
-        const slots: SlotRow[] = [];
-        for (const r of ROOMS) {
-          const arr = (byRoom.get(r) ?? []).slice().sort((a, b) => a.slot_index - b.slot_index);
-          const fallbackCap = Math.min(CATALOG_SLOT_ROW_PERSIST, Math.max(1, arr.length));
-          const catalogVisible = clampCatalogVisibleCount(visMap[r] ?? fallbackCap, fallbackCap);
-          const n = Math.min(arr.length, catalogVisible);
-          for (const row of arr.slice(0, n)) {
-            slots.push({
-              slot_index: row.slot_index,
-              title: row.title,
-              image_url: row.image_url,
-              product_id: row.product_id,
-              groupKey: r,
-            });
-          }
-        }
-
-        const productIds = [...new Set(slots.map((s) => s.product_id).filter(Boolean))] as string[];
-        const marketPriceMap: MarketPriceMap = {};
-        if (productIds.length > 0) {
-          const resultMap = await loadProductMarketPrices(supabase, productIds);
-          resultMap.forEach((rows, productId) => {
-            marketPriceMap[productId] = {};
-            rows.forEach((r) => {
-              marketPriceMap[productId][r.currency as AppCurrency] = {
-                rrp_price: r.rrp_price != null ? Number(r.rrp_price) : null,
-                prp_price: r.prp_price != null ? Number(r.prp_price) : null,
-              };
-            });
-          });
-        }
-        let priceMap: Record<
-          string,
-          {
-            name?: string | null;
-            rrp_price: number;
-            prp_price: number | null;
-            image_url: string | null;
-            image_urls: string[] | null;
-            category: string | null;
-          }
-        > = {};
-        if (productIds.length > 0) {
-          const { data: prods } = await supabase
-            .from('products')
-            .select('id, name, category, rrp_price, prp_price, image_url, image_urls')
-            .in('id', productIds);
-          if (prods) {
-            for (const p of prods as {
-              id: string;
-              name?: string | null;
-              category: string | null;
-              rrp_price: number;
-              prp_price: number | null;
-              image_url: string | null;
-              image_urls: string[] | null;
-            }[]) {
-              priceMap[p.id] = p;
-            }
-          }
-        }
-
-        const grouped: Record<string, ShowcaseItem[]> = {};
-        for (const slot of slots) {
-          const cat = slot.groupKey;
-          if (!grouped[cat]) grouped[cat] = [];
-          const prod = slot.product_id ? priceMap[slot.product_id] : null;
-          // 슬롯의 catalog_room 이 진실 소스 — products.category 문자열과 다르더라도 노출 (구버전 불일치 필터로 일부 칸이 사라지던 문제 제거)
-          // 상품에 연결된 경우 대표 이미지는 상품 기준 우선 — 슬롯 image_url이 남아 있으면 관리자가 상품만 갱신해도 메인에 안 보이는 문제(헤어 등) 방지
-          const imgUrls =
-            prod && Array.isArray(prod.image_urls) && prod.image_urls.length > 0
-              ? prod.image_urls.filter((u): u is string => !!u)
-              : prod?.image_url
-                ? [prod.image_url]
-                : [];
-          const productPrimary = imgUrls[0] ?? prod?.image_url ?? null;
-          const slotImg = slot.image_url?.trim() || null;
-          const primaryImg = productPrimary ?? slotImg ?? null;
-          // 두번째 이미지: image_urls에서 첫번째 이미지와 다른 것 선택
-          const secondImg = imgUrls.find((u) => u && u !== primaryImg) ?? (imgUrls.length > 1 ? imgUrls[1] : null);
-          const displayName = (
-            prod?.name?.trim() ||
-            slot.title ||
-            (language === 'en' ? `Slot ${slot.slot_index + 1}` : `Слот ${slot.slot_index + 1}`)
-          ).trim();
-          if (isLegacyMockCatalogProductName(displayName)) continue;
-          grouped[cat].push({
-            id: slot.product_id ?? `slot-${slot.slot_index}`,
-            name: displayName,
-            price: resolveDisplayPrices(
-              prod?.rrp_price ?? null,
-              prod?.prp_price ?? null,
-              slot.product_id ? marketPriceMap[slot.product_id]?.[currency] : undefined,
-            ).price,
-            originalPrice: resolveDisplayPrices(
-              prod?.rrp_price ?? null,
-              prod?.prp_price ?? null,
-              slot.product_id ? marketPriceMap[slot.product_id]?.[currency] : undefined,
-            ).originalPrice,
-            imageUrl: primaryImg,
-            secondImageUrl: secondImg,
-          });
-        }
-
-        setProducts(grouped);
-      } catch {
-        // ignore
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [currency, language]);
-
-  const currentItems = products[activeTab] ?? [];
+  const { language } = useI18n();
 
   return (
     <section ref={sectionRef} className="w-full py-16 sm:py-20">
@@ -684,71 +357,14 @@ function ProductShowcase() {
           SEMO Box
         </h2>
 
-        {/* 탭 — 3열 동일 너비, 본문·네비와 맞는 Montserrat 계열 크기(모바일 과소 글자 제거) */}
         <div
-          className={`mx-auto mb-10 grid w-full max-w-3xl grid-cols-3 gap-3 transition-all duration-700 sm:gap-6 md:gap-8 ${
+          className={`transition-all duration-700 ${
             visible ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'
           }`}
           style={{ transitionDelay: visible ? '100ms' : '0ms' }}
         >
-          {SHOWCASE_TABS.map((t) => (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => setActiveTab(t.category)}
-              className={`flex min-h-[44px] w-full min-w-0 items-center justify-center rounded-full border px-2 py-2.5 text-center text-sm font-medium leading-snug tracking-normal transition-all sm:min-h-11 sm:px-3 sm:text-sm md:text-[0.9375rem] ${
-                activeTab === t.category
-                  ? 'border-brand bg-brand text-white shadow-md'
-                  : 'border-slate-200 bg-white text-slate-600 shadow-sm hover:border-slate-300 hover:text-slate-800'
-              }`}
-            >
-              <span className="block max-w-full hyphens-auto whitespace-normal [overflow-wrap:anywhere]">{t.label}</span>
-            </button>
-          ))}
+          <BoxBuilderSkuCatalog compact showEmptyMessage={false} />
         </div>
-
-        {/* 상품 그리드 */}
-        {loading ? (
-          <div className="flex justify-center py-16">
-            <span className="h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-brand" />
-          </div>
-        ) : currentItems.length === 0 ? (
-          <p className="py-16 text-center text-sm text-slate-400">{language === 'en' ? 'Products will appear here soon!' : 'Скоро здесь появятся товары!'}</p>
-        ) : (
-          /* w-full로 2열 유지 → sm+는 w-fit+고정 카드 너비로 한 줄 그룹을 mx-auto로 확실히 중앙 정렬 */
-          <div className="flex w-full justify-center">
-            <div className="flex w-full max-w-full flex-wrap justify-center gap-5 sm:w-auto sm:gap-6">
-            {currentItems.slice(0, 5).map((item, idx) => (
-              <div
-                key={`${activeTab}-${item.id}`}
-                className={`min-w-0 w-[calc((100%-1.25rem)/2)] sm:w-[12.75rem] sm:max-w-[12.75rem] sm:flex-shrink-0 ${idx >= 4 ? 'hidden sm:block' : ''}`}
-              >
-              <ShowcaseItemReveal staggerIndex={idx}>
-                <Link
-                  to={`/product/${item.id}`}
-                  className="group flex flex-col items-center rounded-3xl border border-slate-100/80 bg-white p-5 shadow-[0_2px_20px_-4px_rgba(0,0,0,0.05)] transition-shadow duration-500 hover:shadow-[0_8px_30px_-6px_rgba(0,0,0,0.1)] sm:p-6"
-                >
-                  <ShowcaseImageWithIndicator
-                    imageUrl={item.imageUrl}
-                    secondImageUrl={item.secondImageUrl}
-                    alt={item.name}
-                  />
-                  <p className="mb-3 line-clamp-2 text-center text-sm font-medium tracking-normal text-slate-700 transition-colors group-hover:text-brand sm:text-base">
-                    {item.name}
-                  </p>
-                  <div className="flex flex-col items-center gap-0.5">
-                    {item.originalPrice != null && (
-                      <span className="text-xs text-slate-300 line-through">{formatPrice(item.originalPrice, currency)}</span>
-                    )}
-                    <span className="text-sm font-semibold text-slate-800">{formatPrice(item.price, currency)}</span>
-                  </div>
-                </Link>
-              </ShowcaseItemReveal>
-              </div>
-            ))}
-            </div>
-          </div>
-        )}
 
         <div
           className={`mt-8 flex justify-center transition-all duration-700 sm:hidden ${
@@ -757,7 +373,7 @@ function ProductShowcase() {
           style={{ transitionDelay: visible ? '500ms' : '0ms' }}
         >
           <Link
-            to={activeTab === 'beauty' ? '/shop' : activeTab === 'inner_beauty' ? '/inner-beauty' : '/hair-beauty'}
+            to="/shop"
             className="group inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-slate-200 px-6 py-2.5 text-sm font-medium tracking-normal text-slate-600 transition-all hover:border-brand hover:text-brand"
           >
             {language === 'en' ? 'View all' : 'Смотреть все'}
@@ -766,7 +382,6 @@ function ProductShowcase() {
             </svg>
           </Link>
         </div>
-
       </div>
     </section>
   );

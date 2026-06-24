@@ -12,6 +12,8 @@ import {
 } from 'recharts';
 import { useAuth } from '../../context/AuthContext';
 import { InventoryTab } from './InventoryTab';
+import { BuildBoxTab } from './BuildBoxTab';
+import { NavLogoTuneTab } from './NavLogoTuneTab';
 import ProductPlanningTab from './ProductPlanningTab';
 /** 대시보드 매출 기간: 일/주/월/기간 */
 type DashboardPeriodType = 'day' | 'week' | 'month' | 'range';
@@ -297,6 +299,8 @@ type Product = {
   history_season_index?: number | null;
   /** 같은 시즌 내 정렬 */
   history_order?: number | null;
+  /** 나만의 박스 빌더 슬롯 카테고리 (cleanser/toner/serum/ampoule/cream/sunscreen) */
+  box_builder_slot?: string | null;
 };
 
 type MarketPriceDraft = Record<'RUB' | 'KZT' | 'USD' | 'UZS', { rrp_price: number | null; prp_price: number | null }>;
@@ -479,12 +483,12 @@ const emptySlot = (index: number): Slot => ({
 const RLS_ADMIN_HINT =
   ' Supabase SQL Editor에서 docs/SUPABASE_PROFILES_ADMIN_RLS.sql 전체 실행 후, 본인 프로필(profiles)에 is_admin = true 인지 확인하세요.';
 
-type AdminTabKey = 'dashboard' | 'products' | 'skinMatch' | 'promo' | 'promoCodes' | 'broadcast' | 'orders' | 'activityLogs' | 'cartAbandonment' | 'reviewManagement' | 'recommendationAnalytics' | 'members' | 'heroImage' | 'inventory' | 'productPlanning' | 'settings';
+type AdminTabKey = 'dashboard' | 'buildBox' | 'skinMatch' | 'promo' | 'promoCodes' | 'broadcast' | 'orders' | 'activityLogs' | 'cartAbandonment' | 'reviewManagement' | 'recommendationAnalytics' | 'members' | 'heroImage' | 'inventory' | 'productPlanning' | 'settings' | 'navLogoTune';
 
 const ADMIN_TABS: { key: AdminTabKey; label: string }[] = [
   { key: 'dashboard', label: '대시보드' },
   { key: 'heroImage', label: '히어로 이미지' },
-  { key: 'products', label: '상품관리' },
+  { key: 'buildBox', label: '박스 빌더' },
   { key: 'inventory', label: '상품 & 재고 관리' },
   { key: 'productPlanning', label: '제품 비교 및 기획' },
   { key: 'skinMatch', label: '테스트 매칭' },
@@ -498,12 +502,45 @@ const ADMIN_TABS: { key: AdminTabKey; label: string }[] = [
   { key: 'recommendationAnalytics', label: '추천 분석' },
   { key: 'members', label: '가입회원 관리' },
   { key: 'settings', label: '설정' },
+  { key: 'navLogoTune', label: '로고 크기 (임시)' },
 ];
+
+/** 상위 탭 그룹 — 16개 탭을 6개 그룹으로 묶음 */
+type TopGroup = 'dashboard' | 'products' | 'marketing' | 'operations' | 'members' | 'settings';
+
+const TAB_GROUPS: { key: TopGroup; label: string; icon: string; tabs: AdminTabKey[] }[] = [
+  { key: 'dashboard',  label: '대시보드',  icon: '📊', tabs: ['dashboard', 'recommendationAnalytics'] },
+  { key: 'products',   label: '제품 관리', icon: '📦', tabs: ['buildBox', 'inventory', 'productPlanning', 'skinMatch', 'heroImage'] },
+  { key: 'marketing',  label: '마케팅',    icon: '📢', tabs: ['promo', 'promoCodes', 'broadcast'] },
+  { key: 'operations', label: '운영',      icon: '🗂', tabs: ['orders', 'reviewManagement', 'cartAbandonment', 'activityLogs'] },
+  { key: 'members',    label: '회원 관리', icon: '👥', tabs: ['members'] },
+  { key: 'settings',   label: '설정',      icon: '⚙️', tabs: ['settings', 'navLogoTune'] },
+];
+
+const SUB_TAB_LABEL: Record<AdminTabKey, string> = {
+  dashboard: '대시보드',
+  recommendationAnalytics: '추천 분석',
+  buildBox: '박스 빌더',
+  inventory: '상품·재고',
+  productPlanning: '제품 기획',
+  skinMatch: '피부 매칭',
+  heroImage: '히어로 이미지',
+  promo: '프로모',
+  promoCodes: '프로모코드',
+  broadcast: '공지 발송',
+  orders: '주문',
+  reviewManagement: '리뷰 관리',
+  cartAbandonment: '장바구니 이탈',
+  activityLogs: '활동 로그',
+  members: '회원 관리',
+  settings: '설정',
+  navLogoTune: '로고 크기 (임시)',
+};
 
 /** 모바일 드로어·하단 탭: 탭별 아이콘 (가독성) */
 const ADMIN_TAB_ICON: Record<(typeof ADMIN_TABS)[number]['key'], string> = {
   dashboard: '📊',
-  products: '📦',
+  buildBox: '🎁',
   inventory: '📋',
   productPlanning: '🧭',
   skinMatch: '🧪',
@@ -518,6 +555,7 @@ const ADMIN_TAB_ICON: Record<(typeof ADMIN_TABS)[number]['key'], string> = {
   members: '👥',
   heroImage: '🖼️',
   settings: '⚙️',
+  navLogoTune: '🔤',
 };
 
 type RecommendationAnalyticsRow = {
@@ -537,22 +575,27 @@ type RecommendationAnalyticsRow = {
  * ────────────────────────────────────── */
 function SiteSettingsTab() {
   const [giftPrice, setGiftPrice] = useState('');
+  const [buildBoxPrice, setBuildBoxPrice] = useState('');
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [savingBuildBox, setSavingBuildBox] = useState(false);
   const [settingsMsg, setSettingsMsg] = useState<string | null>(null);
+  const [buildBoxMsg, setBuildBoxMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (!supabase) { setLoadingSettings(false); return; }
     supabase
       .from('site_settings')
-      .select('value')
-      .eq('key', 'gift_voucher_price_rub')
-      .maybeSingle()
+      .select('key, value')
+      .in('key', ['gift_voucher_price_rub', 'build_box_price_rub'])
       .then(({ data }) => {
-        const val = (data as { value?: string } | null)?.value ?? '10000';
-        setGiftPrice(val);
+        const rows = (data ?? []) as { key: string; value: string }[];
+        const gift = rows.find((r) => r.key === 'gift_voucher_price_rub')?.value ?? '10000';
+        const build = rows.find((r) => r.key === 'build_box_price_rub')?.value ?? '10990';
+        setGiftPrice(gift);
+        setBuildBoxPrice(build);
       })
-      .catch(() => setGiftPrice('10000'))
+      .catch(() => { setGiftPrice('10000'); setBuildBoxPrice('10990'); })
       .finally(() => setLoadingSettings(false));
   }, []);
 
@@ -575,6 +618,28 @@ function SiteSettingsTab() {
       setSettingsMsg('❌ 저장 실패: ' + (e instanceof Error ? e.message : String(e)));
     } finally {
       setSavingSettings(false);
+    }
+  };
+
+  const handleSaveBuildBox = async () => {
+    if (!supabase) return;
+    const price = Number(buildBoxPrice);
+    if (!Number.isFinite(price) || price <= 0) {
+      setBuildBoxMsg('가격은 0보다 큰 숫자여야 합니다.');
+      return;
+    }
+    setSavingBuildBox(true);
+    setBuildBoxMsg(null);
+    try {
+      const { error } = await supabase
+        .from('site_settings')
+        .upsert({ key: 'build_box_price_rub', value: String(Math.round(price)) }, { onConflict: 'key' });
+      if (error) throw error;
+      setBuildBoxMsg('✅ 저장됐습니다.');
+    } catch (e) {
+      setBuildBoxMsg('❌ 저장 실패: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setSavingBuildBox(false);
     }
   };
 
@@ -618,6 +683,44 @@ function SiteSettingsTab() {
             className="mt-3 rounded-full bg-brand px-5 py-2 text-sm font-semibold text-white transition hover:bg-brand/90 disabled:opacity-50"
           >
             {savingSettings ? '저장 중…' : '저장'}
+          </button>
+        </div>
+      </div>
+
+      {/* 나만의 박스 가격 */}
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-100 bg-slate-50/60 px-5 py-3">
+          <p className="text-sm font-semibold text-slate-800">📦 나만의 박스 가격</p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            /shop/build 커스텀 박스 빌더에 표시되는 통합 박스 가격. 개별 SKU 가격 없이 이 가격으로 결제됩니다.
+          </p>
+        </div>
+        <div className="px-5 py-4">
+          <label className="text-xs font-medium text-slate-600" htmlFor="build-box-price-input">
+            박스 가격 (루블)
+          </label>
+          <div className="mt-1 flex items-center gap-2">
+            <input
+              id="build-box-price-input"
+              type="number"
+              min="1"
+              step="100"
+              value={buildBoxPrice}
+              onChange={(e) => setBuildBoxPrice(e.target.value)}
+              className="w-40 rounded-lg border border-slate-200 px-3 py-2 text-sm tabular-nums focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+            />
+            <span className="text-sm text-slate-500">₽</span>
+          </div>
+          {buildBoxMsg && (
+            <p className="mt-2 text-xs text-slate-600">{buildBoxMsg}</p>
+          )}
+          <button
+            type="button"
+            disabled={savingBuildBox}
+            onClick={() => void handleSaveBuildBox()}
+            className="mt-3 rounded-full bg-brand px-5 py-2 text-sm font-semibold text-white transition hover:bg-brand/90 disabled:opacity-50"
+          >
+            {savingBuildBox ? '저장 중…' : '저장'}
           </button>
         </div>
       </div>
@@ -1424,7 +1527,7 @@ export const Admin: React.FC = () => {
         setError(null);
         // 기본 스키마 + image_urls, box_theme 조회. 실패 시(없는 컬럼 등) Shop과 동일 컬럼으로 재시도
         const selectFull =
-          'id, name, category, description, image_url, image_urls, rrp_price, prp_price, is_active, box_theme, box_history, history_season_index, history_order';
+          'id, name, category, description, image_url, image_urls, rrp_price, prp_price, is_active, box_theme, box_history, history_season_index, history_order, box_builder_slot';
         let { data: prodData, error: prodError } = await supabase
           .from('products')
           .select(selectFull);
@@ -1447,7 +1550,8 @@ export const Admin: React.FC = () => {
             setProducts([]);
             return;
           }
-          prodData = fb.data as (Product & { image_urls?: string[]; stock?: number; detail_description?: string | null; box_theme?: 'brand' | 'sky' | null })[];
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+          prodData = fb.data as any;
         }
         const raw =
           (prodData as (Product & {
@@ -1868,10 +1972,17 @@ export const Admin: React.FC = () => {
           loggedIn: b.loggedIn.size,
           anonymous: b.anonymous.size,
         });
-        const dayList = Array.from(byDayT.entries())
-          .map(toPoint)
-          .sort((a, b) => a.label.localeCompare(b.label))
-          .slice(-7);
+        // 오늘 기준 최근 7일을 강제 생성 — 데이터 없는 날도 0으로 채워 차트에 표시
+        const last7Days: string[] = [];
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date();
+          d.setDate(d.getDate() - i);
+          last7Days.push(d.toISOString().slice(0, 10));
+        }
+        const dayList = last7Days.map((label) => {
+          const b = byDayT.get(label);
+          return b ? toPoint([label, b]) : { label, total: 0, loggedIn: 0, anonymous: 0 };
+        });
         const weekList = Array.from(byWeekT.entries())
           .map(toPoint)
           .sort((a, b) => a.label.localeCompare(b.label))
@@ -2846,6 +2957,7 @@ export const Admin: React.FC = () => {
         box_history: normalizedCat === 'beauty' ? Boolean(selectedProduct.box_history) : false,
         history_season_index: beautyHistory ? historySeason : null,
         history_order: beautyHistory ? historyOrder : 0,
+        box_builder_slot: selectedProduct.box_builder_slot ?? null,
       };
       let productId = selectedProduct.id;
       if (selectedProduct.id) {
@@ -3591,21 +3703,47 @@ export const Admin: React.FC = () => {
         </h1>
       </div>
       <nav className="hidden flex-wrap gap-2 rounded-full bg-slate-100 p-1 text-sm md:flex">
-        {ADMIN_TABS.map(({ key, label }) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setTab(key)}
-            className={`rounded-full px-3 py-1.5 ${
-              tab === key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+        {TAB_GROUPS.map(({ key, label, tabs }) => {
+          const isActive = tabs.includes(tab);
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setTab(tabs[0])}
+              className={`rounded-full px-3 py-1.5 ${
+                isActive ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              {label}
+            </button>
+          );
+        })}
       </nav>
     </>
   );
+
+  const subTabContent = (() => {
+    const group = TAB_GROUPS.find((g) => g.tabs.includes(tab));
+    if (!group || group.tabs.length <= 1) return null;
+    return (
+      <div className="flex gap-2 overflow-x-auto pb-0.5">
+        {group.tabs.map((subKey) => (
+          <button
+            key={subKey}
+            type="button"
+            onClick={() => setTab(subKey)}
+            className={`shrink-0 rounded-full border px-4 py-1 text-sm transition ${
+              tab === subKey
+                ? 'border-brand bg-brand font-semibold text-white'
+                : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+            }`}
+          >
+            {SUB_TAB_LABEL[subKey]}
+          </button>
+        ))}
+      </div>
+    );
+  })();
 
   return (
     <div className="min-h-screen bg-brand-soft/40">
@@ -3615,17 +3753,23 @@ export const Admin: React.FC = () => {
           className="fixed left-0 right-0 top-0 z-20 border-b border-slate-200/80 bg-white/95 shadow-sm backdrop-blur-md"
           style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}
         >
-          <div className="mx-auto flex max-w-[96rem] flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-            {headerContent}
+          <div className="mx-auto flex max-w-[96rem] flex-col gap-2 px-4 py-3 sm:px-6">
+            <div className="flex items-center justify-between gap-3">
+              {headerContent}
+            </div>
+            {subTabContent}
           </div>
         </header>
       )}
       <main className="relative mx-auto max-w-[96rem] px-4 py-8 sm:px-6 sm:py-10">
         <header
           ref={headerRef}
-          className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+          className="mb-6 flex flex-col gap-2"
         >
-          {headerContent}
+          <div className="flex items-center justify-between gap-3">
+            {headerContent}
+          </div>
+          {subTabContent}
         </header>
 
         {/* 모바일: 햄버거 클릭 시 탭 드로어 (md에서 숨김) */}
@@ -3653,24 +3797,39 @@ export const Admin: React.FC = () => {
                   </svg>
                 </button>
               </div>
-              {ADMIN_TABS.map(({ key, label }) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => {
-                    setTab(key);
-                    setAdminMobileMenuOpen(false);
-                  }}
-                  className={`flex min-h-[52px] w-full items-center gap-3 rounded-xl px-4 text-left text-base ${
-                    tab === key ? 'bg-brand-soft/50 font-semibold text-brand' : 'text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  <span className="text-xl leading-none" aria-hidden>
-                    {ADMIN_TAB_ICON[key]}
-                  </span>
-                  <span>{label}</span>
-                </button>
-              ))}
+              {TAB_GROUPS.map(({ key: groupKey, label: groupLabel, icon, tabs }) => {
+                const isGroupActive = tabs.includes(tab);
+                return (
+                  <div key={groupKey}>
+                    <button
+                      type="button"
+                      onClick={() => { setTab(tabs[0]); if (tabs.length === 1) setAdminMobileMenuOpen(false); }}
+                      className={`flex min-h-[48px] w-full items-center gap-3 rounded-xl px-4 text-left text-base ${
+                        isGroupActive ? 'bg-brand-soft/50 font-semibold text-brand' : 'text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span className="text-xl leading-none" aria-hidden>{icon}</span>
+                      <span>{groupLabel}</span>
+                    </button>
+                    {isGroupActive && tabs.length > 1 && (
+                      <div className="ml-10 mt-1 mb-2 flex flex-col gap-0.5">
+                        {tabs.map((subKey) => (
+                          <button
+                            key={subKey}
+                            type="button"
+                            onClick={() => { setTab(subKey); setAdminMobileMenuOpen(false); }}
+                            className={`rounded-lg px-3 py-2 text-left text-sm ${
+                              tab === subKey ? 'bg-brand text-white font-semibold' : 'text-slate-600 hover:bg-slate-100'
+                            }`}
+                          >
+                            {SUB_TAB_LABEL[subKey]}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </aside>
           </>
         )}
@@ -4209,9 +4368,11 @@ export const Admin: React.FC = () => {
 
       {/* ── 상품 & 재고 관리 탭 ── */}
       {tab === 'inventory' && <InventoryTab />}
+      {tab === 'buildBox' && <BuildBoxTab />}
       {tab === 'productPlanning' && <ProductPlanningTab />}
       {tab === 'recommendationAnalytics' && <RecommendationAnalyticsTab />}
       {tab === 'settings' && <SiteSettingsTab />}
+      {tab === 'navLogoTune' && <NavLogoTuneTab />}
 
       {tab === 'products' && (
         <section className="mt-4 space-y-4">
@@ -4885,6 +5046,27 @@ export const Admin: React.FC = () => {
                     placeholder="상품명"
                   />
                 </div>
+                {normalizeProductCategory(selectedProduct.category ?? 'beauty') === 'beauty' && (
+                  <div className="w-full min-w-0">
+                    <label className={labelClass}>박스 빌더 슬롯 카테고리</label>
+                    <select
+                      className={`${inputClass} w-full`}
+                      value={selectedProduct.box_builder_slot ?? ''}
+                      onChange={(e) => handleProductField('box_builder_slot', e.target.value || null)}
+                    >
+                      <option value="">— 없음 (빌더에 노출 안 됨) —</option>
+                      <option value="cleanser">Cleanser / Клинсер</option>
+                      <option value="toner">Toner / Тонер</option>
+                      <option value="serum">Serum / Сыворотка</option>
+                      <option value="ampoule">Ampoule / Ампула</option>
+                      <option value="cream">Cream / Крем</option>
+                      <option value="sunscreen">Sunscreen / Санскрин</option>
+                    </select>
+                    <p className="mt-1 text-[11px] text-slate-400">
+                      설정 시 /shop 페이지 «나만의 박스» 섹션에 해당 카테고리로 노출됩니다.
+                    </p>
+                  </div>
+                )}
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
                     <label className={labelClass}>정가 (RRP), ₽</label>

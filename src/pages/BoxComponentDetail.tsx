@@ -1,17 +1,25 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useI18n } from '../context/I18nContext';
 import { supabase } from '../lib/supabase';
 import { BackArrow } from '../components/BackArrow';
+import { BUILD_BOX_REVIEW_PATH, resolveDetailBackNavigation, safeReturnPath } from '../lib/buildBoxNavigation';
 import {
   fetchIngredientLibraryMap,
   lookupIngredientLibraryRow,
   normalizeInciKey,
   type IngredientLibraryRow,
 } from '../lib/ingredientLibrary';
+import {
+  getStorefrontInciDisplayName,
+  getStorefrontInciRoleEn,
+  getStorefrontInciRoleRu,
+} from '../lib/storefrontIngredientDisplay';
 import { formatInciNameForDisplay, parseSkuIngredientsJson, type SkuIngredientLine } from '../lib/skuIngredientsParse';
+import { resolveInciKey, lookupIngredientTrilingual } from '../lib/inciDictionary';
 import { formatProductTypeForLanguage } from '../lib/productTypeStoreLabels';
 import { mergeSkuLocalizedDescriptions, stripHeroBulletLines } from '../lib/skuMarketingDescriptions';
+import { formatTextureFeelForLanguage } from '../lib/textureFeelDisplay';
 import { formatStorefrontLineTitle, resolveSkuStorefrontName } from '../lib/skuStorefrontTitle';
 import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../components/SemoPageSpinner';
 
@@ -51,7 +59,7 @@ function storefrontLibRole(
   if (!row) return '';
   let text = '';
   if (isEn) text = row.description_en?.trim() || row.description_ko?.trim() || '';
-  else if (language === 'ru') text = row.description_ru?.trim() || row.description_en?.trim() || row.description_ko?.trim() || '';
+  else if (language === 'ru') text = row.description_ru?.trim() || row.description_en?.trim() || '';
   else text = row.description_ko?.trim() || row.description_en?.trim() || '';
   if (text) return text;
   const tags = row.benefit_tags?.filter(Boolean) ?? [];
@@ -83,6 +91,7 @@ type SkuStorefrontRow = {
   product_type: string | null;
   /** 생산지/원산지 — 비어 있으면 EN: Made in Korea, RU: Сделано в Корее */
   country_of_origin: string | null;
+  texture_feel: string | null;
   is_active: boolean;
 };
 
@@ -121,10 +130,20 @@ const CARD_SHELL =
 const SECTION_KICKER = 'text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-slate-400';
 
 export const BoxComponentDetail: React.FC = () => {
-  const { productId, skuId } = useParams<{ productId: string; skuId: string }>();
+  const { productId: routeProductId, skuId } = useParams<{ productId?: string; skuId: string }>();
+  const [searchParams] = useSearchParams();
   const { language } = useI18n();
   const isEn = language === 'en';
   const tr = useCallback((en: string, ru: string) => (isEn ? en : ru), [isEn]);
+  const standaloneSku = !routeProductId?.trim();
+  const productId = routeProductId?.trim() ?? '';
+  const defaultBackPath = standaloneSku ? '/shop' : `/product/${productId}`;
+  const { path: backPath, label: backLabel } = resolveDetailBackNavigation(
+    searchParams.get('from'),
+    defaultBackPath,
+    standaloneSku ? tr('Back to shop', 'В магазин') : tr('Back to set', 'К набору'),
+    isEn,
+  );
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -141,7 +160,7 @@ export const BoxComponentDetail: React.FC = () => {
     const run = async () => {
       const pid = (productId ?? '').trim();
       const sid = (skuId ?? '').trim();
-      if (!pid || !sid || !supabase) {
+      if (!sid || !supabase) {
         setError(isEn ? 'Invalid link.' : 'Неверная ссылка.');
         setLoading(false);
         return;
@@ -149,29 +168,33 @@ export const BoxComponentDetail: React.FC = () => {
       setLoading(true);
       setError(null);
       try {
-        const { data: linkRow, error: linkErr } = await supabase
-          .from('product_components')
-          .select('id')
-          .eq('product_id', pid)
-          .eq('sku_id', sid)
-          .maybeSingle();
-        if (cancelled) return;
-        if (linkErr || !linkRow) {
-          setError(isEn ? 'This item is not part of this set.' : 'Этот товар не входит в данный набор.');
-          setSku(null);
-          setLoading(false);
-          return;
-        }
+        if (!standaloneSku) {
+          const { data: linkRow, error: linkErr } = await supabase
+            .from('product_components')
+            .select('id')
+            .eq('product_id', pid)
+            .eq('sku_id', sid)
+            .maybeSingle();
+          if (cancelled) return;
+          if (linkErr || !linkRow) {
+            setError(isEn ? 'This item is not part of this set.' : 'Этот товар не входит в данный набор.');
+            setSku(null);
+            setLoading(false);
+            return;
+          }
 
-        const { data: prodRow } = await supabase.from('products').select('name').eq('id', pid).maybeSingle();
-        if (!cancelled && prodRow && typeof (prodRow as { name?: string }).name === 'string') {
-          setProductName((prodRow as { name: string }).name);
+          const { data: prodRow } = await supabase.from('products').select('name').eq('id', pid).maybeSingle();
+          if (!cancelled && prodRow && typeof (prodRow as { name?: string }).name === 'string') {
+            setProductName((prodRow as { name: string }).name);
+          }
+        } else {
+          setProductName(null);
         }
 
         const { data: skuRow, error: skuErr } = await supabase
           .from('sku_items')
           .select(
-            'id, name, display_name, image_url, volume_label, how_to_use, how_to_use_en, how_to_use_ru, ingredients_json, ingredients_raw, key_ingredients_desc, description, description_en, description_ru, brand, name_en, product_type, country_of_origin, is_active',
+            'id, name, display_name, image_url, volume_label, how_to_use, how_to_use_en, how_to_use_ru, ingredients_json, ingredients_raw, key_ingredients_desc, description, description_en, description_ru, brand, name_en, product_type, country_of_origin, texture_feel, is_active',
           )
           .eq('id', sid)
           .maybeSingle();
@@ -201,6 +224,7 @@ export const BoxComponentDetail: React.FC = () => {
             name_en: (r.name_en as string | null) ?? null,
             product_type: (r.product_type as string | null) ?? null,
             country_of_origin: (r.country_of_origin as string | null) ?? null,
+            texture_feel: (r.texture_feel as string | null) ?? null,
             is_active: Boolean(r.is_active),
           });
         }
@@ -214,7 +238,7 @@ export const BoxComponentDetail: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [productId, skuId, isEn]);
+  }, [productId, skuId, isEn, standaloneSku]);
 
   useEffect(() => {
     setShowAllHeroes(false);
@@ -244,16 +268,21 @@ export const BoxComponentDetail: React.FC = () => {
     };
   }, [sku?.id, ingredientLines]);
 
+  const textureDisplay = useMemo(() => {
+    const raw = sku?.texture_feel?.trim();
+    if (!raw) return null;
+    return formatTextureFeelForLanguage(raw, language);
+  }, [sku?.texture_feel, language]);
+
   /** 대제목: 상품명만 — 브랜드는 아래 소제목 */
   const title = useMemo(() => {
     const raw = resolveSkuStorefrontName({
-      display_name: sku?.display_name,
       name_en: sku?.name_en,
       name: sku?.name,
       language,
     });
     return formatStorefrontLineTitle(raw);
-  }, [sku?.display_name, sku?.name_en, sku?.name, language]);
+  }, [sku?.name_en, sku?.name, language]);
 
   const brandSubtitle = useMemo(() => {
     const b = (sku?.brand ?? '').trim();
@@ -278,7 +307,20 @@ export const BoxComponentDetail: React.FC = () => {
   }, [descForLangRaw]);
 
   const heroRows = useMemo(
-    () => (sku?.key_ingredients_desc ?? []).filter((h) => h.name && h.name !== '__claim__'),
+    () =>
+      (sku?.key_ingredients_desc ?? []).filter((h) => {
+        if (!h.name || h.name === '__claim__') return false;
+        const trimmed = h.name.trim();
+        // 숫자만 있는 파편 ("1", "2" 등 잘못 파싱된 이름) 제외
+        if (/^\d+$/.test(trimmed)) return false;
+        // 너무 짧은 파편 (1~2글자) 제외
+        if (trimmed.length <= 2) return false;
+        // 보습기제 등 기본 성분은 key highlight 부적합 → 영문 INCI 키로 변환 후 스킵셋 확인
+        const enKey = resolveInciKey(trimmed);
+        const baseKey = enKey.split(/\s*\(/)[0]?.trim().toLowerCase() ?? '';
+        if (SPOTLIGHT_SKIP_INCI_BASE.has(baseKey)) return false;
+        return true;
+      }),
     [sku],
   );
 
@@ -316,11 +358,14 @@ export const BoxComponentDetail: React.FC = () => {
 
   const heroBlurb = useCallback(
     (h: SkuHeroRow) => {
-      if (isEn) return (h.en?.trim() || h.ko?.trim() || '').trim();
-      return (h.ru?.trim() || h.ko?.trim() || '').trim();
+      if (isEn) return (h.en?.trim() || '').trim();
+      if (language === 'ru') return (h.ru?.trim() || h.en?.trim() || '').trim();
+      return (h.en?.trim() || '').trim();
     },
-    [isEn],
+    [isEn, language],
   );
+
+  const inciLang = language === 'ru' ? 'ru' : 'en';
 
   /** 상단 스포트라이트에 올린 성분은 전체 목록에서 제외(중복 방지) */
   const fullListExcludeLowerSet = useMemo(() => {
@@ -334,6 +379,12 @@ export const BoxComponentDetail: React.FC = () => {
     if (ingredientLines.length === 0) return [];
     return ingredientLines.filter((line) => !fullListExcludeLowerSet.has(line.name_lower.trim().toLowerCase()));
   }, [ingredientLines, fullListExcludeLowerSet]);
+
+  /** ingredients_json의 is_sensitizing=true 성분 목록 (알러젠 경고용) */
+  const sensitizingLines = useMemo(
+    () => ingredientLines.filter((line) => line.is_sensitizing),
+    [ingredientLines],
+  );
 
   const howToText = useMemo(() => {
     if (!sku) return '';
@@ -366,25 +417,31 @@ export const BoxComponentDetail: React.FC = () => {
         <p className="text-slate-600">{error ?? tr('Not found.', 'Не найдено.')}</p>
         <p className="mt-4">
           <Link
-            to={`/product/${productId ?? ''}`}
+            to={backPath}
             className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"
           >
-            <BackArrow /> {tr('Back to set', 'К набору')}
+            <BackArrow /> {backLabel}
           </Link>
         </p>
       </main>
     );
   }
 
+  const isFromBuildBox = safeReturnPath(searchParams.get('from')) === BUILD_BOX_REVIEW_PATH;
+  const displayBackLabel = isFromBuildBox
+    ? backLabel
+    : !standaloneSku && productName
+      ? (isEn ? `Back to «${productName}»` : `«${productName}»`)
+      : backLabel;
+
   return (
     <main className={WIDE_MAIN_CLASS}>
       <p className="mb-8">
         <Link
-          to={`/product/${productId ?? ''}`}
+          to={backPath}
           className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:opacity-90"
         >
-          <BackArrow />{' '}
-          {productName ? (isEn ? `Back to «${productName}»` : `«${productName}»`) : tr('Back to set', 'К набору')}
+          <BackArrow /> {displayBackLabel}
         </Link>
       </p>
 
@@ -472,6 +529,15 @@ export const BoxComponentDetail: React.FC = () => {
                     {sku.volume_label?.trim() ? sku.volume_label.trim() : tr('—', '—')}
                   </p>
                 </section>
+                {textureDisplay ? (
+                  <section className="rounded-xl bg-slate-50/90 px-4 py-4 ring-1 ring-slate-100">
+                    <h3 className={SECTION_KICKER}>{tr('Texture & Feel', 'Текстура')}</h3>
+                    <p className="mt-2 flex items-center gap-2 text-sm font-medium text-slate-700">
+                      <span className="text-base" aria-hidden>🤲</span>
+                      {textureDisplay}
+                    </p>
+                  </section>
+                ) : null}
                 <section className="rounded-xl bg-slate-50/90 px-4 py-4 ring-1 ring-slate-100">
                   <h3 className={SECTION_KICKER}>{tr('Shelf life', 'Срок годности')}</h3>
                   <p className="mt-2 text-sm font-medium leading-relaxed text-slate-700">{shelfLifeLine}</p>
@@ -479,6 +545,12 @@ export const BoxComponentDetail: React.FC = () => {
                 <section className="rounded-xl bg-slate-50/90 px-4 py-4 ring-1 ring-slate-100">
                   <h3 className={SECTION_KICKER}>{tr('Product', 'Продукт')}</h3>
                   <dl className="mt-3 space-y-3.5">
+                    {(sku.name_en?.trim() || sku.name?.trim()) ? (
+                      <div className="grid gap-0.5 sm:grid-cols-[minmax(0,6.5rem)_1fr] sm:items-baseline sm:gap-x-5">
+                        <dt className="text-[11px] font-medium text-slate-400">{tr('Name', 'Название')}</dt>
+                        <dd className="text-sm font-medium text-slate-700">{(sku.name_en?.trim() || sku.name?.trim())}</dd>
+                      </div>
+                    ) : null}
                     {sku.brand?.trim() ? (
                       <div className="grid gap-0.5 sm:grid-cols-[minmax(0,6.5rem)_1fr] sm:items-baseline sm:gap-x-5">
                         <dt className="text-[11px] font-medium text-slate-400">{tr('Brand', 'Бренд')}</dt>
@@ -491,12 +563,6 @@ export const BoxComponentDetail: React.FC = () => {
                         <dd className="text-sm font-medium text-slate-700">
                           {formatProductTypeForLanguage(sku.product_type, language)}
                         </dd>
-                      </div>
-                    ) : null}
-                    {sku.name_en?.trim() ? (
-                      <div className="grid gap-0.5 sm:grid-cols-[minmax(0,6.5rem)_1fr] sm:items-baseline sm:gap-x-5">
-                        <dt className="text-[11px] font-medium text-slate-400">{tr('Name (EN)', 'Название (EN)')}</dt>
-                        <dd className="text-sm font-medium text-slate-700">{sku.name_en.trim()}</dd>
                       </div>
                     ) : null}
                     <div className="grid gap-0.5 sm:grid-cols-[minmax(0,6.5rem)_1fr] sm:items-baseline sm:gap-x-5">
@@ -525,13 +591,23 @@ export const BoxComponentDetail: React.FC = () => {
                       {spotlightVisibleItems.map((item) => {
                         if (item.kind === 'hero') {
                           const h = item.hero;
+                          // Resolve Korean INCI names (e.g. 병풀추출물) → English INCI key
+                          const enInciKey = resolveInciKey(h.name);
+                          const dictEntry = lookupIngredientTrilingual(enInciKey);
+                          const dictBlurb = dictEntry
+                            ? (isEn ? dictEntry.en : language === 'ru' ? dictEntry.ru : dictEntry.en)
+                            : '';
                           const blurb =
                             heroBlurb(h) ||
+                            (language === 'ru'
+                              ? getStorefrontInciRoleRu(h.name, enInciKey, ingredientLibMap, undefined)
+                              : getStorefrontInciRoleEn(h.name, enInciKey, ingredientLibMap, undefined)) ||
                             storefrontLibRole(
-                              lookupIngredientLibraryRow(ingredientLibMap, h.name, h.name.toLowerCase()),
+                              lookupIngredientLibraryRow(ingredientLibMap, enInciKey, enInciKey),
                               isEn,
                               language,
-                            );
+                            ) ||
+                            dictBlurb;
                           return (
                             <li
                               key={`hero-${h.name}`}
@@ -546,7 +622,7 @@ export const BoxComponentDetail: React.FC = () => {
                                 </span>
                                 <div className="min-w-0 flex-1">
                                   <p className="text-[15px] font-semibold tracking-tight text-slate-900">
-                                    {formatInciNameForDisplay(h.name)}
+                                    {getStorefrontInciDisplayName(h.name, inciLang, ingredientLibMap)}
                                   </p>
                                   {blurb ? (
                                     <p className="mt-2 text-[13px] leading-relaxed text-slate-600 text-pretty">
@@ -560,7 +636,11 @@ export const BoxComponentDetail: React.FC = () => {
                         }
                         const { line } = item;
                         const libRow = lookupIngredientLibraryRow(ingredientLibMap, line.name, line.name_lower);
-                        const role = storefrontLibRole(libRow, isEn, language);
+                        const role =
+                          language === 'ru'
+                            ? getStorefrontInciRoleRu(line.name, line.name_lower, ingredientLibMap, line.benefit_tags)
+                            : getStorefrontInciRoleEn(line.name, line.name_lower, ingredientLibMap, line.benefit_tags) ||
+                              storefrontLibRole(libRow, isEn, language);
                         return (
                           <li
                             key={`inci-${line.position}-${line.name_lower}`}
@@ -575,7 +655,7 @@ export const BoxComponentDetail: React.FC = () => {
                               </span>
                               <div className="min-w-0 flex-1">
                                 <p className="text-[15px] font-semibold tracking-tight text-slate-900">
-                                  {formatInciNameForDisplay(line.name)}
+                                  {getStorefrontInciDisplayName(line.name, inciLang, ingredientLibMap)}
                                 </p>
                                 {role ? (
                                   <p className="mt-2 text-[13px] leading-relaxed text-slate-600 text-pretty">{role}</p>
@@ -599,6 +679,30 @@ export const BoxComponentDetail: React.FC = () => {
                     ) : null}
                   </section>
                 ) : null}
+
+                {sensitizingLines.length > 0 && (
+                  <section className="rounded-xl bg-orange-50/70 px-4 py-4 ring-1 ring-orange-200/60">
+                    <h3 className={`${SECTION_KICKER} text-orange-700`}>
+                      {tr('Potential allergens', 'Потенциальные аллергены')}
+                    </h3>
+                    <p className="mt-1.5 text-[11px] leading-relaxed text-orange-600/80">
+                      {tr(
+                        'Ingredients known to cause reactions in sensitive skin.',
+                        'Компоненты, способные вызвать реакцию у чувствительной кожи.',
+                      )}
+                    </p>
+                    <ul className="mt-3 flex flex-wrap gap-1.5">
+                      {sensitizingLines.map((line) => (
+                        <li
+                          key={line.name_lower}
+                          className="rounded-full bg-orange-100 px-2.5 py-1 text-[12px] font-medium text-orange-800 ring-1 ring-orange-200/80"
+                        >
+                          {getStorefrontInciDisplayName(line.name, inciLang, ingredientLibMap)}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
 
                 <section className="rounded-xl bg-slate-50/80 px-4 py-4 ring-1 ring-slate-100">
                   <h3 className={SECTION_KICKER}>{tr('Full ingredient list', 'Полный состав')}</h3>
@@ -635,7 +739,11 @@ export const BoxComponentDetail: React.FC = () => {
                           <ul className="mt-4 list-none space-y-1.5 pl-0">
                             {ingredientLinesFullDisplay.map((line) => {
                               const libRow = lookupIngredientLibraryRow(ingredientLibMap, line.name, line.name_lower);
-                              const role = storefrontLibRole(libRow, isEn, language);
+                              const role =
+                                language === 'ru'
+                                  ? getStorefrontInciRoleRu(line.name, line.name_lower, ingredientLibMap, line.benefit_tags)
+                                  : getStorefrontInciRoleEn(line.name, line.name_lower, ingredientLibMap, line.benefit_tags) ||
+                                    storefrontLibRole(libRow, isEn, language);
                               return (
                                 <li
                                   key={`${line.position}-${line.name_lower}`}
@@ -647,7 +755,7 @@ export const BoxComponentDetail: React.FC = () => {
                                   />
                                   <div className="min-w-0 flex-1">
                                     <p className="font-medium text-slate-900">
-                                      {formatInciNameForDisplay(line.name)}
+                                      {getStorefrontInciDisplayName(line.name, inciLang, ingredientLibMap)}
                                     </p>
                                     {role ? (
                                       <p className="mt-1 text-[12px] leading-relaxed text-slate-500 text-pretty">

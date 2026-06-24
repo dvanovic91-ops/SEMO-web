@@ -9,6 +9,11 @@ type Props = {
   onClose: () => void;
   /** 최종 JPEG 파일. `false` 반환 시 업로드 실패 등으로 모달 유지 */
   onApply: (file: File) => void | boolean | Promise<void | boolean>;
+  /** 초기 프레임 비율 (기본 16:9) */
+  defaultAspect?: number | undefined;
+  title?: string;
+  description?: string;
+  applyLabel?: string;
 };
 
 const ASPECT_PRESETS: { label: string; value: number | undefined }[] = [
@@ -22,10 +27,19 @@ const ASPECT_PRESETS: { label: string; value: number | undefined }[] = [
 /**
  * 관리자 프로모 배너: 프레임(비율) 선택 + 확대/이동 + 미리보기 후 적용
  */
-export const PromoImageCropModal: React.FC<Props> = ({ imageSrc, open, onClose, onApply }) => {
+export const PromoImageCropModal: React.FC<Props> = ({
+  imageSrc,
+  open,
+  onClose,
+  onApply,
+  defaultAspect = 16 / 9,
+  title = '배너 이미지 자르기',
+  description = '비율을 고른 뒤 드래그·확대하여 맞추세요. 아래에서 결과를 확인할 수 있습니다.',
+  applyLabel = '이대로 업로드',
+}) => {
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
-  const [aspect, setAspect] = useState<number | undefined>(16 / 9);
+  const [aspect, setAspect] = useState<number | undefined>(defaultAspect);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
   /** 드래그 중 과도한 캔버스 호출 방지 */
   const [debouncedPixels, setDebouncedPixels] = useState<Area | null>(null);
@@ -70,7 +84,7 @@ export const PromoImageCropModal: React.FC<Props> = ({ imageSrc, open, onClose, 
     if (!open) {
       setCrop({ x: 0, y: 0 });
       setZoom(1);
-      setAspect(16 / 9);
+      setAspect(defaultAspect);
       setCroppedAreaPixels(null);
       setDebouncedPixels(null);
       setPreviewUrl((prev) => {
@@ -78,7 +92,7 @@ export const PromoImageCropModal: React.FC<Props> = ({ imageSrc, open, onClose, 
         return null;
       });
     }
-  }, [open]);
+  }, [open, defaultAspect]);
 
   const handleApply = async () => {
     if (!croppedAreaPixels) return;
@@ -101,8 +115,8 @@ export const PromoImageCropModal: React.FC<Props> = ({ imageSrc, open, onClose, 
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true">
       <div className="flex max-h-[min(92vh,900px)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
         <div className="border-b border-slate-100 px-4 py-3">
-          <h3 className="text-sm font-semibold text-slate-900">배너 이미지 자르기</h3>
-          <p className="mt-0.5 text-xs text-slate-500">비율을 고른 뒤 드래그·확대하여 맞추세요. 아래에서 결과를 확인할 수 있습니다.</p>
+          <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+          <p className="mt-0.5 text-xs text-slate-500">{description}</p>
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4 lg:flex-row">
@@ -180,7 +194,7 @@ export const PromoImageCropModal: React.FC<Props> = ({ imageSrc, open, onClose, 
             disabled={busy || !croppedAreaPixels}
             className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand/90 disabled:opacity-50"
           >
-            {busy ? '처리 중…' : '이대로 업로드'}
+            {busy ? '처리 중…' : applyLabel}
           </button>
         </div>
       </div>

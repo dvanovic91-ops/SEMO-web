@@ -91,6 +91,28 @@ function PasswordRecoveryRouteGuard() {
 
   return null;
 }
+
+const POST_SIGNUP_REDIRECT_KEY = 'semo_post_signup_redirect';
+
+/** Telegram Mini App 등 navigate 없이 세션만 생기는 가입 — 개인정보 화면으로 보냄 */
+function PostSignupRedirect() {
+  const navigate = useNavigate();
+  const { isLoggedIn, initialized } = useAuth();
+
+  useEffect(() => {
+    if (!initialized || !isLoggedIn) return;
+    try {
+      const path = sessionStorage.getItem(POST_SIGNUP_REDIRECT_KEY);
+      if (!path) return;
+      sessionStorage.removeItem(POST_SIGNUP_REDIRECT_KEY);
+      navigate(path, { replace: true });
+    } catch {
+      /* */
+    }
+  }, [initialized, isLoggedIn, navigate]);
+
+  return null;
+}
 import { About } from './pages/About';
 import { Cart } from './pages/Cart';
 import { Checkout } from './pages/Checkout';
@@ -127,6 +149,7 @@ import { AuthResetPassword } from './pages/AuthResetPassword';
 import { YandexCallback } from './pages/YandexCallback';
 import { Admin } from './pages/admin/Admin';
 import { GiftVoucher } from './pages/GiftVoucher';
+import { BuildBox } from './pages/BuildBox';
 
 /** 상품 id가 바뀔 때마다 ProductDetail을 새로 마운트 → effect 중복·#310 완화 */
 function ProductDetailWithKey() {
@@ -158,6 +181,7 @@ function AppLayout() {
       <GlobalEnglishOverlay />
       <TrackVisit />
       <PasswordRecoveryRouteGuard />
+      <PostSignupRedirect />
       <ScrollToTop />
       <div
         className={`min-w-0 flex-1 overflow-x-hidden pb-[var(--semo-mobile-tabbar-h)] pt-[var(--semo-mobile-header-h)] md:pb-0 ${mdProductPad} ${mobileTopPad}`}
@@ -176,11 +200,13 @@ function AppLayout() {
                 }
               />
               <Route path="/shop" element={<Shop />} />
+              <Route path="/shop/build" element={<BuildBox />} />
               <Route path="/shop/box-history" element={<BoxHistory />} />
               <Route path="/inner-beauty" element={<InnerBeauty />} />
               <Route path="/hair-beauty" element={<HairBeauty />} />
               <Route path="/recommendations" element={<Recommendations />} />
               <Route path="/recommendations/:skinType" element={<Recommendations />} />
+              <Route path="/sku/:skuId" element={<BoxComponentDetail />} />
               <Route path="/product/:productId/component/:skuId" element={<BoxComponentDetail />} />
               <Route path="/product/:id" element={<ProductDetailWithKey />} />
               <Route path="/cart" element={<Cart />} />

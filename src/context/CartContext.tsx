@@ -4,6 +4,10 @@ import { useI18n, type AppCurrency } from './I18nContext';
 import { supabase } from '../lib/supabase';
 import { loadProductMarketPrices } from '../lib/productMarketPrices';
 
+// custom-build-box 같은 커스텀 ID는 UUID가 아니므로 Supabase 쿼리에서 제외
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isValidUUID = (id: string) => UUID_RE.test(id);
+
 export interface CartItem {
   id: string;
   name: string;
@@ -186,7 +190,7 @@ async function fetchMergedCartWithProductMeta(
   cart: CartItem[],
 ): Promise<CartItem[]> {
   if (cart.length === 0) return cart;
-  const ids = [...new Set(cart.map((i) => i.id))].filter(Boolean);
+  const ids = [...new Set(cart.map((i) => i.id))].filter(Boolean).filter(isValidUUID);
   if (ids.length === 0) return cart;
   try {
     const { data, error } = await client.from('products').select('id, name, image_url').in('id', ids);
@@ -218,7 +222,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     if (userId && !remoteReady) return;
     const cur = itemsRef.current;
     if (cur.length === 0) return;
-    const ids = [...new Set(cur.map((i) => i.id))].filter(Boolean);
+    const ids = [...new Set(cur.map((i) => i.id))].filter(Boolean).filter(isValidUUID);
     if (ids.length === 0) return;
     try {
       const { data, error } = await supabase.from('products').select('id, name, image_url').in('id', ids);
@@ -350,7 +354,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
     let alive = true;
     const refreshPrices = async () => {
-      const productIds = [...new Set(items.map((it) => it.id))];
+      const productIds = [...new Set(items.map((it) => it.id))].filter(isValidUUID);
       try {
         const map = await loadProductMarketPrices(supabase!, productIds);
         if (!alive) return;

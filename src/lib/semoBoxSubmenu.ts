@@ -17,6 +17,13 @@ export const SEMO_BOX_SUBMENU: SemoBoxSubmenuItem[] = [
   { to: '/promo', label: 'Promo' },
 ];
 
+const ADMIN_ONLY_SUBMENU_PATHS = new Set(['/inner-beauty', '/hair-beauty']);
+
+/** 스토어프론트: Fit/Hair 숨김 (관리자 패널 /admin 에서만 별도 관리) */
+export function getSemoBoxSubmenu(): SemoBoxSubmenuItem[] {
+  return SEMO_BOX_SUBMENU.filter((item) => !ADMIN_ONLY_SUBMENU_PATHS.has(item.to));
+}
+
 /** 현재 경로가 SEMO Box 하위 카탈로그/기능인지 (/shop/box-history 포함) */
 export function isSemoBoxSubmenuPath(pathname: string): boolean {
   const path = (pathname.split('?')[0] ?? pathname).replace(/\/$/, '') || '/';

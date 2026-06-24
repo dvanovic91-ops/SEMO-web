@@ -156,7 +156,7 @@ export function triggerTelegramLogin(
 export async function loginWithMiniApp(
   supabaseClient: SupabaseClient,
   _supabaseUrl: string,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; isNew?: boolean; error?: string }> {
   const initData = window.Telegram?.WebApp?.initData;
   if (!initData) return { ok: false, error: 'no_initData' };
 
@@ -174,7 +174,7 @@ export async function loginWithMiniApp(
       return { ok: false, error: result.error };
     }
 
-    return { ok: true };
+    return { ok: true, isNew: result.isNew };
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }

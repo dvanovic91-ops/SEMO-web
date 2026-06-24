@@ -16,7 +16,7 @@ import { useI18n } from '../context/I18nContext';
 import { useCart } from '../context/CartContext';
 import { supabase } from '../lib/supabase';
 import { BackArrow } from '../components/BackArrow';
-import { ProductCompositionGrid, type ProductCompositionItem } from '../components/ProductCompositionGrid';
+import { type ProductCompositionItem } from '../components/ProductCompositionGrid';
 import { SemoPageSpinner, SEMO_FULL_PAGE_LOADING_MAIN_CLASS } from '../components/SemoPageSpinner';
 import { getOrCreateVisitSessionId } from '../lib/clientSession';
 import { getRecommendedProductIdForSkinType } from '../lib/skinTypeSlotMapping';
@@ -243,26 +243,30 @@ function stripSkinDescTrailingEmojiRu(desc: unknown): string {
 }
 
 const QUESTIONS_EN = [
-  'After cleansing and before applying products, does your skin feel tight?',
-  'By midday, does your skin (especially T-zone) become shiny?',
+  // D/O
+  'Right after waking up, does your skin look oily or shiny?',
+  'By midday, does your skin (T-zone) become shiny or oily?',
   'Are your pores visibly enlarged?',
-  'Does makeup fade or move quickly?',
-  'Do breakouts appear regularly?',
-  'Do some cosmetics cause stinging or tingling?',
-  'Does your skin flush with temperature changes or spicy food?',
-  'Is your skin reactive to fragrance products?',
-  'Have you had atopic or seborrheic dermatitis-like conditions?',
-  'Does your skin burn quickly in the sun?',
-  'Do dark marks remain long after breakouts?',
-  'Do you have pigmentation, freckles, or uneven tone?',
-  'In sun exposure, does your skin tan more than burn?',
-  'Is skin around mouth/eyes darker than rest of face?',
-  'Have you done tone-correcting procedures before?',
-  'Do you notice expression lines (eye area / smile lines)?',
-  'Do you notice reduced firmness or contour changes?',
-  'Do pillow marks remain for a long time after sleep?',
-  'Do you smoke or have frequent sun exposure?',
-  'Did your parents show aging signs earlier than peers?',
+  'After cleansing without products, does your skin feel tight?',
+  'Without moisturizer, does your skin feel dry or tight?',
+  // S/R
+  'Do some cosmetics cause stinging or tingling on your skin?',
+  'Is your skin reactive to fragrance or scented products?',
+  'Do you get unexplained redness or persistent flushing?',
+  'Do breakouts or blemishes appear on your skin regularly?',
+  'Overall, do you consider your skin sensitive or reactive?',
+  // P/N
+  'After breakouts or wounds, do dark marks linger for long?',
+  'Do you have pigmentation, freckles, or uneven skin tone?',
+  'In sun exposure, does your skin tan rather than burn?',
+  'After sun exposure, do pigment spots or freckles darken?',
+  'Overall, do you feel you have pigmentation or tone issues?',
+  // W/T
+  'Do you notice expression lines (eye area or smile lines)?',
+  'Do you notice reduced firmness or facial contour changes?',
+  'After sleeping, do pillow marks take long to disappear?',
+  'Do you smoke or have frequent unprotected sun exposure?',
+  'Overall, does your skin feel like it is aging faster than it should?',
 ] as const;
 
 const ANSWERS_EN: [string, string][] = [
@@ -277,9 +281,7 @@ const PROFILE_STEPS_EN = [
   { key: 'age', label: 'Your age?', options: [['Under 20', 'age_1'], ['20-25', 'age_2'], ['26-30', 'age_3'], ['31-35', 'age_4'], ['36-40', 'age_5'], ['41-45', 'age_6'], ['45+', 'age_7']] as [string, string][] },
   { key: 'gender', label: 'Your gender?', options: [['Female', 'gen_f'], ['Male', 'gen_m']] as [string, string][] },
   { key: 'routine', label: 'How would you describe your skin routine?', options: [['Almost none', 'rut_1'], ['Basic routine only', 'rut_2'], ['Full routine', 'rut_3']] as [string, string][] },
-  { key: 'recent_irritation', label: 'In the last 3 months, have you had a reaction to skincare products, such as stinging, redness, itching, or burning?', options: [['Yes, often', 'irritation_often'], ['Sometimes', 'irritation_sometimes'], ['Rarely', 'irritation_rare'], ["I'm not sure", 'irritation_unknown']] as [string, string][] },
-  { key: 'fragrance_sensitivity', label: 'Does your skin react to fragrance, perfume, or essential oils in skincare?', options: [['Yes, I try to avoid them', 'fragrance_avoid'], ['Sometimes', 'fragrance_sometimes'], ['Usually no problem', 'fragrance_ok'], ["I'm not sure", 'fragrance_unknown']] as [string, string][] },
-  { key: 'source', label: 'How did you hear about us?', options: [['Instagram / Social media', 'src_ig'], ['Friend recommendation', 'src_friend'], ['Yandex search', 'src_yandex'], ['Marketplaces', 'src_market'], ['Other', 'src_other']] as [string, string][] },
+  { key: 'source', label: 'How did you hear about us?', options: [['Instagram / VK / Social media', 'src_ig'], ['Telegram', 'src_tg'], ['Bloggers / Influencers', 'src_blogger'], ['Friend recommendation', 'src_friend'], ['Yandex search', 'src_yandex'], ['Marketplaces', 'src_market'], ['Other', 'src_other']] as [string, string][] },
 ] as const;
 
 /** 프로필 다음 단계 */
@@ -296,7 +298,7 @@ export const SkinTest: React.FC = () => {
   const regionCode = countryToRegion[country] ?? 'russia_other';
   const isEn = language === 'en';
   const skinApiBase = getSkinApiBaseUrl();
-  const { userId, userEmail, isAdmin } = useAuth();
+  const { userId, userEmail, isAdmin, initialized: authInitialized } = useAuth();
   const activeQuestions = isEn ? QUESTIONS_EN : QUESTIONS.map((q) => q.text);
   const activeAnswers = isEn ? ANSWERS_EN : ANSWERS;
   const activeProfileSteps = isEn
@@ -312,7 +314,7 @@ export const SkinTest: React.FC = () => {
   };
 
   /** 바우만 점수 기반 케어 주의사항 2~3줄 */
-  const skinCareNote = (skinType: string, sc: Record<1|2|3|4, number>, en: boolean): string => {
+  const skinCareNote = (skinType: string, sc: Record<1|2|3|4, number>, en: boolean, dehydratedOily?: boolean): string => {
     const isDry = skinType[0] === 'D';
     const isSens = skinType[1] === 'S';
     const isPigm = skinType[2] === 'P';
@@ -325,6 +327,10 @@ export const SkinTest: React.FC = () => {
       lines.push(en
         ? `Prone to moisture loss — avoid sulfate cleansers and alcohol-based toners.`
         : `Склонна к потере влаги — откажитесь от сульфатных средств и спиртовых тоников.`);
+    } else if (dehydratedOily) {
+      lines.push(en
+        ? `Dehydrated-oily skin: your skin produces sebum but lacks water — prioritise essence and serum over heavy creams; rich textures will clog pores.`
+        : `Обезвоженная жирная кожа: кожа выделяет себум, но ей не хватает воды — эссенция и сыворотка важнее тяжёлых кремов; плотные текстуры закупоривают поры.`);
     } else {
       lines.push(en
         ? `Excess sebum production — skip heavy creams and comedogenic oils to prevent clogged pores.`
@@ -404,7 +410,12 @@ export const SkinTest: React.FC = () => {
   const [limitReached, setLimitReached] = useState(false);
   const [profileStep, setProfileStep] = useState(0);
   const [profileData, setProfileData] = useState<Record<string, string>>({});
+  const [isDehydratedOily, setIsDehydratedOily] = useState(false);
   const [concernText, setConcernText] = useState('');
+  const [concernTags, setConcernTags] = useState<string[]>([]);
+  const [showConcernOther, setShowConcernOther] = useState(false);
+  /** concern 단계 진입 전 미리 계산한 바우만 타입 — concern stage UI 옵션 필터링용 */
+  const [earlyBaumannType, setEarlyBaumannType] = useState<string | null>(null);
   const [submittedConcernContext, setSubmittedConcernContext] = useState<{ profileCode: string; freeText: string } | null>(null);
   const [aiAnalysisText, setAiAnalysisText] = useState<AiAnalysisSections | null>(null);
   const [aiAnalysisLoading, setAiAnalysisLoading] = useState(false);
@@ -717,13 +728,14 @@ export const SkinTest: React.FC = () => {
         selfie_analysis: unknown;
         ai_analysis: unknown;
         baumann_scores: unknown;
+        dehydrated_oily?: boolean | null;
       };
       let row: RowT | null = null;
 
       if (uuidOk) {
         const { data } = await supabase
           .from('skin_test_results')
-          .select('id, skin_type, concern_text, selfie_analysis, ai_analysis, baumann_scores')
+          .select('id, skin_type, concern_text, selfie_analysis, ai_analysis, baumann_scores, dehydrated_oily')
           .eq('user_id', userId)
           .eq('id', sid as string)
           .maybeSingle();
@@ -734,7 +746,7 @@ export const SkinTest: React.FC = () => {
       if (!row) {
         const { data } = await supabase
           .from('skin_test_results')
-          .select('id, skin_type, concern_text, selfie_analysis, ai_analysis, baumann_scores')
+          .select('id, skin_type, concern_text, selfie_analysis, ai_analysis, baumann_scores, dehydrated_oily')
           .eq('user_id', userId)
           .ilike('skin_type', result.type)
           .order('completed_at', { ascending: false })
@@ -753,6 +765,8 @@ export const SkinTest: React.FC = () => {
 
       pendingSkinTestResultRowIdRef.current = row.id;
       void flushQueuedPersists();
+
+      if (typeof row.dehydrated_oily === 'boolean') setIsDehydratedOily(row.dehydrated_oily);
 
       const ct = row.concern_text;
       if (typeof ct === 'string' && ct.trim()) setConcernText(ct.trim());
@@ -1022,7 +1036,6 @@ export const SkinTest: React.FC = () => {
               brand: sku?.brand ?? null,
               country_of_origin: sku?.country_of_origin ?? null,
               name: resolveSkuStorefrontName({
-                display_name: sku?.display_name,
                 name_en: sku?.name_en,
                 name: sku?.name,
                 fallbackName: (c.name as string | null) ?? null,
@@ -1085,8 +1098,6 @@ export const SkinTest: React.FC = () => {
                 region_code: regionCode,
                 age_code: profileData.age ?? null,
                 concern_code: profileData.concern ?? null,
-                recent_irritation: profileData.recent_irritation ?? null,
-                fragrance_sensitivity: profileData.fragrance_sensitivity ?? null,
               },
             }).then((snapshot) => {
               if (!snapshot) return;
@@ -1170,31 +1181,7 @@ export const SkinTest: React.FC = () => {
     setAiRetrying(false);
     (async () => {
       try {
-        const preview = recommendedProductPreview;
-        const recName =
-          preview?.status === 'ok' && preview.name?.trim() ? preview.name.trim() : '';
-        const compHint =
-          preview?.status === 'ok' && Array.isArray(preview.composition)
-            ? preview.composition
-                .slice(0, 5)
-                .map((c) => c.product_type ?? c.name)
-                .filter((v): v is string => !!v && String(v).trim().length > 0)
-                .join(', ')
-            : '';
         const concernMetricFocus = buildConcernMetricFocusForApi(profileData.concern, concernText || '');
-        const customizedProducts =
-          preview?.status === 'ok' && Array.isArray(preview.composition)
-            ? preview.composition
-                .filter((c) => c.is_customized)
-                .slice(0, 3)
-                .map((c) => ({
-                  name: String(c.name ?? '').trim(),
-                  product_type: String(c.product_type ?? '').trim(),
-                  key_ingredients: String(c.key_ingredients ?? '').trim(),
-                  is_customized: true,
-                }))
-                .filter((c) => c.name.length > 0)
-            : [];
         const outputLang = isEn ? 'en' : 'ru';
         let parsed: AiAnalysisSections | null = null;
         for (let attempt = 0; attempt < 2; attempt++) {
@@ -1209,9 +1196,9 @@ export const SkinTest: React.FC = () => {
                 age_code: profileData.age ?? 'age_3',
                 baumann_scores: result.scores,
                 output_lang: outputLang,
-                ...(recName ? { recommended_product_name: recName } : {}),
-                ...(compHint ? { composition_product_types: compHint } : {}),
-                ...(customizedProducts.length > 0 ? { customized_products: customizedProducts } : {}),
+                ...(profileData.gender ? { gender_code: profileData.gender } : {}),
+                ...(profileData.routine ? { routine_code: profileData.routine } : {}),
+                ...(isDehydratedOily ? { dehydrated_oily: true } : {}),
                 ...(concernMetricFocus ? { concern_metric_focus: concernMetricFocus } : {}),
               }),
             });
@@ -1280,9 +1267,6 @@ export const SkinTest: React.FC = () => {
     persistAiAnalysisToRow,
   ]);
 
-  const canAddRecommendedToCart =
-    recommendedProductPreview?.status === 'ok' && !!recommendedProductPreview.productId;
-
   /**
    * 과거(비최신) 결과를 열어본 경우 — 추천은 그 시점의 피부·재고 기준이라 최신성이 떨어짐.
    * 신뢰 보호를 위해 과거 결과에선 제품 추천/구매 CTA를 숨기고 재검사를 안내한다.
@@ -1293,33 +1277,6 @@ export const SkinTest: React.FC = () => {
     !!resultRowIdQueryParam &&
     !!latestResultId &&
     resultRowIdQueryParam !== latestResultId;
-
-  const handleAddRecommendedToCart = () => {
-    const p = recommendedProductPreview;
-    if (!p || p.status !== 'ok' || !p.productId) return;
-    const thumb = p.thumb1 ?? p.thumb2 ?? null;
-    const prp = p.prp_price != null ? Number(p.prp_price) : null;
-    const rrp = p.rrp_price != null ? Number(p.rrp_price) : null;
-    addItem({
-      id: p.productId,
-      name: p.name,
-      price: prp ?? rrp ?? 0,
-      imageUrl: thumb,
-      originalPrice: prp != null && rrp != null ? rrp : undefined,
-      currency,
-    });
-    void trackRecommendationEvent({
-      userId,
-      eventType: 'add_to_cart',
-      productId: p.productId,
-      metadata: {
-        source: 'skin_test_recommendation',
-        product_name: p.name,
-        skin_type: result?.type ?? null,
-      },
-    });
-    setCartToast(true);
-  };
 
   const handleAgree = () => {
     if (!isAdmin && !noTestLimit && limitReached) return;
@@ -1397,6 +1354,9 @@ export const SkinTest: React.FC = () => {
         return;
       }
       const { type, scores } = calcSkinType(answers);
+      // 수부지(수분부족지성): O타입이지만 세안 후 속당김(Q4 = index 3) 패턴
+      const dehydratedOily = type[0] === 'O' && answers[3] >= 1;
+      setIsDehydratedOily(dehydratedOily);
       const info = SKIN_INFO[type] ?? {
         name: type,
         desc: isEn ? 'Test result saved.' : 'Результат теста сохранён.',
@@ -1438,14 +1398,26 @@ export const SkinTest: React.FC = () => {
             '4': scores[4],
           };
           void supabase
+            .from('profiles')
+            .update({
+              baumann_type: type,
+              ...(concernTags.length ? { concern_tags: concernTags } : {}),
+            })
+            .eq('id', userId);
+
+          void supabase
             .from('skin_test_results')
             .insert({
               user_id: userId,
               skin_type: type,
               concern_text: concernText || null,
+              concern_tags: concernTags.length ? concernTags : null,
               baumann_scores,
-              recent_irritation: profileData.recent_irritation ?? null,
-              fragrance_sensitivity: profileData.fragrance_sensitivity ?? null,
+              age: profileData.age ?? null,
+              gender: profileData.gender ?? null,
+              routine: profileData.routine ?? null,
+              source: profileData.source ?? null,
+              dehydrated_oily: dehydratedOily,
             })
             .select('id')
             .single()
@@ -1659,30 +1631,7 @@ export const SkinTest: React.FC = () => {
       setPostSelfieUnifiedLoading(true);
       setAiRetrying(false);
       try {
-        const pv = recommendedProductPreviewRef.current;
-        const recName = pv?.status === 'ok' && pv.name?.trim() ? pv.name.trim() : '';
-        const compHint =
-          pv?.status === 'ok' && Array.isArray(pv.composition)
-            ? pv.composition
-                .slice(0, 5)
-                .map((c) => c.product_type ?? c.name)
-                .filter((v): v is string => !!v && String(v).trim().length > 0)
-                .join(', ')
-            : '';
         const concernMetricFocusSelfie = buildConcernMetricFocusForApi(profileData.concern, concernText || '');
-        const customizedProducts =
-          pv?.status === 'ok' && Array.isArray(pv.composition)
-            ? pv.composition
-                .filter((c) => c.is_customized)
-                .slice(0, 3)
-                .map((c) => ({
-                  name: String(c.name ?? '').trim(),
-                  product_type: String(c.product_type ?? '').trim(),
-                  key_ingredients: String(c.key_ingredients ?? '').trim(),
-                  is_customized: true,
-                }))
-                .filter((c) => c.name.length > 0)
-            : [];
         const outputLang = isEn ? 'en' : 'ru';
         let uniParsed: AiAnalysisSections | null = null;
         for (let attempt = 0; attempt < 2; attempt++) {
@@ -1701,9 +1650,6 @@ export const SkinTest: React.FC = () => {
                 gemini_selfie_en: payload.gemini_analysis?.en?.analysis ?? '',
                 gemini_selfie_ru: payload.gemini_analysis?.ru?.analysis ?? '',
                 gemini_selfie_ko: payload.gemini_analysis?.ko?.analysis ?? '',
-                ...(recName ? { recommended_product_name: recName } : {}),
-                ...(compHint ? { composition_product_types: compHint } : {}),
-                ...(customizedProducts.length > 0 ? { customized_products: customizedProducts } : {}),
                 ...(concernMetricFocusSelfie ? { concern_metric_focus: concernMetricFocusSelfie } : {}),
               }),
             });
@@ -1852,8 +1798,8 @@ export const SkinTest: React.FC = () => {
     !userId &&
     localStorage.getItem(`semo_anon_test_done:${getOrCreateVisitSessionId()}`) === '1';
 
-  /** 로그인 + Supabase: 테스트 횟수 조회 전까지 인트로 분기(한도 화면) 판단 불가 → 로딩 */
-  const skinLimitLoading = !!userId && !!supabase && testCount === null;
+  /** 로그인 + Supabase: auth 초기화(isAdmin 포함) 및 테스트 횟수 조회 전까지 인트로 판단 불가 → 로딩 */
+  const skinLimitLoading = !authInitialized || (!!userId && !!supabase && testCount === null);
 
   if (stage === 'intro') {
     if (skinLimitLoading) {
@@ -2002,12 +1948,15 @@ export const SkinTest: React.FC = () => {
   if (stage === 'profile') {
     const step = activeProfileSteps[profileStep];
     return (
-      <main className="flex flex-col bg-white px-4 py-4 pb-20 sm:py-6 md:pb-0 md:py-12 md:px-6">
+      <main className="flex flex-col bg-white px-4 py-4 pb-20 sm:py-6 md:pb-52 md:py-12 md:px-6">
         <div className="mx-auto flex w-full max-w-4xl flex-col text-center">
+          <p className="mb-1.5 tabular-nums text-xs text-slate-400">
+            {profileStep + 1}/{activeProfileSteps.length}
+          </p>
           <p className="mb-6 text-sm font-semibold tracking-wide text-brand sm:mb-7 sm:text-base">
             {isEn ? 'A few questions before test' : 'Несколько вопросов перед тестом'}
           </p>
-          <p className="text-sm font-light leading-snug tracking-wide text-slate-800 sm:text-base sm:leading-relaxed">
+          <p className="text-base font-semibold leading-snug tracking-wide text-slate-800 sm:text-lg sm:leading-relaxed">
             {step.label}
           </p>
           <div className="mt-6 flex flex-col items-center gap-2.5 sm:mt-8 sm:gap-3">
@@ -2016,58 +1965,127 @@ export const SkinTest: React.FC = () => {
                 key={`p${profileStep}-${value}`}
                 type="button"
                 onClick={() => handleProfileSelect(step.key, value)}
-                className="touch-no-hover w-full max-w-xl rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-left text-sm text-slate-800 transition active:bg-slate-50 sm:py-3 sm:px-5 md:hover:border-brand md:hover:bg-brand-soft/20"
+                className="touch-no-hover w-full max-w-xl rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-left text-xs text-slate-700 transition active:bg-slate-50 sm:py-3 sm:px-5 sm:text-sm md:hover:border-brand md:hover:bg-brand-soft/10 md:hover:text-brand"
               >
                 {label}
               </button>
             ))}
-            {profileStep > 0 && (
-              <button
-                type="button"
-                onClick={handleProfilePrev}
-                className="mt-3 flex items-center justify-center gap-1.5 text-sm font-medium text-brand hover:opacity-90 sm:mt-4"
-              >
-                <BackArrow />
-                {isEn ? 'Previous step' : 'Предыдущий шаг'}
-              </button>
-            )}
           </div>
-          <p className="mt-4 tabular-nums text-sm text-slate-500 sm:mt-5">
-            {profileStep + 1}/{activeProfileSteps.length}
-          </p>
+          {profileStep > 0 && (
+            <button
+              type="button"
+              onClick={handleProfilePrev}
+              className="mx-auto mt-6 flex items-center justify-center gap-1.5 text-sm font-medium text-brand hover:opacity-90 sm:mt-7"
+            >
+              <BackArrow />
+              {isEn ? 'Previous step' : 'Предыдущий шаг'}
+            </button>
+          )}
         </div>
       </main>
     );
   }
 
-  // ─── 피부 고민 자유 입력 ───
+  // ─── 피부 고민 선택 (chip multi-select, max 2) ───
   if (stage === 'concern') {
+    const CONCERN_OPTIONS_MAP: Record<string, string[]> = {
+      DSPW: ['dry','sensitive','pigmented','aging'],
+      DSPT: ['dry','sensitive','pigmented','aging','glow'],
+      DSNW: ['dry','sensitive','aging','glow'],
+      DSNT: ['dry','sensitive','aging','glow'],
+      DRPW: ['dry','pigmented','aging','glow'],
+      DRPT: ['dry','pigmented','aging','glow'],
+      DRNW: ['dry','aging','glow','pigmented'],
+      DRNT: ['dry','aging','glow','pigmented'],
+      OSPW: ['oily','dehydrated_oily','sensitive','pigmented','aging'],
+      OSPT: ['oily','dehydrated_oily','sensitive','pigmented','aging'],
+      OSNW: ['oily','dehydrated_oily','sensitive','aging','glow'],
+      OSNT: ['oily','dehydrated_oily','sensitive','aging','glow'],
+      ORPW: ['oily','dehydrated_oily','pigmented','aging'],
+      ORPT: ['oily','dehydrated_oily','pigmented','aging','glow'],
+      ORNW: ['oily','dehydrated_oily','aging','glow'],
+      ORNT: ['oily','dehydrated_oily','aging','glow','pigmented'],
+    };
+    const CONCERN_LABELS: Record<string, { ru: string; en: string }> = {
+      dry:             { ru: 'Стянутость · Сухость',          en: 'Dryness' },
+      oily:            { ru: 'Поры · Жирный блеск',           en: 'Oil & Pores' },
+      dehydrated_oily: { ru: 'Снаружи жирно · внутри тянет', en: 'Dehydrated-oily' },
+      sensitive:       { ru: 'Чувствительность · Раздражение',en: 'Sensitive skin' },
+      pigmented:       { ru: 'Пятна · Неровный тон',          en: 'Uneven tone' },
+      aging:           { ru: 'Упругость · Морщины',           en: 'Aging & Firmness' },
+      glow:            { ru: 'Сияние · Тусклость',            en: 'Glow & Radiance' },
+    };
+    const skinType = earlyBaumannType ?? result?.type ?? '';
+    const optionKeys = CONCERN_OPTIONS_MAP[skinType] ?? ['dry','oily','sensitive','pigmented','aging','glow'];
+
+    const toggleTag = (key: string) => {
+      setConcernTags(prev =>
+        prev.includes(key)
+          ? prev.filter(t => t !== key)
+          : prev.length < 2 ? [...prev, key] : prev
+      );
+    };
+
     return (
       <main className="flex flex-col bg-white px-4 py-4 pb-20 sm:py-6 md:pb-0 md:py-12 md:px-6">
         <div className="mx-auto flex w-full max-w-4xl flex-col text-center">
           <p className="mb-6 text-sm font-semibold tracking-wide text-brand sm:mb-7 sm:text-base">
             {isEn ? 'One last step' : 'Последний шаг'}
           </p>
-          <p className="text-sm font-light leading-snug tracking-wide text-slate-800 sm:text-base sm:leading-relaxed">
+          <p className="text-base font-semibold leading-snug tracking-wide text-slate-800 sm:text-lg sm:leading-relaxed">
             {isEn
-              ? 'Tell us about your skin concerns in your own words'
-              : 'Расскажите о своей коже своими словами'}
+              ? 'What are your main skin concerns right now?'
+              : 'Что вас сейчас больше всего беспокоит в коже?'}
           </p>
           <p className="mt-2 text-xs text-slate-400">
             {isEn
-              ? 'Our AI will take your answer into account when creating personalised recommendations'
-              : 'Наш AI учтёт ваш ответ при составлении персональных рекомендаций'}
+              ? "Choose up to 2 — we'll refine your recommendations"
+              : 'Выберите до 2 пунктов — мы учтём при подборе средств'}
           </p>
-          <div className="mt-6 flex flex-col items-center gap-3 sm:mt-8">
-            <textarea
-              rows={4}
-              className="w-full max-w-xl rounded-xl border border-slate-200 bg-white px-4 py-3 text-left text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand/40 resize-none"
-              placeholder={isEn
-                ? 'e.g. My skin gets very dry in winter, I have occasional breakouts around my chin...'
-                : 'Например: зимой кожа очень сохнет, иногда появляются высыпания на подбородке...'}
-              value={concernText}
-              onChange={(e) => setConcernText(e.target.value)}
-            />
+          <div className="mt-6 flex flex-col items-center gap-2.5 sm:mt-8 sm:gap-3">
+            {optionKeys.map(key => {
+              const label = isEn ? CONCERN_LABELS[key]?.en : CONCERN_LABELS[key]?.ru;
+              const selected = concernTags.includes(key);
+              const disabled = !selected && concernTags.length >= 2;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => toggleTag(key)}
+                  disabled={disabled}
+                  className={[
+                    'w-full max-w-xl rounded-xl border py-3 px-4 text-left text-xs font-normal transition sm:py-3.5 sm:px-5 sm:text-sm',
+                    selected
+                      ? 'border-brand bg-brand-soft/20 text-brand'
+                      : disabled
+                        ? 'border-slate-200 bg-slate-50 text-slate-300'
+                        : 'border-slate-200 bg-white text-slate-700 hover:border-brand hover:bg-brand-soft/10 hover:text-brand',
+                  ].join(' ')}
+                >
+                  {label}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => setShowConcernOther(v => !v)}
+              className="w-full max-w-xl rounded-xl border border-dashed border-slate-300 bg-white py-3 px-4 text-left text-sm text-slate-400 hover:border-brand hover:text-brand sm:py-3.5 sm:px-5"
+            >
+              {isEn ? 'Other ✎' : 'Другое ✎'}
+            </button>
+          </div>
+          {showConcernOther && (
+            <div className="mt-3 flex justify-center">
+              <input
+                type="text"
+                value={concernText}
+                onChange={e => setConcernText(e.target.value)}
+                placeholder={isEn ? 'Describe your concern…' : 'Опишите своими словами…'}
+                className="w-full max-w-xl rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand/40"
+              />
+            </div>
+          )}
+          <div className="mt-6 flex flex-col items-center gap-3">
             <button
               type="button"
               onClick={handleConcernNext}
@@ -2103,7 +2121,7 @@ export const SkinTest: React.FC = () => {
           </p>
 
           {/* 질문 — 소제목과 간격 넓힘 */}
-          <p className="text-sm font-light leading-snug tracking-wide text-slate-800 sm:text-base sm:leading-relaxed">
+          <p className="text-base font-semibold leading-snug tracking-wide text-slate-800 sm:text-lg sm:leading-relaxed">
             {qText}
           </p>
           {/* 답 항목 — 질문과 간격 넓힘 */}
@@ -2121,7 +2139,7 @@ export const SkinTest: React.FC = () => {
                   key={`q${questionIndex}-${valueKey}`}
                   type="button"
                   onClick={() => handleAnswer(valueKey)}
-                  className={`w-full max-w-xl rounded-xl border py-3 px-4 text-left text-sm font-normal tracking-wide transition sm:py-3.5 sm:px-5 ${
+                  className={`w-full max-w-xl rounded-xl border py-3 px-4 text-left text-xs font-normal transition sm:py-3.5 sm:px-5 sm:text-sm ${
                     showSelection && valueKey === selectedKey
                       ? 'border-brand bg-brand-soft/20 text-brand'
                       : 'touch-no-hover border-slate-200 bg-white text-slate-700 active:bg-slate-50 md:hover:border-brand md:hover:bg-brand-soft/10 md:hover:text-brand'
@@ -2139,6 +2157,9 @@ export const SkinTest: React.FC = () => {
                   e.stopPropagation();
                   // 로그인: 피부 고민 입력 단계 / 비로그인: 바로 결과
                   if (userId) {
+                    // concern 단계에서 타입별 옵션 표시를 위해 미리 계산
+                    const { type: preType } = calcSkinType(answers);
+                    setEarlyBaumannType(preType);
                     setStage('concern');
                   } else {
                     handleFinalSubmit();
@@ -2226,6 +2247,11 @@ export const SkinTest: React.FC = () => {
                       {isEn ? englishConcernLabel(c) : c}
                     </span>
                   ))}
+                  {isDehydratedOily && (
+                    <span className="shrink-0 whitespace-nowrap rounded-full border border-sky-300 bg-sky-50 px-2 py-0.5 text-[10px] leading-snug text-sky-700 sm:px-2.5 sm:py-1 sm:text-[11px]">
+                      {isEn ? 'Dehydrated-oily' : 'Обезвоженная жирная'}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -2240,6 +2266,21 @@ export const SkinTest: React.FC = () => {
               concernFreeText={concernContext.freeText}
               ageCode={profileData.age ?? undefined}
             />
+          )}
+
+          {!(userId && selfieFirstFlow) && isDehydratedOily && (
+            <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-sky-200 bg-sky-50/60 px-4 py-3">
+              <span className="mt-0.5 shrink-0 text-sky-500">
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </span>
+              <p className="text-sm leading-relaxed text-sky-800">
+                {isEn
+                  ? 'Your skin produces sebum yet feels tight after cleansing — a classic dehydrated-oily pattern. Prioritise water-based essences and serums; heavy creams will worsen congestion.'
+                  : 'Ваша кожа выделяет себум, но ощущается стянутой после умывания — классический признак обезвоженной жирной кожи. В приоритете — водные эссенции и сыворотки; тяжёлые кремы усилят закупорку пор.'}
+              </p>
+            </div>
           )}
 
           {/* AI 준비 전에는 폴백 카드 대신 로딩 안내만 노출 */}
@@ -2632,134 +2673,41 @@ export const SkinTest: React.FC = () => {
             </div>
           )}
 
-          {/* Персональный выбор SEMO */}
-          {!(userId && selfieFirstFlow) && !isViewingPastResult && <div className="mt-3 rounded-xl border border-brand/20 bg-brand-soft/25 px-3 py-4 sm:px-5 sm:py-5 md:px-6 md:py-6">
-            <p className="text-sm font-medium tracking-wide text-brand">
-              {recommendedProductPreview?.status === 'ok' && recommendedProductPreview.name?.trim()
-                ? (isEn ? `SEMO personal pick: ${recommendedProductPreview.name.trim()}` : `Персональный выбор SEMO : ${recommendedProductPreview.name.trim()}`)
-                : (isEn ? 'SEMO personal pick' : 'Персональный выбор SEMO')}
-            </p>
-            {recommendedProductPreview?.status === 'no_slot' && (
-              <p className="mt-2 text-xs leading-snug text-slate-600 sm:text-sm">
-                {isEn
-                  ? 'Recommended product not found. In admin, check catalog slots for '
-                  : 'Рекомендуемый товар не найден. В админке проверьте слоты каталога '}
-                <span className="whitespace-nowrap">Beauty box</span>
-                {isEn ? ': there must be at least as many rows as the slot number' : ': должно быть не меньше строк, чем номер слота для'}
-                {isEn
-                  ? ' and slot mapping for your skin type.'
-                  : 'вашего типа кожи (например, для 4-го слота — четыре товара в сетке), и привязку типа кожи к слоту.'}
-              </p>
-            )}
-            {recommendedProductPreview?.status === 'fetch_failed' && (
-              <p className="mt-2 text-xs leading-snug text-amber-800/90 sm:text-sm">
-                {isEn ? 'Could not load product card. Refresh page or check catalog access settings.' : 'Не удалось загрузить карточку товара. Обновите страницу или проверьте настройки доступа к каталогу.'}
-              </p>
-            )}
-            <div className="mt-4 grid grid-cols-2 gap-3 sm:gap-4">
-              {[1, 2].map((n) => {
-                const url = n === 1 ? recommendedProductPreview?.thumb1 : recommendedProductPreview?.thumb2;
-                const st = recommendedProductPreview?.status;
-                const emptyLabel =
-                  recommendedProductPreview === null
-                    ? (isEn ? 'Loading...' : 'Загрузка...')
-                    : st === 'no_slot'
-                      ? '—'
-                      : st === 'fetch_failed'
-                        ? '—'
-                        : n === 1
-                          ? (isEn ? 'No image' : 'Нет фото')
-                          : '—';
-                return (
-                  <div key={n} className="flex flex-col items-center">
-                    <div className="relative aspect-[4/3] w-full max-w-[220px] overflow-hidden rounded-xl bg-slate-100 sm:max-w-none">
-                      {url ? (
-                        <img
-                          src={url}
-                          alt={recommendedProductPreview?.name?.trim() || 'Beauty box'}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center px-2 text-center text-xs text-slate-400">
-                          {emptyLabel}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+          {/* 박스 만들러 가기 */}
+          {!(userId && selfieFirstFlow) && !isViewingPastResult && (
+            <div className="mt-3 flex justify-center">
+              <Link
+                to="/shop/build"
+                className="inline-flex min-h-11 w-auto min-w-[180px] items-center justify-center rounded-xl bg-brand px-8 py-3 text-sm font-semibold text-white transition hover:bg-brand/90"
+              >
+                {isEn ? 'Build your box →' : 'Собрать бокс →'}
+              </Link>
             </div>
+          )}
 
-            {recommendedProductPreview && recommendedProductPreview.composition.length > 0 && (
-              <ProductCompositionGrid
-                className="mt-5"
-                components={recommendedProductPreview.composition}
-                tighterMobileComposeTitle
-                parentProductId={recommendedProductPreview.productId}
-              />
-            )}
-          </div>}
-
-
-          {/* CTA 섹션 */}
-          {!(userId && selfieFirstFlow) && !isViewingPastResult && <div className="mt-10 flex flex-col items-center gap-4">
-
-            {/* ── 비로그인: 회원가입 유도 배너 ── */}
-            {!userId && (
+          {/* CTA 섹션 — 비로그인 회원가입 유도 */}
+          {!userId && !(selfieFirstFlow) && !isViewingPastResult && (
+            <div className="mt-10 flex flex-col items-center gap-4">
               <div className="w-full max-w-2xl rounded-2xl border border-brand/20 bg-gradient-to-br from-brand-soft/30 to-orange-50 p-5 text-center">
                 <p className="text-base font-semibold text-slate-800">
                   {isEn
-                    ? '✨ Want a deeper analysis?'
-                    : '✨ Хотите более точный анализ?'}
+                    ? 'Complete your personal box from your skin test'
+                    : 'Завершите свой бокс на основе результата теста'}
                 </p>
                 <p className="mt-2 text-sm leading-relaxed text-slate-600">
                   {isEn
-                    ? 'Sign up and upload your selfie for a richer AI read—photo signals on the chart, personalised product angles, and progress-friendly notes.'
-                    : 'Зарегистрируйтесь и загрузите селфи — расширенный AI-разбор, фото-шкалы на диаграмме, персональные акценты по уходу и заметки для отслеживания динамики.'}
+                    ? 'Sign up — it takes less than 5 seconds. Build your box with picks tailored to your test result in each category.'
+                    : 'Регистрация займёт меньше 5 секунд. Соберите бокс с подбором по результату теста в каждой категории.'}
                 </p>
                 <Link
                   to="/login"
                   className="mt-4 inline-flex items-center justify-center rounded-full bg-brand px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-brand/90"
                 >
-                  {isEn ? 'Sign up free →' : 'Зарегистрироваться бесплатно →'}
+                  {isEn ? 'Sign up →' : 'Зарегистрироваться →'}
                 </Link>
               </div>
-            )}
-
-
-            {/* 상품 보기 / 장바구니 버튼 */}
-            <div className="mx-auto flex w-full max-w-md flex-row items-stretch justify-center gap-2 sm:max-w-lg sm:gap-3">
-              <Link
-                to={getRecommendationPath(result.type)}
-                onClick={() => {
-                  void trackRecommendationEvent({
-                    userId,
-                    eventType: 'recommended_product_clicked',
-                    productId: recommendedProductPreview?.productId ?? null,
-                    metadata: {
-                      source: 'skin_test_result_cta',
-                      skin_type: result.type,
-                      product_name: recommendedProductPreview?.name ?? null,
-                    },
-                  });
-                }}
-                className={`inline-flex min-h-11 items-center justify-center rounded-full border border-brand bg-white px-3 py-2.5 text-center text-xs font-medium text-brand transition hover:bg-brand-soft/25 sm:px-4 sm:text-sm ${
-                  canAddRecommendedToCart ? 'min-w-0 flex-1 basis-0' : 'w-full max-w-[240px]'
-                }`}
-              >
-                {isEn ? 'View products' : 'Смотреть товары'}
-              </Link>
-              {canAddRecommendedToCart && (
-                <button
-                  type="button"
-                  onClick={handleAddRecommendedToCart}
-                  className="inline-flex min-h-11 min-w-0 flex-1 basis-0 items-center justify-center rounded-full border border-transparent bg-brand px-3 py-2.5 text-center text-xs font-medium text-white transition hover:bg-brand/90 sm:px-4 sm:text-sm"
-                >
-                  {isEn ? 'Add to cart' : 'В корзину'}
-                </button>
-              )}
             </div>
-          </div>}
+          )}
 
           {cartToast && (
             <div

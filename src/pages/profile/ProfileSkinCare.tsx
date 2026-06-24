@@ -18,8 +18,6 @@ type SkinCareResultRow = {
   baumann_scores: unknown;
   selfie_analysis: unknown;
   concern_text?: string | null;
-  recent_irritation?: string | null;
-  fragrance_sensitivity?: string | null;
 };
 
 type RiskCard = {
@@ -85,8 +83,9 @@ function buildRiskCards(
 ): RiskCard[] {
   const sensitivityScore = Math.max(scores[2], 0);
   const redness = Number(selfie?.redness_index ?? 0);
-  const irritationFlag = latest.recent_irritation === 'irritation_often' || latest.recent_irritation === 'irritation_sometimes';
-  const fragranceFlag = latest.fragrance_sensitivity === 'fragrance_avoid' || latest.fragrance_sensitivity === 'fragrance_sometimes';
+  // S/R 축 점수에서 직접 도출 (Q6 화장품 따끔, Q7 향료 반응이 S/R에 포함됨)
+  const irritationFlag = scores[2] >= 4;
+  const fragranceFlag = scores[2] >= 2;
   const sensitivityValue = Math.max(sensitivityScore * 10 + redness * 0.5 + (irritationFlag ? 18 : 0) + (fragranceFlag ? 12 : 0), 0);
 
   const pigmentScore = Math.max(scores[3], 0);
@@ -169,7 +168,7 @@ export const ProfileSkinCare: React.FC = () => {
       try {
         const full = await client
           .from('skin_test_results')
-          .select('id, skin_type, completed_at, baumann_scores, selfie_analysis, concern_text, recent_irritation, fragrance_sensitivity')
+          .select('id, skin_type, completed_at, baumann_scores, selfie_analysis, concern_text')
           .eq('user_id', userId);
 
         if (!full.error) {

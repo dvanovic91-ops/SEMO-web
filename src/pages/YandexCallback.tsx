@@ -95,7 +95,7 @@ export const YandexCallback: React.FC = () => {
         setLanguage('ru');
         setCurrency('RUB');
 
-        navigate(result.is_new ? '/register/shipping' : '/', { replace: true });
+        navigate(result.is_new ? '/profile/edit' : '/', { replace: true });
       } catch (err) {
         setError((err as Error).message);
       } finally {

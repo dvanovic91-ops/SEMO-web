@@ -50,6 +50,24 @@ const labelClass = 'mb-1 block text-[length:calc(0.875rem-1pt)] font-medium text
 
 const SIGNUP_EMAIL_RESEND_COOLDOWN_SEC = 60;
 
+const SHIPPING_FORM_KEYS = [
+  'fioLast',
+  'fioFirst',
+  'fioMiddle',
+  'cityRegion',
+  'streetHouse',
+  'apartmentOffice',
+  'postcode',
+  'phone',
+  'inn',
+  'passportSeries',
+  'passportNumber',
+] as const;
+
+function pickShippingSnapshot(form: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(SHIPPING_FORM_KEYS.map((k) => [k, form[k] ?? '']));
+}
+
 function normalizeLatin(value: string): string {
   return (value ?? '').replace(/[^A-Za-z\s-']/g, '');
 }
@@ -119,11 +137,14 @@ export const ProfileEdit: React.FC = () => {
 
   const { userEmail, userId, isLoggedIn, initialized, isEmailConfirmed, refreshEmailConfirmationFromServer } = useAuth();
 
-  const [editing, setEditing] = useState(false);
-  /** «Изменить номер» только после нажатия «Редактировать» внизу (не только focus=phone) */
-  const [editStartedFromFooter, setEditStartedFromFooter] = useState(false);
+  const [shippingEditing, setShippingEditing] = useState(false);
+  /** «Изменить номер» только после нажатия «Редактировать» в блоке доставки */
+  const [shippingEditStarted, setShippingEditStarted] = useState(false);
+  const [nameEditing, setNameEditing] = useState(false);
+  const [initialName, setInitialName] = useState<string | null>(null);
+  const [nameSaveLoading, setNameSaveLoading] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
-  const [initialForm, setInitialForm] = useState<Record<string, string> | null>(null);
+  const [initialShippingForm, setInitialShippingForm] = useState<Record<string, string> | null>(null);
   const [telegramLinked, setTelegramLinked] = useState(false);
   /** true: пользователь нажал «Изменить номер» — поле открыто, но в БД telegram_id ещё не трогаем, пока не «Сохранить» */
   const [phoneUnlinkRequested, setPhoneUnlinkRequested] = useState(false);
@@ -399,12 +420,12 @@ export const ProfileEdit: React.FC = () => {
     return () => window.removeEventListener('online', onOnline);
   }, [supabase, userId, loadProfileFromDb]);
 
-  /** ?focus=phone: после «Редактировать» фокус на поле телефона */
+  /** ?focus=phone: после «Редактировать» в доставке — фокус на поле телефона */
   useEffect(() => {
-    if (!focusPhone || !editing || !(form?.email)) return;
+    if (!focusPhone || !shippingEditing || !(form?.email)) return;
     const t = setTimeout(() => phoneInputRef.current?.focus(), 150);
     return () => clearTimeout(t);
-  }, [focusPhone, form?.email, editing]);
+  }, [focusPhone, form?.email, shippingEditing]);
 
   // ——— [로딩 상태 처리] 최상단: 데이터 없으면 에러 안 뱉고 로딩만 ———
   if (!initialized || (!sessionChecked && !redirectToLogin)) {
@@ -414,7 +435,12 @@ export const ProfileEdit: React.FC = () => {
     return <Navigate to="/login" replace />;
   }
 
-  const isDirty = editing && initialForm !== null && JSON.stringify(form) !== JSON.stringify(initialForm);
+  const shippingDirty =
+    shippingEditing &&
+    initialShippingForm !== null &&
+    (JSON.stringify(pickShippingSnapshot(form)) !== JSON.stringify(initialShippingForm) || phoneUnlinkRequested);
+
+  const nameDirty = nameEditing && initialName !== null && (form?.name ?? '') !== initialName;
 
   const handleChange = (key: string, value: string) => {
     setSaveError(null);
@@ -432,7 +458,31 @@ export const ProfileEdit: React.FC = () => {
     handleChange('phone', formatIntlPhoneByCountry(e.target.value ?? '', phoneCountry));
   };
 
-  const handleSave = async () => {
+  const handleSaveName = async () => {
+    if (!supabase || !userId) return;
+    setSaveError(null);
+    setNameSaveLoading(true);
+    try {
+      const nextName = (form?.name ?? '').trim() || null;
+      const { error: profErr } = await supabase.from('profiles').update({ name: nextName }).eq('id', userId);
+      if (profErr) throw new Error(profErr.message);
+      setNameEditing(false);
+      setInitialName(null);
+      setSaveSuccessToast(true);
+      window.setTimeout(() => setSaveSuccessToast(false), 3500);
+      void loadProfileFromDb();
+    } catch (e) {
+      setSaveError(
+        e instanceof Error
+          ? e.message
+          : tr('Не удалось сохранить имя. Проверьте подключение.', 'Could not save name. Check your connection.'),
+      );
+    } finally {
+      setNameSaveLoading(false);
+    }
+  };
+
+  const handleSaveShipping = async () => {
     if (!supabase || !userId) return;
     setSaveError(null);
     const shippingForm: ShippingFormCamel = {
@@ -449,7 +499,6 @@ export const ProfileEdit: React.FC = () => {
       passportNumber: form?.passportNumber ?? '',
     };
     const profilesPatch = {
-      name: (form?.name ?? '').trim() || null,
       phone: (form?.phone ?? '').trim() || null,
       ...(phoneUnlinkRequested ? { telegram_id: null as null, phone_verified: false } : {}),
     };
@@ -472,9 +521,9 @@ export const ProfileEdit: React.FC = () => {
       clearPendingShippingBackup(userId);
       setSyncNotice(null);
       setPhoneUnlinkRequested(false);
-      setEditStartedFromFooter(false);
-      setEditing(false);
-      setInitialForm(null);
+      setShippingEditStarted(false);
+      setShippingEditing(false);
+      setInitialShippingForm(null);
       setSaveSuccessToast(true);
       window.setTimeout(() => setSaveSuccessToast(false), 3500);
       void loadProfileFromDb();
@@ -534,10 +583,10 @@ export const ProfileEdit: React.FC = () => {
   };
 
   const showChangePhoneControl =
-    editing && editStartedFromFooter && telegramLinked && !phoneUnlinkRequested;
+    shippingEditing && shippingEditStarted && telegramLinked && !phoneUnlinkRequested;
 
   const phoneLockedByTelegram = telegramLinked && !phoneUnlinkRequested;
-  const phoneFieldClass = !editing
+  const phoneFieldClass = !shippingEditing
     ? telegramLinked
       ? contactInputLocked
       : contactInputEmailPending
@@ -546,7 +595,7 @@ export const ProfileEdit: React.FC = () => {
       : contactInputEditable;
 
   const inputProps = (key: string) =>
-    editing
+    shippingEditing
       ? { value: form?.[key] ?? '', onChange: (e: React.ChangeEvent<HTMLInputElement>) => handleChange(key, e.target.value ?? '') }
       : { value: form?.[key] ?? '', readOnly: true, className: `${inputClass} cursor-default bg-slate-50` };
 
@@ -571,13 +620,42 @@ export const ProfileEdit: React.FC = () => {
             <div className="space-y-4">
               <div>
                 <label htmlFor="pe-name" className={labelClass}>{tr('Имя', 'Name')}</label>
-                <input
-                  id="pe-name"
-                  type="text"
-                  placeholder={tr('Имя для обращения', 'Name for greeting')}
-                  className={inputClass}
-                  {...inputProps('name')}
-                />
+                <div className={`flex min-w-0 gap-2 ${nameEditing ? 'flex-row items-stretch' : ''}`}>
+                  <input
+                    id="pe-name"
+                    type="text"
+                    placeholder={tr('Имя для обращения', 'Name for greeting')}
+                    readOnly={!nameEditing}
+                    className={
+                      nameEditing
+                        ? `${inputClass} min-w-0 flex-1`
+                        : `${inputClass} cursor-pointer bg-slate-50`
+                    }
+                    value={form?.name ?? ''}
+                    onChange={nameEditing ? (e) => handleChange('name', e.target.value ?? '') : undefined}
+                    onClick={() => {
+                      if (nameEditing) return;
+                      setSaveError(null);
+                      setInitialName(form?.name ?? '');
+                      setNameEditing(true);
+                    }}
+                  />
+                  {nameEditing && (
+                    <button
+                      type="button"
+                      onClick={() => void handleSaveName()}
+                      disabled={nameSaveLoading || !nameDirty}
+                      className={`${accountPrimaryCtaClass} shrink-0 px-4 sm:px-5`}
+                    >
+                      {nameSaveLoading ? tr('Сохранение…', 'Saving…') : tr('Сохранить', 'Save')}
+                    </button>
+                  )}
+                </div>
+                {saveError && nameEditing && (
+                  <p className="mt-1 text-[length:calc(0.875rem-1pt)] text-red-600" role="alert">
+                    {saveError}
+                  </p>
+                )}
               </div>
 
               <div className="mt-6 border-t border-slate-100 pt-4">
@@ -699,10 +777,10 @@ export const ProfileEdit: React.FC = () => {
                         id="pe-fio-last"
                         type="text"
                         placeholder="Ivanov"
-                        className={`${inputClass} uppercase${!editing ? ' cursor-default bg-slate-50' : ''}`}
+                        className={`${inputClass} uppercase${!shippingEditing ? ' cursor-default bg-slate-50' : ''}`}
                         value={form?.fioLast ?? ''}
-                        readOnly={!editing}
-                        onChange={editing ? (e) => handleChange('fioLast', e.target.value) : undefined}
+                        readOnly={!shippingEditing}
+                        onChange={shippingEditing ? (e) => handleChange('fioLast', e.target.value) : undefined}
                       />
                     </div>
                     <div className={fioCellClass}>
@@ -713,10 +791,10 @@ export const ProfileEdit: React.FC = () => {
                         id="pe-fio-first"
                         type="text"
                         placeholder="Ivan"
-                        className={`${inputClass} uppercase${!editing ? ' cursor-default bg-slate-50' : ''}`}
+                        className={`${inputClass} uppercase${!shippingEditing ? ' cursor-default bg-slate-50' : ''}`}
                         value={form?.fioFirst ?? ''}
-                        readOnly={!editing}
-                        onChange={editing ? (e) => handleChange('fioFirst', e.target.value) : undefined}
+                        readOnly={!shippingEditing}
+                        onChange={shippingEditing ? (e) => handleChange('fioFirst', e.target.value) : undefined}
                       />
                     </div>
                     <div className={fioCellClass}>
@@ -727,11 +805,11 @@ export const ProfileEdit: React.FC = () => {
                         id="pe-fio-middle"
                         type="text"
                         placeholder="Ivanovich"
-                        className={`${inputClass} uppercase disabled:bg-slate-50 disabled:text-slate-400${!editing ? ' cursor-default bg-slate-50' : ''}`}
+                        className={`${inputClass} uppercase disabled:bg-slate-50 disabled:text-slate-400${!shippingEditing ? ' cursor-default bg-slate-50' : ''}`}
                         value={form?.fioMiddle ?? ''}
-                        readOnly={!editing}
-                        disabled={editing && noPatronymic}
-                        onChange={editing ? (e) => handleChange('fioMiddle', e.target.value) : undefined}
+                        readOnly={!shippingEditing}
+                        disabled={shippingEditing && noPatronymic}
+                        onChange={shippingEditing ? (e) => handleChange('fioMiddle', e.target.value) : undefined}
                       />
                     </div>
                   </div>
@@ -743,11 +821,16 @@ export const ProfileEdit: React.FC = () => {
                       <input
                         type="checkbox"
                         checked={noPatronymic}
-                        onChange={(e) => {
-                          const v = e.target.checked;
-                          setNoPatronymic(v);
-                          if (v) handleChange('fioMiddle', '');
-                        }}
+                        disabled={!shippingEditing}
+                        onChange={
+                          shippingEditing
+                            ? (e) => {
+                                const v = e.target.checked;
+                                setNoPatronymic(v);
+                                if (v) handleChange('fioMiddle', '');
+                              }
+                            : undefined
+                        }
                         className="h-3 w-3 rounded border-slate-300 text-brand focus:ring-brand"
                       />
                       <span className="whitespace-nowrap">{tr('Нет отчества', 'No middle name')}</span>
@@ -831,8 +914,8 @@ export const ProfileEdit: React.FC = () => {
                         title={tr('+200 баллов за подтверждение в Telegram', '+200 points for Telegram verification')}
                         className={`${phoneFieldClass} !w-auto min-h-11 max-w-full min-w-[10rem] flex-1 basis-0`}
                         value={form?.phone ?? ''}
-                        onChange={editing && (!telegramLinked || phoneUnlinkRequested) ? handlePhoneChange : undefined}
-                        readOnly={!editing || phoneLockedByTelegram}
+                        onChange={shippingEditing && (!telegramLinked || phoneUnlinkRequested) ? handlePhoneChange : undefined}
+                        readOnly={!shippingEditing || phoneLockedByTelegram}
                         maxLength={16}
                       />
                       {!telegramLinked && (
@@ -868,7 +951,7 @@ export const ProfileEdit: React.FC = () => {
                       </button>
                     </div>
                   )}
-                  {editing && phoneUnlinkRequested && (
+                  {shippingEditing && phoneUnlinkRequested && (
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <button
                         type="button"
@@ -898,6 +981,7 @@ export const ProfileEdit: React.FC = () => {
                     id="profile-country"
                     value={country}
                     onChange={(code) => {
+                      if (!shippingEditing) return;
                       setCountry(code as any);
                       // 국가 변경 시 대표 화폐 자동 전환
                       const currencyMap: Record<string, 'RUB' | 'KZT' | 'UZS' | 'USD'> = {
@@ -928,14 +1012,21 @@ export const ProfileEdit: React.FC = () => {
                     </span>
                   }
                   placeholder={addressUi.placeholder}
+                  readOnly={!shippingEditing}
                   value={addressSearch}
-                  onChange={setAddressSearch}
-                  onPartsChange={({ cityRegion, streetHouse, apartmentOffice, postcode }) => {
-                    if (cityRegion !== undefined) handleChange('cityRegion', cityRegion);
-                    if (streetHouse !== undefined) handleChange('streetHouse', streetHouse);
-                    if (apartmentOffice !== undefined) handleChange('apartmentOffice', apartmentOffice);
-                    if (postcode !== undefined) handleChange('postcode', postcode);
+                  onChange={(v) => {
+                    if (shippingEditing) setAddressSearch(v);
                   }}
+                  onPartsChange={
+                    shippingEditing
+                      ? ({ cityRegion, streetHouse, apartmentOffice, postcode }) => {
+                          if (cityRegion !== undefined) handleChange('cityRegion', cityRegion);
+                          if (streetHouse !== undefined) handleChange('streetHouse', streetHouse);
+                          if (apartmentOffice !== undefined) handleChange('apartmentOffice', apartmentOffice);
+                          if (postcode !== undefined) handleChange('postcode', postcode);
+                        }
+                      : undefined
+                  }
                 />
 
                 <div className={fieldColClass}>
@@ -1019,43 +1110,40 @@ export const ProfileEdit: React.FC = () => {
                     />
                   </div>
                 </div>
+                <div className="space-y-3 pt-1">
+                  {saveError && shippingEditing && (
+                    <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-[length:calc(0.875rem-1pt)] text-red-800" role="alert">
+                      {saveError}
+                    </p>
+                  )}
+                  {!shippingEditing ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSaveError(null);
+                        setInitialShippingForm(pickShippingSnapshot(form));
+                        setShippingEditing(true);
+                        setShippingEditStarted(true);
+                      }}
+                      className={`${accountResendOutlineCtaClass} rounded-full py-3 text-[length:calc(0.9375rem-1pt)]`}
+                    >
+                      {tr('Редактировать', 'Edit')}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void handleSaveShipping()}
+                      disabled={saveLoading || !shippingDirty}
+                      className="w-full rounded-full bg-brand py-3 text-[length:calc(0.9375rem-1pt)] font-semibold text-white transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {saveLoading ? tr('Сохранение…', 'Saving…') : tr('Сохранить', 'Save')}
+                    </button>
+                  )}
+                </div>
                 <CustomsPassportNotice />
               </div>
             </div>
           </section>
-
-          {!editing ? (
-            <button
-              type="button"
-              onClick={() => {
-                setSaveError(null);
-                setInitialForm(form);
-                setEditing(true);
-                setEditStartedFromFooter(true);
-              }}
-              className="w-full rounded-full border border-slate-200 py-3.5 text-[length:calc(1rem-1pt)] font-medium text-slate-700 transition hover:border-brand hover:bg-brand-soft/10"
-            >
-              {tr('Редактировать', 'Edit')}
-            </button>
-          ) : (
-            isDirty && (
-              <div className="space-y-3">
-                {saveError && (
-                  <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-[length:calc(0.875rem-1pt)] text-red-800" role="alert">
-                    {saveError}
-                  </p>
-                )}
-                <button
-                  type="button"
-                  onClick={() => void handleSave()}
-                  disabled={saveLoading}
-                  className="w-full rounded-full bg-brand py-3.5 text-[length:calc(1rem-1pt)] font-semibold text-white transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-70"
-                >
-                  {saveLoading ? tr('Сохранение…', 'Saving…') : tr('Сохранить', 'Save')}
-                </button>
-              </div>
-            )
-          )}
         </form>
 
         {telegramLinkedToast && (

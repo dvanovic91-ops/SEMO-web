@@ -5,9 +5,11 @@ type Props = {
   name: string;
   /** 모바일 1열: 이미지 영역을 넓고 선명하게 */
   layout?: 'mobile' | 'desktop';
+  /** 박스 빌더 등 카드 내부 — h-44 고정, contain (잘림 없음) */
+  embedded?: boolean;
 };
 
-export const ShopCardImage: React.FC<Props> = ({ images, name, layout = 'desktop' }) => {
+export const ShopCardImage: React.FC<Props> = ({ images, name, layout = 'desktop', embedded = false }) => {
   const [index, setIndex] = useState(0);
   const touchStartX = useRef(0);
   /** 항상 최신 images 참조 — 데이터 로드 후 마우스가 이미 카드 위에 있어도 호버 시 전환되도록 */
@@ -57,31 +59,67 @@ export const ShopCardImage: React.FC<Props> = ({ images, name, layout = 'desktop
     });
   };
 
-  /** 동일 shell + aspect → 빈 슬롯·사진 슬롯 박스 크기 일치. 사진은 absolute로 꽉 채움( flex center 로 인한 축소 방지) */
-  const shellClass =
+  const wrapClass =
     layout === 'mobile'
-      ? 'relative mt-2 aspect-[4/3] w-full min-w-0 shrink-0 overflow-hidden rounded-xl border border-slate-200/80 bg-slate-50/90 sm:aspect-square'
-      : 'relative mt-2 aspect-square w-full min-w-0 shrink-0 overflow-hidden rounded-lg border border-slate-200/80 bg-slate-50/90';
+      ? 'relative mt-2 w-full min-w-0 shrink-0 overflow-hidden rounded-xl border border-slate-200/80 bg-white'
+      : 'relative mt-2 w-full min-w-0 shrink-0 overflow-hidden rounded-lg border border-slate-200/80 bg-white';
+
+  /* padding-top 트릭 — aspect-ratio CSS 대신 사용해서 확실히 2:3 비율 강제 */
+  const padStyle: React.CSSProperties = { paddingTop: '133.33%' }; /* 3:4 portrait */
+
+  if (embedded) {
+    return (
+      <div
+        className="relative h-44 w-full shrink-0 overflow-hidden bg-white"
+        onMouseEnter={startHover}
+        onMouseLeave={endHover}
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
+      >
+        {!images.length ? (
+          <div className="flex h-full w-full items-center justify-center">
+            <span className="prose-ru line-clamp-3 px-2 text-center text-sm font-medium text-slate-400">
+              {name}
+            </span>
+          </div>
+        ) : (
+          <img
+            src={images[index]}
+            alt={name}
+            className="h-full w-full object-contain object-center"
+            draggable={false}
+          />
+        )}
+      </div>
+    );
+  }
 
   if (!images.length) {
     return (
-      <div className={`${shellClass} flex items-center justify-center`}>
-        <span className="prose-ru line-clamp-3 px-2 text-center text-sm font-medium text-slate-400 sm:text-base">
-          {name}
-        </span>
+      <div className={wrapClass} style={padStyle}>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="prose-ru line-clamp-3 px-2 text-center text-sm font-medium text-slate-400 sm:text-base">
+            {name}
+          </span>
+        </div>
       </div>
     );
   }
 
   return (
     <div
-      className={shellClass}
+      className={wrapClass}
+      style={padStyle}
       onMouseEnter={startHover}
       onMouseLeave={endHover}
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
     >
-      <img src={images[index]} alt={name} className="absolute inset-0 h-full w-full object-cover object-center" />
+      <img
+        src={images[index]}
+        alt={name}
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', padding: '12px' }}
+      />
       {/* 모바일: 좌우 스와이프 가능 — 하단 점 표시 */}
       {hasMultiple && layout === 'mobile' && (
         <div className="pointer-events-none absolute bottom-2 left-0 right-0 flex justify-center gap-1.5" aria-hidden>
