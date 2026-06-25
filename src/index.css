@@ -8,6 +8,17 @@
   *:focus-visible {
     outline: none !important;
   }
+
+  /* 이미지·영상: 드래그 저장·iOS 롱프레스 메뉴 완화 (JS 가드와 함께) */
+  img,
+  picture,
+  video,
+  canvas {
+    -webkit-user-drag: none;
+    user-drag: none;
+    -webkit-touch-callout: none;
+    user-select: none;
+  }
 }
 
 /**

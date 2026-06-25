@@ -798,7 +798,7 @@ export const Navbar: React.FC = () => {
           id="semo-box-subnav"
           ref={semoBoxSubbarRef}
           className="fixed left-0 right-0 z-[39] hidden -mt-px border-b border-slate-200/60 bg-white/75 backdrop-blur-md md:block"
-          style={{ top: 'var(--semo-desktop-header-h, 3.2rem)' }}
+          style={{ top: 'calc(var(--semo-desktop-header-h, 3.2rem) + var(--semo-shipping-banner-h, 3rem))' }}
           onMouseEnter={semoBoxEnter}
           onMouseLeave={semoBoxLeave}
         >

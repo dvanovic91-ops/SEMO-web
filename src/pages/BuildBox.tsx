@@ -22,6 +22,7 @@ import {
 } from '../lib/buildBoxNavigation';
 import { sanitizeBoxBuilderTagForDisplay } from '../lib/boxBuilderTagDisplay';
 import { BoxBuilderTagBadges } from '../components/BoxBuilderTagBadges';
+import { SkuMarketingBadge } from '../components/SkuMarketingBadge';
 import { BoxReviewShowcase } from '../components/BoxReviewShowcase';
 import { ShopCardImage } from './ShopCardImage';
 import { userBlockedByPiAvoid } from '../lib/piProfile';
@@ -565,14 +566,7 @@ export const BuildBox: React.FC = () => {
             name={productName}
           />
           {mBadge && (
-            <span className={`absolute left-2 top-2 rounded-md bg-white/90 px-1.5 py-0.5 text-[9px] font-semibold backdrop-blur-sm ${
-              mBadge === 'retail_top' ? 'text-green-600' : 'text-slate-700'
-            }`}>
-              {mBadge === 'retail_top'
-                ? (isEn ? 'K-retail #1' : 'К-ретейл №1')
-                : (isEn ? '1M YouTuber pick' : 'Выбор 1М ютубера')
-              }
-            </span>
+            <SkuMarketingBadge badge={mBadge} isEn={isEn} variant="overlay" />
           )}
         </div>
         <div className="flex min-w-0 flex-col p-3 text-center">

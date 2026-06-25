@@ -34,7 +34,7 @@ export function formatSkinApiNetworkError(err: unknown, baseUrl: string): string
 
   if (isNetworkFail) {
     const hint = import.meta.env.DEV
-      ? '로컬에서는 Flask(main.py)를 http://127.0.0.1:5001 에서 실행하고, `npm run dev`로 Vite가 `/skin-api`를 해당 포트로 프록시하는지 확인하세요.'
+      ? 'Vite dev 프록시(`/skin-api`)가 Oracle 서버(139.185.33.168:5001)에 연결되지 못했습니다. Oracle 서버 상태를 확인하거나 `npm run dev`를 재시작하세요.'
       : '`.env`의 `VITE_SKIN_API_URL` 또는 웹 서버의 `/skin-api` 역프록시가 올바른지 확인하세요.';
     return `피부 API에 연결할 수 없습니다. ${hint} (요청 베이스: ${baseUrl})`;
   }

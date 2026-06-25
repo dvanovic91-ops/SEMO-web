@@ -6,6 +6,7 @@
 
 const ALLOWED_ORIGINS = new Set([
   'https://semo-box.com',
+  'https://www.semo-box.com',
   'http://localhost:5173',
   'http://localhost:3001',
 ]);

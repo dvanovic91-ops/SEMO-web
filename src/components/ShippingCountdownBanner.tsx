@@ -107,20 +107,28 @@ export const ShippingCountdownBanner: React.FC = () => {
   }
 
   return (
-    <div className={`${bannerBase} gap-3 border-b border-slate-100 bg-white`}>
-      <div style={{ width: 30, height: 30, borderRadius: '50%', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-        <TruckIcon color="#94a3b8" />
+    <div className={`${bannerBase} gap-3 border-b border-[#B8DDD3] bg-[#EBF6F2]`}>
+      <div style={{ width: 30, height: 30, borderRadius: '50%', background: '#C8EDE5', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <TruckIcon color="#1B6B55" />
       </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{ margin: 0, fontSize: 11, color: '#94a3b8', fontWeight: 500 }}>
-          {isEn ? 'Next shipment deadline' : 'Следующая отправка'}
+      {/* 모바일: 두 줄 */}
+      <div style={{ flex: 1, minWidth: 0 }} className="md:hidden">
+        <p style={{ margin: 0, fontSize: 11, color: '#2D7A65', fontWeight: 500 }}>
+          {isEn ? "Order by this date to join this month's box" : 'Успейте заказать — войдите в этот бокс'}
         </p>
-        <p style={{ margin: 0, fontSize: 15, fontWeight: 500, color: '#0f172a', marginTop: 1 }}>
-          {dateStr}
+        <p style={{ margin: 0, fontSize: 15, fontWeight: 600, color: '#1B4F3E', marginTop: 1 }}>
+          {isEn ? `Deadline: ${dateStr}` : `До ${dateStr}`}
         </p>
       </div>
-      <span style={{ background: '#f1f5f9', color: '#64748b', fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 99, flexShrink: 0 }}>
-        {isEn ? `in ${days}d` : `через ${days} д.`}
+      {/* 데스크톱: 오른쪽 끝 → 왼쪽 끝 ticker */}
+      <style>{`@keyframes semo-ticker{from{transform:translateX(100vw)}to{transform:translateX(calc(-100% - 1rem))}}`}</style>
+      <div className="hidden md:flex" style={{ flex: 1, overflow: 'hidden', alignItems: 'center' }}>
+        <span style={{ display: 'inline-block', whiteSpace: 'nowrap', fontSize: 14, fontWeight: 500, color: '#1B4F3E', letterSpacing: '0.07em', willChange: 'transform', animation: 'semo-ticker 22s linear infinite' }}>
+          {isEn ? `Order by ${dateStr} to join this month's box` : `Успейте до ${dateStr} — войдите в этот бокс`}
+        </span>
+      </div>
+      <span style={{ background: '#1B6B55', color: '#fff', fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 99, flexShrink: 0 }}>
+        {isEn ? `${days} days left` : `осталось ${days} дней`}
       </span>
     </div>
   );

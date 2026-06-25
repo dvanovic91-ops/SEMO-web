@@ -532,8 +532,7 @@ export const BoxComponentDetail: React.FC = () => {
                 {textureDisplay ? (
                   <section className="rounded-xl bg-slate-50/90 px-4 py-4 ring-1 ring-slate-100">
                     <h3 className={SECTION_KICKER}>{tr('Texture & Feel', 'Текстура')}</h3>
-                    <p className="mt-2 flex items-center gap-2 text-sm font-medium text-slate-700">
-                      <span className="text-base" aria-hidden>🤲</span>
+                    <p className="mt-2 text-sm font-medium text-slate-700">
                       {textureDisplay}
                     </p>
                   </section>

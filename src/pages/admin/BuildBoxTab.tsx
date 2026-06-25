@@ -13,6 +13,7 @@ import {
 import { formatSkinApiNetworkError, getSkinApiBaseUrl, skinApiHeaders } from '../../lib/skinApiBaseUrl';
 import { SkuBulkImport } from './SkuBulkImport';
 import { SkuAddModal } from './SkuAddModal';
+import { SkuMarketingBadge } from '../../components/SkuMarketingBadge';
 import { SkuImageUploadField } from '../../components/SkuImageUploadField';
 
 type IngredientJson = {
@@ -204,6 +205,8 @@ function SkuQuickEditModal({
   const [saving, setSaving] = React.useState(false);
   const [computing, setComputing] = React.useState(false);
   const [computeMsg, setComputeMsg] = React.useState('');
+  const [refetching, setRefetching] = React.useState(false);
+  const [refetchMsg, setRefetchMsg] = React.useState('');
   const [err, setErr] = React.useState('');
   const skinApiUrl = getSkinApiBaseUrl();
 
@@ -311,6 +314,53 @@ function SkuQuickEditModal({
     }
   };
 
+  const handleSingleRefetch = async () => {
+    setRefetching(true);
+    setRefetchMsg('');
+    const productType = sku.box_builder_slot ? ({ cleanser:'클렌저', toner:'토너', serum:'세럼', ampoule:'앰플', cream:'크림', sunscreen:'선크림', premium:'기타' }[sku.box_builder_slot] ?? null) : null;
+    const hasIngredients = Array.isArray(sku.ingredients_json) && sku.ingredients_json.length > 0;
+    const endpoint = hasIngredients ? '/parse-ingredients-text' : '/fetch-ingredients';
+    const body = hasIngredients
+      ? { sku_id: sku.id, raw_text: sku.ingredients_json!.sort((a, b) => (a.position ?? 0) - (b.position ?? 0)).map((i) => i.name).join(', '), product_name: sku.name_en?.trim() || sku.name, brand: sku.brand ?? '', name_en: sku.name_en ?? '', product_type: productType }
+      : { sku_id: sku.id, product_name: sku.name_en?.trim() || sku.name, brand: sku.brand ?? '', name_en: sku.name_en ?? '', product_type: productType };
+    try {
+      const res = await fetch(`${skinApiUrl}${endpoint}`, {
+        method: 'POST',
+        headers: skinApiHeaders,
+        body: JSON.stringify(body),
+      });
+      const json = (await res.json()) as { success?: boolean; error?: string; ingredients?: unknown[] };
+      if (!res.ok || !json.success) {
+        setRefetchMsg(`❌ ${json.error ?? `HTTP ${res.status}`}`);
+        return;
+      }
+      // 성분 저장 완료 → 바우만 타입 재계산
+      setRefetchMsg('성분 저장됨. 바우만 타입 재계산 중…');
+      try {
+        const bauRes = await fetch(`${skinApiUrl}/recompute-baumann`, {
+          method: 'POST',
+          headers: skinApiHeaders,
+          body: JSON.stringify({ sku_id: sku.id }),
+        });
+        const bauJson = (await bauRes.json()) as { success?: boolean; baumann_types?: string[]; error?: string };
+        if (bauRes.ok && bauJson.success && bauJson.baumann_types?.length) {
+          const codes = bauJson.baumann_types;
+          setDraft((p) => ({ ...p, baumann_types_text: formatBaumannTypes(codes) }));
+          onSaved({ baumann_types: codes });
+          setRefetchMsg(`✅ 완료 — 바우만: ${codes.join(', ')}`);
+        } else {
+          setRefetchMsg(`✅ 성분 저장됨. 바우만 계산 불가 (성분·파이 데이터 부족). 파이 입력 후 직접 계산하세요.`);
+        }
+      } catch {
+        setRefetchMsg('✅ 성분 저장됨. 바우만 재계산 실패 — 직접 계산 버튼을 눌러주세요.');
+      }
+    } catch (e) {
+      setRefetchMsg(`❌ ${formatSkinApiNetworkError(e, skinApiUrl)}`);
+    } finally {
+      setRefetching(false);
+    }
+  };
+
   const handleRecomputeBaumann = async () => {
     if (!supabase) return;
     setComputing(true);
@@ -409,6 +459,12 @@ function SkuQuickEditModal({
                 <span className={`text-xs ${val === 'retail_top' ? 'text-green-600 font-medium' : 'text-slate-700'}`}>{label}</span>
               </label>
             ))}
+            {draft.marketing_badge && (
+              <div className="mt-2 flex items-center gap-2 border-t border-slate-100 pt-2">
+                <span className="text-[10px] text-slate-400">미리보기</span>
+                <SkuMarketingBadge badge={draft.marketing_badge} variant="inline" />
+              </div>
+            )}
           </div>
 
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2">
@@ -512,6 +568,24 @@ function SkuQuickEditModal({
               ) : null}
             </div>
           )}
+
+          <div className="rounded-lg border border-slate-200 p-3 space-y-1.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">성분 재수집 (이 SKU만)</p>
+            <p className="text-[10px] text-slate-400">
+              {Array.isArray(sku.ingredients_json) && sku.ingredients_json.length > 0
+                ? '기존 성분 데이터로 Gemini 태그·바우만 재분석'
+                : '성분 미수집 → Gemini로 성분 검색 후 분석'}
+            </p>
+            <button
+              type="button"
+              onClick={() => void handleSingleRefetch()}
+              disabled={refetching || saving}
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              {refetching ? '수집 중…' : '🔄 이 SKU 재수집'}
+            </button>
+            {refetchMsg && <p className="text-[10px] text-slate-600">{refetchMsg}</p>}
+          </div>
 
           <div className="flex items-center gap-2">
             <input
