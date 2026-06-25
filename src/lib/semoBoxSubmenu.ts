@@ -10,7 +10,7 @@ export type SemoBoxSubmenuItem = {
 
 export const SEMO_BOX_SUBMENU: SemoBoxSubmenuItem[] = [
   /** 햄버거·데스크톱: label 유지 / 모바일 상단 고정줄만 */
-  { to: '/skin-test', label: 'Find my Beauty box', shortLabel: 'Skin test' },
+  { to: '/skin-test', label: 'Take skin test', shortLabel: 'Skin test' },
   { to: '/shop', label: 'Beauty box' },
   { to: '/inner-beauty', label: 'Fit box' },
   { to: '/hair-beauty', label: 'Hair box' },

@@ -576,24 +576,29 @@ type RecommendationAnalyticsRow = {
 function SiteSettingsTab() {
   const [giftPrice, setGiftPrice] = useState('');
   const [buildBoxPrice, setBuildBoxPrice] = useState('');
+  const [shippingDays, setShippingDays] = useState('15, 30');
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
   const [savingBuildBox, setSavingBuildBox] = useState(false);
+  const [savingShipping, setSavingShipping] = useState(false);
   const [settingsMsg, setSettingsMsg] = useState<string | null>(null);
   const [buildBoxMsg, setBuildBoxMsg] = useState<string | null>(null);
+  const [shippingMsg, setShippingMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (!supabase) { setLoadingSettings(false); return; }
     supabase
       .from('site_settings')
       .select('key, value')
-      .in('key', ['gift_voucher_price_rub', 'build_box_price_rub'])
+      .in('key', ['gift_voucher_price_rub', 'build_box_price_rub', 'shipping_deadline_days'])
       .then(({ data }) => {
         const rows = (data ?? []) as { key: string; value: string }[];
         const gift = rows.find((r) => r.key === 'gift_voucher_price_rub')?.value ?? '10000';
         const build = rows.find((r) => r.key === 'build_box_price_rub')?.value ?? '10990';
+        const shipping = rows.find((r) => r.key === 'shipping_deadline_days')?.value ?? '15, 30';
         setGiftPrice(gift);
         setBuildBoxPrice(build);
+        setShippingDays(shipping);
       })
       .catch(() => { setGiftPrice('10000'); setBuildBoxPrice('10990'); })
       .finally(() => setLoadingSettings(false));
@@ -640,6 +645,32 @@ function SiteSettingsTab() {
       setBuildBoxMsg('❌ 저장 실패: ' + (e instanceof Error ? e.message : String(e)));
     } finally {
       setSavingBuildBox(false);
+    }
+  };
+
+  const handleSaveShipping = async () => {
+    if (!supabase) return;
+    const days = shippingDays
+      .split(',')
+      .map((s) => parseInt(s.trim(), 10))
+      .filter((n) => Number.isFinite(n) && n >= 1 && n <= 31);
+    if (!days.length) {
+      setShippingMsg('1~31 사이의 숫자를 쉼표로 구분해 입력하세요.');
+      return;
+    }
+    setSavingShipping(true);
+    setShippingMsg(null);
+    try {
+      const { error } = await supabase
+        .from('site_settings')
+        .upsert({ key: 'shipping_deadline_days', value: days.join(', ') }, { onConflict: 'key' });
+      if (error) throw error;
+      setShippingDays(days.join(', '));
+      setShippingMsg('✅ 저장됐습니다.');
+    } catch (e) {
+      setShippingMsg('❌ 저장 실패: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setSavingShipping(false);
     }
   };
 
@@ -721,6 +752,43 @@ function SiteSettingsTab() {
             className="mt-3 rounded-full bg-brand px-5 py-2 text-sm font-semibold text-white transition hover:bg-brand/90 disabled:opacity-50"
           >
             {savingBuildBox ? '저장 중…' : '저장'}
+          </button>
+        </div>
+      </div>
+
+      {/* 배송 마감일 */}
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-100 bg-slate-50/60 px-5 py-3">
+          <p className="text-sm font-semibold text-slate-800">🚚 배송 마감일 (매월)</p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            상단 배너에 표시되는 배송 마감일. 매월 해당 날짜 23:59까지 주문 기준. 2월 등 짧은 달은 자동으로 말일로 조정됩니다.
+          </p>
+        </div>
+        <div className="px-5 py-4">
+          <label className="text-xs font-medium text-slate-600" htmlFor="shipping-days-input">
+            마감일 (쉼표 구분, 예: 15, 30)
+          </label>
+          <div className="mt-1 flex items-center gap-2">
+            <input
+              id="shipping-days-input"
+              type="text"
+              value={shippingDays}
+              onChange={(e) => setShippingDays(e.target.value)}
+              placeholder="15, 30"
+              className="w-40 rounded-lg border border-slate-200 px-3 py-2 text-sm tabular-nums focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+            />
+            <span className="text-sm text-slate-500">일</span>
+          </div>
+          {shippingMsg && (
+            <p className="mt-2 text-xs text-slate-600">{shippingMsg}</p>
+          )}
+          <button
+            type="button"
+            disabled={savingShipping}
+            onClick={() => void handleSaveShipping()}
+            className="mt-3 rounded-full bg-brand px-5 py-2 text-sm font-semibold text-white transition hover:bg-brand/90 disabled:opacity-50"
+          >
+            {savingShipping ? '저장 중…' : '저장'}
           </button>
         </div>
       </div>

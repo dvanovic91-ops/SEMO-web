@@ -18,11 +18,11 @@ import {
   type BuildProduct,
 } from '../lib/buildBoxCatalog';
 import {
-  BOX_REVIEW_IMAGE_SLOTS,
   buildBuildProductDetailHref,
 } from '../lib/buildBoxNavigation';
 import { sanitizeBoxBuilderTagForDisplay } from '../lib/boxBuilderTagDisplay';
 import { BoxBuilderTagBadges } from '../components/BoxBuilderTagBadges';
+import { BoxReviewShowcase } from '../components/BoxReviewShowcase';
 import { ShopCardImage } from './ShopCardImage';
 import { userBlockedByPiAvoid } from '../lib/piProfile';
 
@@ -77,99 +77,6 @@ function BrandInitials({ brand, compact = false }: { brand: string; compact?: bo
   );
 }
 
-type ReviewSlot = {
-  left: string; top: string; width: string; height: string;
-  labelLeft: string; labelTop: string; labelWidth: string;
-};
-type DbSlotRect = { left: number; top: number; width: number; height: number };
-
-function dbSlotToReviewSlot(s: DbSlotRect): ReviewSlot {
-  return {
-    left: `${s.left}%`,
-    top: `${s.top}%`,
-    width: `${s.width}%`,
-    height: `${s.height}%`,
-    labelLeft: `${(s.left - 1).toFixed(1)}%`,
-    labelWidth: `${(s.width + 2).toFixed(1)}%`,
-    labelTop: `${(s.top + s.height + 0.5).toFixed(1)}%`,
-  };
-}
-
-function BoxReviewSlot({
-  product,
-  slot,
-  isEn,
-}: {
-  product: BuildProduct;
-  slot: ReviewSlot;
-  isEn: boolean;
-}) {
-  const name = isEn ? product.nameEn : product.nameRu;
-  const href = buildBuildProductDetailHref(product);
-  const image = (
-    <div className="h-full w-full overflow-hidden bg-white">
-      {product.imageUrl ? (
-        <img
-          src={product.imageUrl}
-          alt=""
-          className="h-full w-full object-contain p-1.5"
-        />
-      ) : (
-        <div className="flex h-full w-full items-center justify-center bg-white">
-          <BrandInitials brand={product.brand} compact />
-        </div>
-      )}
-    </div>
-  );
-  const label = (
-    <p className="line-clamp-1 px-0.5 text-center text-[8px] font-semibold uppercase tracking-wide text-slate-600 sm:text-[9px]">
-      {product.brand}
-    </p>
-  );
-
-  const imageStyle = {
-    left: slot.left,
-    top: slot.top,
-    width: slot.width,
-    height: slot.height,
-  };
-  const labelStyle = {
-    left: slot.labelLeft,
-    top: slot.labelTop,
-    width: slot.labelWidth,
-  };
-
-  if (!href) {
-    return (
-      <>
-        <div className="absolute" style={imageStyle}>{image}</div>
-        <div className="absolute" style={labelStyle}>{label}</div>
-      </>
-    );
-  }
-
-  return (
-    <>
-      <Link
-        to={href}
-        className="absolute overflow-hidden transition hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand"
-        style={imageStyle}
-        title={name}
-        aria-label={name}
-      >
-        {image}
-      </Link>
-      <Link
-        to={href}
-        className="absolute transition hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand"
-        style={labelStyle}
-      >
-        {label}
-      </Link>
-    </>
-  );
-}
-
 export const BuildBox: React.FC = () => {
   const { language, currency } = useI18n();
   const { addItem, removeItem, items: cartItems } = useCart();
@@ -195,6 +102,9 @@ export const BuildBox: React.FC = () => {
   const [boxPrice, setBoxPrice] = useState<number>(DEFAULT_BOX_PRICE);
   const [showReview, setShowReview] = useState(false);
   const [showPremiumStep, setShowPremiumStep] = useState(false);
+  const [isPremiumPlan, setIsPremiumPlan] = useState(() =>
+    shouldRestoreDraft ? (readBuildBoxDraft()?.isPremium ?? false) : false,
+  );
   const [categoriesLoaded, setCategoriesLoaded] = useState(false);
   const [cartToast, setCartToast] = useState(false);
   const [userBaumannType, setUserBaumannType] = useState<string | null>(null);
@@ -204,30 +114,19 @@ export const BuildBox: React.FC = () => {
   const [carouselIdx, setCarouselIdx] = useState(0);
   const pauseUntilRef = useRef<number>(0);
   const carouselIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [reviewSlots, setReviewSlots] = useState<ReviewSlot[]>(
-    () => BOX_REVIEW_IMAGE_SLOTS.map((s) => ({ ...s })),
-  );
 
   useEffect(() => {
     if (!supabase) return;
     const client = supabase;
     const load = async () => {
       try {
-        const [priceRow, slotsRow] = await Promise.all([
-          client.from('site_settings').select('value').eq('key', 'build_box_price_rub').maybeSingle(),
-          client.from('site_settings').select('value').eq('key', 'box_review_slot_positions').maybeSingle(),
-        ]);
+        const priceRow = await client
+          .from('site_settings')
+          .select('value')
+          .eq('key', 'build_box_price_rub')
+          .maybeSingle();
         const val = Number((priceRow.data as { value?: string } | null)?.value ?? DEFAULT_BOX_PRICE);
         if (Number.isFinite(val) && val > 0) setBoxPrice(val);
-        const rawSlots = (slotsRow.data as { value?: string } | null)?.value;
-        if (rawSlots) {
-          try {
-            const parsed = JSON.parse(rawSlots) as DbSlotRect[];
-            if (Array.isArray(parsed) && parsed.length === 6) {
-              setReviewSlots(parsed.map(dbSlotToReviewSlot));
-            }
-          } catch { /* keep defaults */ }
-        }
       } catch { /* keep defaults */ }
     };
     void load();
@@ -284,10 +183,19 @@ export const BuildBox: React.FC = () => {
     })();
   }, [userId]);
 
-  // 캐러셀: 스텝 바뀌면 index 리셋
-  useEffect(() => { setCarouselIdx(0); }, [currentStep]);
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== 'undefined' && window.innerWidth < 640,
+  );
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 640);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
-  const CAROUSEL_VISIBLE = 3;
+  // 캐러셀: 스텝·모바일 여부 바뀌면 index 리셋
+  useEffect(() => { setCarouselIdx(0); }, [currentStep, isMobile]);
+
+  const CAROUSEL_VISIBLE = isMobile ? 1 : 3;
   const CAROUSEL_THRESHOLD = 4; // 4개 이하는 전부 그리드, 5개부터 캐러셀
 
   // 캐러셀: 자동 슬라이드 (3초 간격, 수동 조작 후 2초 멈춤)
@@ -366,8 +274,8 @@ export const BuildBox: React.FC = () => {
   }, [wantReview, shouldRestoreDraft]);
 
   useEffect(() => {
-    saveBuildBoxDraft(selected);
-  }, [selected]);
+    saveBuildBoxDraft(selected, isPremiumPlan);
+  }, [selected, isPremiumPlan]);
 
   const totalSteps = categories.length;
   const category = categories[currentStep]!;
@@ -386,6 +294,7 @@ export const BuildBox: React.FC = () => {
   const goNext = () => {
     if (currentStep < totalSteps - 1) {
       setCurrentStep((s) => s + 1);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } else {
       sessionStorage.setItem(SESSION_REVIEWING_KEY, '1');
       setShowReview(true);
@@ -393,7 +302,10 @@ export const BuildBox: React.FC = () => {
   };
 
   const goPrev = () => {
-    if (currentStep > 0) setCurrentStep((s) => s - 1);
+    if (currentStep > 0) {
+      setCurrentStep((s) => s - 1);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
 
   const handleStartOver = () => {
@@ -403,6 +315,7 @@ export const BuildBox: React.FC = () => {
     setCurrentStep(0);
     setShowReview(false);
     setShowPremiumStep(false);
+    setIsPremiumPlan(false);
     setCarouselIdx(0);
   };
 
@@ -416,6 +329,7 @@ export const BuildBox: React.FC = () => {
   };
 
   const handleAddToCart = () => {
+    setIsPremiumPlan(false);
     const id = 'custom-build-box';
     const name = isEn ? 'Custom Box' : 'Свой бокс';
     if (existingBoxId && existingBoxId !== id) {
@@ -426,6 +340,7 @@ export const BuildBox: React.FC = () => {
   };
 
   const handleAddPremiumToCart = () => {
+    setIsPremiumPlan(true);
     const id = 'custom-build-box-premium';
     const name = isEn ? 'Custom Box Premium' : 'Свой бокс Премиум';
     if (existingBoxId && existingBoxId !== id) {
@@ -737,7 +652,7 @@ export const BuildBox: React.FC = () => {
 
   // ── 공통: 프로그레스 바 (선택 + 프리미엄 스텝에서 공유) ───────────
   const renderProgressBar = (premiumActive = false) => (
-    <div className="mb-5 flex w-full items-start justify-center px-1">
+    <div className="mb-5 flex w-full items-start overflow-x-auto px-1 pb-1 [&::-webkit-scrollbar]:hidden sm:justify-center" style={{ scrollbarWidth: 'none' }}>
       {categories.map((cat, i) => {
         const isDone = selected[i] !== null && (premiumActive || i < currentStep);
         const isActive = !premiumActive && i === currentStep;
@@ -745,12 +660,12 @@ export const BuildBox: React.FC = () => {
         const sel = selected[i];
         return (
           <React.Fragment key={cat.key}>
-            <div className="flex min-w-0 flex-1 flex-col items-center gap-0.5 px-0.5 sm:max-w-[5.25rem]">
+            <div className="flex w-[52px] shrink-0 flex-col items-center gap-0.5 px-0.5 sm:w-auto sm:min-w-0 sm:flex-1 sm:max-w-[5.25rem]">
               <button
                 type="button"
                 onClick={() => {
-                  if (premiumActive) { setShowPremiumStep(false); setCurrentStep(i); }
-                  else if (!isPending) setCurrentStep(i);
+                  if (premiumActive) { setShowPremiumStep(false); setCurrentStep(i); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+                  else if (!isPending) { setCurrentStep(i); window.scrollTo({ top: 0, behavior: 'smooth' }); }
                 }}
                 disabled={isPending}
                 className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition
@@ -778,12 +693,12 @@ export const BuildBox: React.FC = () => {
               )}
             </div>
             {i < categories.length - 1 && (
-              <div className={`mt-4 h-px w-1.5 shrink-0 sm:w-2.5 ${isDone ? 'bg-emerald-400' : 'bg-slate-200'}`} />
+              <div className={`mt-4 h-px w-4 shrink-0 sm:w-2.5 ${isDone ? 'bg-emerald-400' : 'bg-slate-200'}`} />
             )}
           </React.Fragment>
         );
       })}
-      <div className={`mt-4 h-px w-1.5 shrink-0 sm:w-2.5 ${premiumActive ? 'bg-amber-400' : 'bg-slate-200'}`} />
+      <div className={`mt-4 h-px w-4 shrink-0 sm:w-2.5 ${premiumActive ? 'bg-amber-400' : 'bg-slate-200'}`} />
       <div className="flex min-w-0 flex-1 flex-col items-center gap-0.5 px-0.5 sm:max-w-[5.25rem]">
         <div className={`flex h-9 w-9 items-center justify-center rounded-full text-xs font-semibold transition
           ${premiumActive ? 'bg-amber-500 text-white ring-2 ring-amber-300' : 'border border-slate-200 bg-white text-slate-400'}`}>
@@ -804,7 +719,7 @@ export const BuildBox: React.FC = () => {
         <div className="mb-3">
           <button
             type="button"
-            onClick={() => setShowPremiumStep(false)}
+            onClick={() => { setShowPremiumStep(false); setShowReview(true); }}
             className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 transition hover:text-slate-700"
           >
             <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -859,15 +774,16 @@ export const BuildBox: React.FC = () => {
                     </p>
                     <BoxBuilderTagBadges tag={isEn ? product.tagEn : product.tagRu} selected />
                     <div className="-mx-3 mb-2 h-px bg-slate-100" />
-                    <div className="mt-auto flex items-center justify-center gap-2">
-                      <span className="inline-flex rounded-full bg-amber-500 px-3 py-1 text-xs font-medium text-white">
-                        {isEn ? 'Included ✓' : 'Включено ✓'}
+                    <div className="mt-auto flex flex-col items-stretch gap-1.5 sm:flex-row sm:items-center sm:justify-center sm:gap-2">
+                      <span className="inline-flex shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-full bg-amber-500 px-2.5 py-1 text-[11px] font-medium text-white sm:px-3 sm:text-xs">
+                        {isEn ? 'Included' : 'Включено'}
+                        <span aria-hidden="true">✓</span>
                       </span>
                       {(product.skuId || product.productId) && (
                         <Link
                           to={buildBuildProductDetailHref(product) ?? '#'}
                           onClick={(e) => e.stopPropagation()}
-                          className="inline-flex rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-500 transition hover:border-brand/40 hover:text-brand"
+                          className="inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-500 transition hover:border-brand/40 hover:text-brand sm:px-3 sm:text-xs"
                         >
                           {isEn ? 'Details' : 'Подробнее'}
                         </Link>
@@ -878,20 +794,20 @@ export const BuildBox: React.FC = () => {
               ))}
             </div>
 
-            <div className="mt-4 flex items-center justify-between gap-3">
+            <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
               <button
                 type="button"
                 onClick={handleAddToCart}
-                className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+                className="inline-flex w-full shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 sm:w-auto sm:px-4 sm:text-sm"
               >
                 {isEn ? `Basic only · ${boxPrice.toLocaleString()} ₽` : `Только базовый · ${boxPrice.toLocaleString()} ₽`}
               </button>
               <button
                 type="button"
                 onClick={handleAddPremiumToCart}
-                className="inline-flex items-center gap-2 rounded-full bg-amber-500 px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600"
+                className="inline-flex w-full shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-amber-500 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-amber-600 sm:w-auto sm:gap-2 sm:px-6 sm:py-2.5 sm:text-sm"
               >
-                <span>✦</span>
+                <span className="shrink-0" aria-hidden="true">✦</span>
                 {isEn ? `Add Premium · ${PREMIUM_BOX_PRICE.toLocaleString()} ₽` : `Добавить Премиум · ${PREMIUM_BOX_PRICE.toLocaleString()} ₽`}
               </button>
             </div>
@@ -928,11 +844,11 @@ export const BuildBox: React.FC = () => {
           <div className="w-16 shrink-0" />
         </div>
 
-        {/* 2컬럼: 가격카드(왼쪽) + 박스사진(오른쪽) */}
-        <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:gap-5">
+        {/* 2컬럼: 가격카드(왼쪽) + 쇼케이스(오른쪽) */}
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:gap-6">
 
           {/* 가격 카드 + 프리미엄 — 분리된 레이아웃 */}
-          <div className="flex flex-col gap-3 sm:w-64 sm:shrink-0">
+          <div className="order-2 flex flex-col gap-3 sm:order-1 sm:w-64 sm:shrink-0">
 
             {/* 기본박스 카드 */}
             <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -976,7 +892,7 @@ export const BuildBox: React.FC = () => {
               </div>
               <button
                 type="button"
-                onClick={() => { setShowReview(false); setShowPremiumStep(true); }}
+                onClick={() => { setIsPremiumPlan(true); setShowReview(false); setShowPremiumStep(true); }}
                 className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-full border border-amber-400 bg-transparent py-2 text-xs font-semibold text-amber-700 transition hover:bg-amber-100"
               >
                 {isEn ? 'Upgrade to Premium' : 'Апгрейд до Премиум'}
@@ -993,55 +909,14 @@ export const BuildBox: React.FC = () => {
 
           </div>
 
-          {/* 모바일: 선택 제품 그리드 */}
-          <div className="grid grid-cols-2 gap-3 sm:hidden">
-            {selected.map((product, i) => {
-              if (!product) return null;
-              const cat = categories[i];
-              const href = buildBuildProductDetailHref(product);
-              const name = isEn ? product.nameEn : product.nameRu;
-              const card = (
-                <>
-                  <ShopCardImage
-                    embedded
-                    images={product.imageUrl ? [product.imageUrl] : []}
-                    name={name}
-                    layout="mobile"
-                  />
-                  <div className="p-2.5">
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{product.brand}</p>
-                    <p className="line-clamp-2 min-h-[2.5rem] text-xs font-medium leading-snug text-slate-800">{name}</p>
-                  </div>
-                </>
-              );
-              return href ? (
-                <Link
-                  key={cat?.key ?? i}
-                  to={href}
-                  className="overflow-hidden rounded-xl border border-slate-200 bg-white transition hover:border-slate-300 hover:shadow-sm"
-                >
-                  {card}
-                </Link>
-              ) : (
-                <div key={cat?.key ?? i} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-                  {card}
-                </div>
-              );
-            })}
-          </div>
-
-          {/* 데스크톱: 박스 사진 + 제품 */}
-          <div className="relative hidden flex-1 overflow-hidden rounded-2xl shadow-lg sm:block">
-            <img
-              src="/box-image.png"
-              alt={isEn ? 'Your SEMO box' : 'Твой бокс SEMO'}
-              className="block w-full"
+          <div className="order-1 min-w-0 sm:order-2 sm:flex-1">
+            <BoxReviewShowcase
+              selected={selected}
+              categories={categories}
+              isEn={isEn}
+              isPremium={isPremiumPlan}
+              premiumAddons={premiumAddons}
             />
-            {reviewSlots.map((slot, i) => {
-              const product = selected[i];
-              if (!product) return null;
-              return <BoxReviewSlot key={categories[i]?.key ?? i} product={product} slot={slot} isEn={isEn} />;
-            })}
           </div>
         </div>
 
@@ -1149,9 +1024,9 @@ export const BuildBox: React.FC = () => {
                 N === 1
                   ? 'mx-auto grid max-w-xs grid-cols-1 items-end gap-3'
                   : N === 2
-                    ? 'mx-auto grid max-w-lg grid-cols-2 items-end gap-3'
+                    ? 'mx-auto grid max-w-lg grid-cols-1 items-end gap-3 sm:grid-cols-2'
                     : N === 4
-                      ? 'grid grid-cols-2 items-end gap-3 sm:grid-cols-4 sm:gap-4'
+                      ? 'grid grid-cols-1 items-end gap-3 sm:grid-cols-2 md:grid-cols-4 md:gap-4'
                       : 'grid grid-cols-1 items-end gap-3 sm:grid-cols-3 sm:gap-4';
               return (
                 <div className={gridClass}>
@@ -1171,7 +1046,7 @@ export const BuildBox: React.FC = () => {
                   type="button"
                   onClick={() => carouselNav(-1)}
                   disabled={carouselIdx === 0}
-                  className="absolute -left-1 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:bg-slate-50 disabled:opacity-30"
+                  className="absolute -left-2 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:bg-slate-50 disabled:opacity-30"
                   aria-label="이전"
                 >
                   <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1182,7 +1057,7 @@ export const BuildBox: React.FC = () => {
                   type="button"
                   onClick={() => carouselNav(1)}
                   disabled={carouselIdx >= maxIdx}
-                  className="absolute -right-1 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:bg-slate-50 disabled:opacity-30"
+                  className="absolute -right-2 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:bg-slate-50 disabled:opacity-30"
                   aria-label="다음"
                 >
                   <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

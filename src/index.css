@@ -28,6 +28,8 @@
   );
   /* 모바일 SEMO Box 상단 고정 서브바 높이 — App 본문 pt·서브바 min-h와 동기화 */
   --semo-mobile-box-subnav-h: 3.15rem;
+  /* 배송 마감 배너 높이 */
+  --semo-shipping-banner-h: 3rem;
 }
 @media (min-width: 640px) {
   :root {

@@ -70,7 +70,7 @@ export const ShopCardImage: React.FC<Props> = ({ images, name, layout = 'desktop
   if (embedded) {
     return (
       <div
-        className="relative h-44 w-full shrink-0 overflow-hidden bg-white"
+        className="relative h-36 w-full shrink-0 overflow-hidden bg-white sm:h-44"
         onMouseEnter={startHover}
         onMouseLeave={endHover}
         onTouchStart={onTouchStart}

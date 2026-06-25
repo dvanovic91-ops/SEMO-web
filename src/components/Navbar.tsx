@@ -89,8 +89,7 @@ export const Navbar: React.FC = () => {
   const { items: notificationItems, unreadCount, markAllRead, markNotificationRead, deleteNotification } =
     useNotifications(isLoggedIn ? userId : null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [mobileLocaleQuickOpen, setMobileLocaleQuickOpen] = useState(false);
-  const [mobileLocaleQuickDismissed, setMobileLocaleQuickDismissed] = useState(false);
+
   const [semoBoxOpen, setSemoBoxOpen] = useState(false);
   /** 데스크톱: SEMO Box를 클릭해 연 경우 — 마우스가 벗어나도 호버처럼 서브바 유지 */
   const [semoBoxPinned, setSemoBoxPinned] = useState(false);
@@ -154,14 +153,6 @@ export const Navbar: React.FC = () => {
     refreshTelegramLinkedNav();
   }, [location.pathname, refreshTelegramLinkedNav]);
 
-  useEffect(() => {
-    try {
-      const dismissed = localStorage.getItem('semo_mobile_locale_quick_dismissed');
-      setMobileLocaleQuickDismissed(dismissed === '1');
-    } catch {
-      /* ignore */
-    }
-  }, []);
 
   useEffect(() => {
     if (!langMenuOpen && !currencyMenuOpen) return;
@@ -227,8 +218,7 @@ export const Navbar: React.FC = () => {
   const pathNorm = (path.split('?')[0] ?? path).replace(/\/$/, '') || '/';
   const isProductDetailPath = pathNorm.startsWith('/product/');
   const productCatalogSubmenuPath = productCatalogToSubmenuPath(new URLSearchParams(location.search).get('catalog'));
-  const isMobileSemoSubnavMerged =
-    isSemoBoxActive || isProductDetailPath;
+  const isMobileSemoSubnavMerged = false;
   const isHomeActive = path === '/';
   /** 모바일 하단: 뷰티박스(/shop) 탭 활성 — /shop·/shop/box-history 등 */
   const isShopTabActive = path === '/shop' || path.startsWith('/shop/');
@@ -913,16 +903,6 @@ export const Navbar: React.FC = () => {
         </div>
       </header>
 
-      {/* 모바일: SEMO Box 하위 — 헤더 아래 고정 서브바(/shop·/product 는 위에서 병합되어 여기 생략) */}
-      {isSemoBoxActive && !productStickyReplacesNav && !isMobileSemoSubnavMerged && (
-        <nav
-          className="fixed left-0 right-0 z-[38] -mt-px flex min-h-[var(--semo-mobile-box-subnav-h)] items-stretch border-b border-slate-200/60 bg-white/90 backdrop-blur-md md:hidden"
-          style={{ top: 'var(--semo-mobile-header-h)' }}
-          aria-label="SEMO Box"
-        >
-          {mobileSemoSubmenuRowEl}
-        </nav>
-      )}
 
       {/* SEMO Box 서브 네비게이션 바 — 데스크톱: 호버 시 표시, 상단바 바로 아래 횡 메뉴 (틈 없이 경계선만) */}
       {semoBoxOpen && !productDesktopNav?.compact && (
@@ -1241,87 +1221,6 @@ export const Navbar: React.FC = () => {
         </Link>
       </nav>
 
-      {/* 모바일 빠른 언어/통화 버튼: 햄버거를 열지 않아도 바로 변경 가능 */}
-      {!mobileLocaleQuickDismissed && (
-      <div className="fixed bottom-[calc(var(--semo-mobile-tabbar-h)+0.5rem)] right-3 z-40 md:hidden">
-        <button
-          type="button"
-          onClick={() => setMobileLocaleQuickOpen((v) => !v)}
-          className="inline-flex h-8 items-center gap-1 rounded-full border border-slate-200 bg-white/95 px-2 text-[10px] font-semibold text-slate-700 shadow-sm"
-          aria-label="Quick language and currency"
-          aria-expanded={mobileLocaleQuickOpen}
-        >
-          <span aria-hidden>{language === 'ru' ? '🇷🇺' : '🇬🇧'}</span>
-          <span>{language.toUpperCase()}</span>
-          <span className="text-slate-300">|</span>
-          <span>{currency}</span>
-        </button>
-        {mobileLocaleQuickOpen && (
-          <div className="absolute bottom-full right-0 mb-2 w-40 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
-            <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-              {t(language, 'navbar', 'language')}
-            </p>
-            <div className="mb-2 grid grid-cols-2 gap-1">
-              {[
-                { code: 'ru', flag: '🇷🇺', label: 'RU' },
-                { code: 'en', flag: '🇬🇧', label: 'EN' },
-              ].map((l) => (
-                <button
-                  key={l.code}
-                  type="button"
-                  onClick={() => {
-                    setLanguage(l.code as 'ru' | 'en');
-                    setMobileLocaleQuickDismissed(true);
-                    try {
-                      localStorage.setItem('semo_mobile_locale_quick_dismissed', '1');
-                    } catch {
-                      /* ignore */
-                    }
-                    setMobileLocaleQuickOpen(false);
-                  }}
-                  className={`rounded-lg px-2 py-1.5 text-[11px] font-semibold ${
-                    language === l.code ? 'bg-brand-soft/40 text-brand' : 'text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  {l.flag} {l.label}
-                </button>
-              ))}
-            </div>
-            <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-              {t(language, 'navbar', 'currency')}
-            </p>
-            <div className="grid grid-cols-2 gap-1">
-                {[
-                  { code: 'RUB', flag: '🇷🇺' },
-                  { code: 'KZT', flag: '🇰🇿' },
-                  { code: 'UZS', flag: '🇺🇿' },
-                  { code: 'USD', flag: '🇺🇸' },
-                ].map((c) => (
-                <button
-                  key={c.code}
-                  type="button"
-                  onClick={() => {
-                      setCurrency(c.code as 'RUB' | 'USD' | 'KZT' | 'UZS');
-                    setMobileLocaleQuickDismissed(true);
-                    try {
-                      localStorage.setItem('semo_mobile_locale_quick_dismissed', '1');
-                    } catch {
-                      /* ignore */
-                    }
-                    setMobileLocaleQuickOpen(false);
-                  }}
-                  className={`rounded-lg px-2 py-1.5 text-[11px] font-semibold ${
-                    currency === c.code ? 'bg-brand-soft/40 text-brand' : 'text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  {c.flag} {c.code}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-      )}
 
       {/* 모바일: 왼쪽 전체 메뉴 드로어 (햄버거 클릭 시) */}
       {mobileMenuOpen && (
@@ -1331,7 +1230,6 @@ export const Navbar: React.FC = () => {
             aria-hidden
             onClick={() => {
               setMobileMenuOpen(false);
-              setMobileLocaleQuickOpen(false);
             }}
           />
           <aside className="fixed left-0 top-0 bottom-0 z-50 flex w-[14.4rem] max-w-[68vw] flex-col bg-white shadow-xl md:hidden">
@@ -1414,7 +1312,7 @@ export const Navbar: React.FC = () => {
                   if (telegramLinkedNav !== true) e.preventDefault();
                   else setMobileMenuOpen(false);
                 }}
-                className={`-translate-y-[1vw] flex items-center gap-2 rounded-xl px-4 py-3 text-base font-medium ${
+                className={`-translate-y-[1vw] flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium ${
                   telegramLinkedNav === true
                     ? 'text-[#26A5E4] hover:bg-slate-50'
                     : 'cursor-not-allowed text-slate-400'
