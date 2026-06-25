@@ -576,13 +576,16 @@ type RecommendationAnalyticsRow = {
 function SiteSettingsTab() {
   const [giftPrice, setGiftPrice] = useState('');
   const [buildBoxPrice, setBuildBoxPrice] = useState('');
+  const [buildBoxPriceUsd, setBuildBoxPriceUsd] = useState('');
   const [shippingDays, setShippingDays] = useState('15, 30');
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
   const [savingBuildBox, setSavingBuildBox] = useState(false);
+  const [savingBuildBoxUsd, setSavingBuildBoxUsd] = useState(false);
   const [savingShipping, setSavingShipping] = useState(false);
   const [settingsMsg, setSettingsMsg] = useState<string | null>(null);
   const [buildBoxMsg, setBuildBoxMsg] = useState<string | null>(null);
+  const [buildBoxUsdMsg, setBuildBoxUsdMsg] = useState<string | null>(null);
   const [shippingMsg, setShippingMsg] = useState<string | null>(null);
 
   useEffect(() => {
@@ -590,14 +593,16 @@ function SiteSettingsTab() {
     supabase
       .from('site_settings')
       .select('key, value')
-      .in('key', ['gift_voucher_price_rub', 'build_box_price_rub', 'shipping_deadline_days'])
+      .in('key', ['gift_voucher_price_rub', 'build_box_price_rub', 'build_box_price_usd', 'shipping_deadline_days'])
       .then(({ data }) => {
         const rows = (data ?? []) as { key: string; value: string }[];
         const gift = rows.find((r) => r.key === 'gift_voucher_price_rub')?.value ?? '10000';
         const build = rows.find((r) => r.key === 'build_box_price_rub')?.value ?? '10990';
+        const buildUsd = rows.find((r) => r.key === 'build_box_price_usd')?.value ?? '';
         const shipping = rows.find((r) => r.key === 'shipping_deadline_days')?.value ?? '15, 30';
         setGiftPrice(gift);
         setBuildBoxPrice(build);
+        setBuildBoxPriceUsd(buildUsd);
         setShippingDays(shipping);
       })
       .catch(() => { setGiftPrice('10000'); setBuildBoxPrice('10990'); })
@@ -645,6 +650,28 @@ function SiteSettingsTab() {
       setBuildBoxMsg('❌ 저장 실패: ' + (e instanceof Error ? e.message : String(e)));
     } finally {
       setSavingBuildBox(false);
+    }
+  };
+
+  const handleSaveBuildBoxUsd = async () => {
+    if (!supabase) return;
+    const price = Number(buildBoxPriceUsd);
+    if (!Number.isFinite(price) || price <= 0) {
+      setBuildBoxUsdMsg('가격은 0보다 큰 숫자여야 합니다.');
+      return;
+    }
+    setSavingBuildBoxUsd(true);
+    setBuildBoxUsdMsg(null);
+    try {
+      const { error } = await supabase
+        .from('site_settings')
+        .upsert({ key: 'build_box_price_usd', value: String(price) }, { onConflict: 'key' });
+      if (error) throw error;
+      setBuildBoxUsdMsg('✅ 저장됐습니다.');
+    } catch (e) {
+      setBuildBoxUsdMsg('❌ 저장 실패: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setSavingBuildBoxUsd(false);
     }
   };
 
@@ -752,6 +779,45 @@ function SiteSettingsTab() {
             className="mt-3 rounded-full bg-brand px-5 py-2 text-sm font-semibold text-white transition hover:bg-brand/90 disabled:opacity-50"
           >
             {savingBuildBox ? '저장 중…' : '저장'}
+          </button>
+        </div>
+      </div>
+
+      {/* 나만의 박스 가격 (USD) */}
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-100 bg-slate-50/60 px-5 py-3">
+          <p className="text-sm font-semibold text-slate-800">📦 나만의 박스 가격 (USD)</p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            .com 사이트(영어/달러)에서 표시되는 박스 가격. .ru에는 영향 없음.
+          </p>
+        </div>
+        <div className="px-5 py-4">
+          <label className="text-xs font-medium text-slate-600" htmlFor="build-box-price-usd-input">
+            박스 가격 (달러)
+          </label>
+          <div className="mt-1 flex items-center gap-2">
+            <input
+              id="build-box-price-usd-input"
+              type="number"
+              min="1"
+              step="1"
+              value={buildBoxPriceUsd}
+              onChange={(e) => setBuildBoxPriceUsd(e.target.value)}
+              placeholder="예: 149"
+              className="w-40 rounded-lg border border-slate-200 px-3 py-2 text-sm tabular-nums focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+            />
+            <span className="text-sm text-slate-500">$</span>
+          </div>
+          {buildBoxUsdMsg && (
+            <p className="mt-2 text-xs text-slate-600">{buildBoxUsdMsg}</p>
+          )}
+          <button
+            type="button"
+            disabled={savingBuildBoxUsd}
+            onClick={() => void handleSaveBuildBoxUsd()}
+            className="mt-3 rounded-full bg-brand px-5 py-2 text-sm font-semibold text-white transition hover:bg-brand/90 disabled:opacity-50"
+          >
+            {savingBuildBoxUsd ? '저장 중…' : '저장'}
           </button>
         </div>
       </div>

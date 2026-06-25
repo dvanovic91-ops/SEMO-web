@@ -33,6 +33,9 @@ export const Footer: React.FC = () => {
             </a>
           </p>
         </div>
+        <p className="mb-3 text-xs text-slate-400">
+          세모박스 · 경기도 김포시 김포한강9로 75번길 66, K392 · 14611
+        </p>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs text-slate-400">
             © {year} SEMO box. {t(language, 'footer', 'rights')}

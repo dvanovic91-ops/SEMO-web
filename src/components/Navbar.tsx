@@ -83,7 +83,7 @@ export const Navbar: React.FC = () => {
   const navigationType = useNavigationType();
   const { items, total, totalCount, updateQuantity } = useCart();
   const { isLoggedIn, userId } = useAuth();
-  const { language, currency, country, setLanguage, setCurrency } = useI18n();
+  const { language, currency, country } = useI18n();
   /** true: аккаунт привязан к Telegram — иконка в шапке #26A5E4; иначе тёмная */
   const [telegramLinkedNav, setTelegramLinkedNav] = useState<boolean | null>(null);
   const { items: notificationItems, unreadCount, markAllRead, markNotificationRead, deleteNotification } =
@@ -95,10 +95,6 @@ export const Navbar: React.FC = () => {
   const [semoBoxPinned, setSemoBoxPinned] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [cartPopoverOpen, setCartPopoverOpen] = useState(false);
-  const [langMenuOpen, setLangMenuOpen] = useState(false);
-  const [currencyMenuOpen, setCurrencyMenuOpen] = useState(false);
-  const langMenuRef = useRef<HTMLDivElement>(null);
-  const currencyMenuRef = useRef<HTMLDivElement>(null);
   const semoBoxDesktopRef = useRef<HTMLDivElement>(null);
   /** 데스크톱 SEMO Box 하단 서브바 — 외부 클릭 시 헤더 트리거와 함께 «안쪽»으로 인식 */
   const semoBoxSubbarRef = useRef<HTMLDivElement>(null);
@@ -153,22 +149,6 @@ export const Navbar: React.FC = () => {
     refreshTelegramLinkedNav();
   }, [location.pathname, refreshTelegramLinkedNav]);
 
-
-  useEffect(() => {
-    if (!langMenuOpen && !currencyMenuOpen) return;
-    const onDocClick = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (langMenuRef.current?.contains(t)) return;
-      if (currencyMenuRef.current?.contains(t)) return;
-      setLangMenuOpen(false);
-      setCurrencyMenuOpen(false);
-    };
-    const timer = setTimeout(() => document.addEventListener('click', onDocClick), 0);
-    return () => {
-      clearTimeout(timer);
-      document.removeEventListener('click', onDocClick);
-    };
-  }, [langMenuOpen, currencyMenuOpen]);
 
   /** Вкладка/окно снова в фокусе — после привязки в другой вкладке цвет иконки обновится */
   useEffect(() => {
@@ -622,100 +602,8 @@ export const Navbar: React.FC = () => {
                 <div className="min-h-[2.75rem] w-full min-w-0" aria-hidden />
               )}
             </div>
-            {/* 데스크톱: 유틸 — 언어·화폐 왼쪽에 큰 고정 마진 없음(gap-3은 로고·가운데·이 그룹 사이 공통 간격) */}
+            {/* 데스크톱: 유틸 */}
             <div className="relative z-20 flex min-w-0 shrink-0 items-center gap-2">
-            <div className="flex items-center gap-1 pr-0.5">
-              <div ref={langMenuRef} className="relative">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCurrencyMenuOpen(false);
-                    setLangMenuOpen((v) => !v);
-                  }}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200/90 bg-white text-slate-700 transition hover:border-brand/40 hover:bg-slate-50"
-                  aria-label={t(language, 'navbar', 'language')}
-                  aria-expanded={langMenuOpen}
-                >
-                  <span className="inline-flex flex-col items-center leading-none">
-                    <span aria-hidden className="text-[15px]">{language === 'ru' ? '🇷🇺' : '🇬🇧'}</span>
-                    <span className="mt-0.5 text-[9px] font-semibold">{language.toUpperCase()}</span>
-                  </span>
-                </button>
-                {langMenuOpen && (
-                  <div className="absolute left-1/2 top-full z-50 mt-1 max-h-36 w-20 -translate-x-1/2 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
-                    {[
-                      { code: 'ru', flag: '🇷🇺', label: 'RU' },
-                      { code: 'en', flag: '🇬🇧', label: 'EN' },
-                    ].map((l) => (
-                      <button
-                        key={l.code}
-                        type="button"
-                        onClick={() => {
-                          setLanguage(l.code as 'ru' | 'en');
-                          setLangMenuOpen(false);
-                        }}
-                        className={`flex w-full items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-semibold transition ${
-                          language === l.code ? 'bg-brand-soft/40 text-brand' : 'text-slate-700 hover:bg-slate-100'
-                        }`}
-                      >
-                        <span aria-hidden>{l.flag}</span>
-                        <span>{l.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div ref={currencyMenuRef} className="relative">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLangMenuOpen(false);
-                    setCurrencyMenuOpen((v) => !v);
-                  }}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200/90 bg-white text-slate-700 transition hover:border-brand/40 hover:bg-slate-50"
-                  aria-label={t(language, 'navbar', 'currency')}
-                  aria-expanded={currencyMenuOpen}
-                >
-                  <span className="inline-flex flex-col items-center leading-none">
-                    <span aria-hidden className="text-[15px]">
-                      {currency === 'RUB'
-                        ? '🇷🇺'
-                        : currency === 'UZS'
-                          ? '🇺🇿'
-                          : currency === 'KZT'
-                            ? '🇰🇿'
-                            : '🇺🇸'}
-                    </span>
-                    <span className="mt-0.5 text-[8px] font-semibold">{currency}</span>
-                  </span>
-                </button>
-                {currencyMenuOpen && (
-                  <div className="absolute left-1/2 top-full z-50 mt-1 max-h-44 w-[5.6rem] -translate-x-1/2 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
-                    {[
-                      { code: 'RUB', flag: '🇷🇺', label: 'RUB' },
-                      { code: 'KZT', flag: '🇰🇿', label: 'KZT' },
-                      { code: 'UZS', flag: '🇺🇿', label: 'UZS' },
-                      { code: 'USD', flag: '🇺🇸', label: 'USD' },
-                    ].map((c) => (
-                      <button
-                        key={c.code}
-                        type="button"
-                        onClick={() => {
-                          setCurrency(c.code as 'RUB' | 'USD' | 'KZT' | 'UZS');
-                          setCurrencyMenuOpen(false);
-                        }}
-                        className={`flex w-full items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-semibold transition ${
-                          currency === c.code ? 'bg-brand-soft/40 text-brand' : 'text-slate-700 hover:bg-slate-100'
-                        }`}
-                      >
-                        <span aria-hidden>{c.flag}</span>
-                        <span>{c.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
             <div ref={cartDesktopRef} className="relative">
               <button
                 type="button"
@@ -1324,96 +1212,6 @@ export const Navbar: React.FC = () => {
                 Telegram
               </a>
             </nav>
-            <div className="border-t border-slate-100 px-3 py-2.5">
-              <div className="flex items-center justify-center gap-2">
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCurrencyMenuOpen(false);
-                      setLangMenuOpen((v) => !v);
-                    }}
-                    className="inline-flex h-9 min-w-[4.3rem] items-center justify-center gap-1 rounded-full border border-slate-200/90 bg-white px-2 text-[11px] font-semibold text-slate-700 transition hover:border-brand/40"
-                    aria-label={t(language, 'navbar', 'language')}
-                    aria-expanded={langMenuOpen}
-                  >
-                    <span aria-hidden>{language === 'ru' ? '🇷🇺' : '🇬🇧'}</span>
-                    <span>{language.toUpperCase()}</span>
-                  </button>
-                  {langMenuOpen && (
-                    <div className="absolute bottom-full left-0 z-50 mb-1 max-h-36 w-20 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
-                      {[
-                        { code: 'ru', flag: '🇷🇺', label: 'RU' },
-                        { code: 'en', flag: '🇬🇧', label: 'EN' },
-                      ].map((l) => (
-                        <button
-                          key={l.code}
-                          type="button"
-                          onClick={() => {
-                            setLanguage(l.code as 'ru' | 'en');
-                            setLangMenuOpen(false);
-                          }}
-                          className={`flex w-full items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-semibold transition ${
-                            language === l.code ? 'bg-brand-soft/40 text-brand' : 'text-slate-700 hover:bg-slate-100'
-                          }`}
-                        >
-                          <span aria-hidden>{l.flag}</span>
-                          <span>{l.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLangMenuOpen(false);
-                      setCurrencyMenuOpen((v) => !v);
-                    }}
-                    className="inline-flex h-9 min-w-[5.1rem] items-center justify-center gap-1 rounded-full border border-slate-200/90 bg-white px-2 text-[11px] font-semibold text-slate-700 transition hover:border-brand/40"
-                    aria-label={t(language, 'navbar', 'currency')}
-                    aria-expanded={currencyMenuOpen}
-                  >
-                    <span aria-hidden>
-                      {currency === 'RUB'
-                        ? '🇷🇺'
-                        : currency === 'UZS'
-                          ? '🇺🇿'
-                          : currency === 'KZT'
-                            ? '🇰🇿'
-                            : '🇺🇸'}
-                    </span>
-                    <span>{currency}</span>
-                  </button>
-                  {currencyMenuOpen && (
-                    <div className="absolute bottom-full left-0 z-50 mb-1 max-h-44 w-[5.6rem] overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
-                      {[
-                        { code: 'RUB', flag: '🇷🇺', label: 'RUB' },
-                        { code: 'KZT', flag: '🇰🇿', label: 'KZT' },
-                        { code: 'UZS', flag: '🇺🇿', label: 'UZS' },
-                        { code: 'USD', flag: '🇺🇸', label: 'USD' },
-                      ].map((c) => (
-                        <button
-                          key={c.code}
-                          type="button"
-                          onClick={() => {
-                            setCurrency(c.code as 'RUB' | 'USD' | 'KZT' | 'UZS');
-                            setCurrencyMenuOpen(false);
-                          }}
-                          className={`flex w-full items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-semibold transition ${
-                            currency === c.code ? 'bg-brand-soft/40 text-brand' : 'text-slate-700 hover:bg-slate-100'
-                          }`}
-                        >
-                          <span aria-hidden>{c.flag}</span>
-                          <span>{c.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
           </aside>
         </>
       )}

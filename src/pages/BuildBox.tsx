@@ -25,10 +25,11 @@ import { BoxBuilderTagBadges } from '../components/BoxBuilderTagBadges';
 import { BoxReviewShowcase } from '../components/BoxReviewShowcase';
 import { ShopCardImage } from './ShopCardImage';
 import { userBlockedByPiAvoid } from '../lib/piProfile';
+import { IS_RU_REGION } from '../lib/siteRegion';
 
 const SESSION_REVIEWING_KEY = 'semo_was_reviewing';
-const DEFAULT_BOX_PRICE = 10990;
-const PREMIUM_BOX_PRICE = 13990;
+const DEFAULT_BOX_PRICE = IS_RU_REGION ? 10990 : 149;
+const PREMIUM_BOX_PRICE = IS_RU_REGION ? 13990 : 199;
 
 const PREMIUM_ADDONS: BuildProduct[] = [
   {
@@ -79,6 +80,7 @@ function BrandInitials({ brand, compact = false }: { brand: string; compact?: bo
 
 export const BuildBox: React.FC = () => {
   const { language, currency } = useI18n();
+  const currSym = IS_RU_REGION ? '₽' : '$';
   const { addItem, removeItem, items: cartItems } = useCart();
   const { userId } = useAuth();
   const navigate = useNavigate();
@@ -118,12 +120,13 @@ export const BuildBox: React.FC = () => {
   useEffect(() => {
     if (!supabase) return;
     const client = supabase;
+    const priceKey = IS_RU_REGION ? 'build_box_price_rub' : 'build_box_price_usd';
     const load = async () => {
       try {
         const priceRow = await client
           .from('site_settings')
           .select('value')
-          .eq('key', 'build_box_price_rub')
+          .eq('key', priceKey)
           .maybeSingle();
         const val = Number((priceRow.data as { value?: string } | null)?.value ?? DEFAULT_BOX_PRICE);
         if (Number.isFinite(val) && val > 0) setBoxPrice(val);
@@ -800,7 +803,7 @@ export const BuildBox: React.FC = () => {
                 onClick={handleAddToCart}
                 className="inline-flex w-full shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 sm:w-auto sm:px-4 sm:text-sm"
               >
-                {isEn ? `Basic only · ${boxPrice.toLocaleString()} ₽` : `Только базовый · ${boxPrice.toLocaleString()} ₽`}
+                {isEn ? `Basic only · ${boxPrice.toLocaleString()} ${currSym}` : `Только базовый · ${boxPrice.toLocaleString()} ${currSym}`}
               </button>
               <button
                 type="button"
@@ -808,7 +811,7 @@ export const BuildBox: React.FC = () => {
                 className="inline-flex w-full shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-amber-500 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-amber-600 sm:w-auto sm:gap-2 sm:px-6 sm:py-2.5 sm:text-sm"
               >
                 <span className="shrink-0" aria-hidden="true">✦</span>
-                {isEn ? `Add Premium · ${PREMIUM_BOX_PRICE.toLocaleString()} ₽` : `Добавить Премиум · ${PREMIUM_BOX_PRICE.toLocaleString()} ₽`}
+                {isEn ? `Add Premium · ${PREMIUM_BOX_PRICE.toLocaleString()} ${currSym}` : `Добавить Премиум · ${PREMIUM_BOX_PRICE.toLocaleString()} ${currSym}`}
               </button>
             </div>
           </div>
@@ -857,7 +860,7 @@ export const BuildBox: React.FC = () => {
                   {isEn ? 'Basic Box · 6 items' : 'Базовый бокс · 6 продуктов'}
                 </p>
                 <p className="mt-2 text-[1.75rem] font-bold leading-none tracking-tight text-slate-900">
-                  {boxPrice.toLocaleString()} ₽
+                  {boxPrice.toLocaleString()} {currSym}
                 </p>
                 <button
                   type="button"
@@ -879,7 +882,7 @@ export const BuildBox: React.FC = () => {
                   ✦ {isEn ? 'Want more?' : 'Хочешь больше?'}
                 </p>
                 <p className="text-sm font-semibold text-slate-900">
-                  {PREMIUM_BOX_PRICE.toLocaleString()} ₽
+                  {PREMIUM_BOX_PRICE.toLocaleString()} {currSym}
                 </p>
               </div>
               <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
