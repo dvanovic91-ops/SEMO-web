@@ -30,7 +30,7 @@ import { IS_RU_REGION } from '../lib/siteRegion';
 
 const SESSION_REVIEWING_KEY = 'semo_was_reviewing';
 const DEFAULT_BOX_PRICE = IS_RU_REGION ? 10990 : 149;
-const PREMIUM_BOX_PRICE = IS_RU_REGION ? 13990 : 199;
+const DEFAULT_PREMIUM_BOX_PRICE = IS_RU_REGION ? 13990 : 199;
 
 const PREMIUM_ADDONS: BuildProduct[] = [
   {
@@ -103,6 +103,7 @@ export const BuildBox: React.FC = () => {
   );
   const [premiumAddons, setPremiumAddons] = useState<BuildProduct[]>(PREMIUM_ADDONS);
   const [boxPrice, setBoxPrice] = useState<number>(DEFAULT_BOX_PRICE);
+  const [premiumBoxPrice, setPremiumBoxPrice] = useState<number>(DEFAULT_PREMIUM_BOX_PRICE);
   const [showReview, setShowReview] = useState(false);
   const [showPremiumStep, setShowPremiumStep] = useState(false);
   const [isPremiumPlan, setIsPremiumPlan] = useState(() =>
@@ -122,15 +123,18 @@ export const BuildBox: React.FC = () => {
     if (!supabase) return;
     const client = supabase;
     const priceKey = IS_RU_REGION ? 'build_box_price_rub' : 'build_box_price_usd';
+    const premiumKey = IS_RU_REGION ? 'build_box_premium_price_rub' : 'build_box_premium_price_usd';
     const load = async () => {
       try {
-        const priceRow = await client
+        const { data } = await client
           .from('site_settings')
-          .select('value')
-          .eq('key', priceKey)
-          .maybeSingle();
-        const val = Number((priceRow.data as { value?: string } | null)?.value ?? DEFAULT_BOX_PRICE);
-        if (Number.isFinite(val) && val > 0) setBoxPrice(val);
+          .select('key, value')
+          .in('key', [priceKey, premiumKey]);
+        const rows = (data ?? []) as { key: string; value: string }[];
+        const basicVal = Number(rows.find((r) => r.key === priceKey)?.value ?? DEFAULT_BOX_PRICE);
+        const premiumVal = Number(rows.find((r) => r.key === premiumKey)?.value ?? DEFAULT_PREMIUM_BOX_PRICE);
+        if (Number.isFinite(basicVal) && basicVal > 0) setBoxPrice(basicVal);
+        if (Number.isFinite(premiumVal) && premiumVal > 0) setPremiumBoxPrice(premiumVal);
       } catch { /* keep defaults */ }
     };
     void load();
@@ -348,10 +352,10 @@ export const BuildBox: React.FC = () => {
     const id = 'custom-build-box-premium';
     const name = isEn ? 'Custom Box Premium' : 'Свой бокс Премиум';
     if (existingBoxId && existingBoxId !== id) {
-      setReplaceModal({ pendingId: existingBoxId, pendingAction: () => { removeItem(existingBoxId); doAddToCart(id, name, PREMIUM_BOX_PRICE, true); } });
+      setReplaceModal({ pendingId: existingBoxId, pendingAction: () => { removeItem(existingBoxId); doAddToCart(id, name, premiumBoxPrice, true); } });
       return;
     }
-    doAddToCart(id, name, PREMIUM_BOX_PRICE, true);
+    doAddToCart(id, name, premiumBoxPrice, true);
   };
 
   const isLastStep = currentStep === totalSteps - 1;
@@ -566,7 +570,7 @@ export const BuildBox: React.FC = () => {
             name={productName}
           />
           {mBadge && (
-            <SkuMarketingBadge badge={mBadge} isEn={isEn} variant="overlay" />
+            <SkuMarketingBadge badge={mBadge} language={language as 'ko' | 'en' | 'ru'} variant="overlay" />
           )}
         </div>
         <div className="flex min-w-0 flex-col p-3 text-center">
@@ -649,7 +653,7 @@ export const BuildBox: React.FC = () => {
 
   // ── 공통: 프로그레스 바 (선택 + 프리미엄 스텝에서 공유) ───────────
   const renderProgressBar = (premiumActive = false) => (
-    <div className="mb-5 flex w-full items-start overflow-x-auto px-1 pb-1 [&::-webkit-scrollbar]:hidden sm:justify-center" style={{ scrollbarWidth: 'none' }}>
+    <div className="mb-5 flex w-full items-start overflow-x-auto px-1 pt-2 pb-1 [&::-webkit-scrollbar]:hidden sm:justify-center" style={{ scrollbarWidth: 'none' }}>
       {categories.map((cat, i) => {
         const isDone = selected[i] !== null && (premiumActive || i < currentStep);
         const isActive = !premiumActive && i === currentStep;
@@ -657,7 +661,7 @@ export const BuildBox: React.FC = () => {
         const sel = selected[i];
         return (
           <React.Fragment key={cat.key}>
-            <div className="flex w-[52px] shrink-0 flex-col items-center gap-0.5 px-0.5 sm:w-auto sm:min-w-0 sm:flex-1 sm:max-w-[5.25rem]">
+            <div className="flex w-[52px] shrink-0 flex-col items-center gap-1.5 px-0.5 sm:w-auto sm:min-w-0 sm:flex-1 sm:max-w-[5.25rem]">
               <button
                 type="button"
                 onClick={() => {
@@ -667,7 +671,7 @@ export const BuildBox: React.FC = () => {
                 disabled={isPending}
                 className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition
                   ${isDone ? 'bg-emerald-500 text-white' : ''}
-                  ${isActive ? 'bg-brand text-white ring-2 ring-brand/30' : ''}
+                  ${isActive ? 'bg-brand text-white shadow-[0_0_0_2px_rgba(230,84,39,0.35)]' : ''}
                   ${isPending ? 'border border-slate-200 bg-white text-slate-400' : ''}
                 `}
               >
@@ -696,9 +700,9 @@ export const BuildBox: React.FC = () => {
         );
       })}
       <div className={`mt-4 h-px w-4 shrink-0 sm:w-2.5 ${premiumActive ? 'bg-amber-400' : 'bg-slate-200'}`} />
-      <div className="flex min-w-0 flex-1 flex-col items-center gap-0.5 px-0.5 sm:max-w-[5.25rem]">
+      <div className="flex min-w-0 flex-1 flex-col items-center gap-1.5 px-0.5 sm:max-w-[5.25rem]">
         <div className={`flex h-9 w-9 items-center justify-center rounded-full text-xs font-semibold transition
-          ${premiumActive ? 'bg-amber-500 text-white ring-2 ring-amber-300' : 'border border-slate-200 bg-white text-slate-400'}`}>
+          ${premiumActive ? 'bg-amber-500 text-white shadow-[0_0_0_2px_rgba(251,191,36,0.55)]' : 'border border-slate-200 bg-white text-slate-400'}`}>
           ✦
         </div>
         <span className={`w-full text-center text-[8px] leading-tight font-medium
@@ -805,7 +809,7 @@ export const BuildBox: React.FC = () => {
                 className="inline-flex w-full shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-amber-500 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-amber-600 sm:w-auto sm:gap-2 sm:px-6 sm:py-2.5 sm:text-sm"
               >
                 <span className="shrink-0" aria-hidden="true">✦</span>
-                {isEn ? `Add Premium · ${PREMIUM_BOX_PRICE.toLocaleString()} ${currSym}` : `Добавить Премиум · ${PREMIUM_BOX_PRICE.toLocaleString()} ${currSym}`}
+                {isEn ? `Add Premium · ${premiumBoxPrice.toLocaleString()} ${currSym}` : `Добавить Премиум · ${premiumBoxPrice.toLocaleString()} ${currSym}`}
               </button>
             </div>
           </div>
@@ -876,7 +880,7 @@ export const BuildBox: React.FC = () => {
                   ✦ {isEn ? 'Want more?' : 'Хочешь больше?'}
                 </p>
                 <p className="text-sm font-semibold text-slate-900">
-                  {PREMIUM_BOX_PRICE.toLocaleString()} {currSym}
+                  {premiumBoxPrice.toLocaleString()} {currSym}
                 </p>
               </div>
               <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">

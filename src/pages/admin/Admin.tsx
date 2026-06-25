@@ -576,7 +576,9 @@ type RecommendationAnalyticsRow = {
 function SiteSettingsTab() {
   const [giftPrice, setGiftPrice] = useState('');
   const [buildBoxPrice, setBuildBoxPrice] = useState('');
+  const [buildBoxPremiumPrice, setBuildBoxPremiumPrice] = useState('');
   const [buildBoxPriceUsd, setBuildBoxPriceUsd] = useState('');
+  const [buildBoxPremiumPriceUsd, setBuildBoxPremiumPriceUsd] = useState('');
   const [shippingDays, setShippingDays] = useState('15, 30');
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
@@ -593,19 +595,23 @@ function SiteSettingsTab() {
     supabase
       .from('site_settings')
       .select('key, value')
-      .in('key', ['gift_voucher_price_rub', 'build_box_price_rub', 'build_box_price_usd', 'shipping_deadline_days'])
+      .in('key', ['gift_voucher_price_rub', 'build_box_price_rub', 'build_box_premium_price_rub', 'build_box_price_usd', 'build_box_premium_price_usd', 'shipping_deadline_days'])
       .then(({ data }) => {
         const rows = (data ?? []) as { key: string; value: string }[];
         const gift = rows.find((r) => r.key === 'gift_voucher_price_rub')?.value ?? '10000';
         const build = rows.find((r) => r.key === 'build_box_price_rub')?.value ?? '10990';
+        const buildPremium = rows.find((r) => r.key === 'build_box_premium_price_rub')?.value ?? '13990';
         const buildUsd = rows.find((r) => r.key === 'build_box_price_usd')?.value ?? '';
+        const buildPremiumUsd = rows.find((r) => r.key === 'build_box_premium_price_usd')?.value ?? '';
         const shipping = rows.find((r) => r.key === 'shipping_deadline_days')?.value ?? '15, 30';
         setGiftPrice(gift);
         setBuildBoxPrice(build);
+        setBuildBoxPremiumPrice(buildPremium);
         setBuildBoxPriceUsd(buildUsd);
+        setBuildBoxPremiumPriceUsd(buildPremiumUsd);
         setShippingDays(shipping);
       })
-      .catch(() => { setGiftPrice('10000'); setBuildBoxPrice('10990'); })
+      .catch(() => { setGiftPrice('10000'); setBuildBoxPrice('10990'); setBuildBoxPremiumPrice('13990'); })
       .finally(() => setLoadingSettings(false));
   }, []);
 
@@ -634,8 +640,13 @@ function SiteSettingsTab() {
   const handleSaveBuildBox = async () => {
     if (!supabase) return;
     const price = Number(buildBoxPrice);
+    const premiumPrice = Number(buildBoxPremiumPrice);
     if (!Number.isFinite(price) || price <= 0) {
-      setBuildBoxMsg('가격은 0보다 큰 숫자여야 합니다.');
+      setBuildBoxMsg('기본 가격은 0보다 큰 숫자여야 합니다.');
+      return;
+    }
+    if (!Number.isFinite(premiumPrice) || premiumPrice <= 0) {
+      setBuildBoxMsg('프리미엄 가격은 0보다 큰 숫자여야 합니다.');
       return;
     }
     setSavingBuildBox(true);
@@ -643,7 +654,10 @@ function SiteSettingsTab() {
     try {
       const { error } = await supabase
         .from('site_settings')
-        .upsert({ key: 'build_box_price_rub', value: String(Math.round(price)) }, { onConflict: 'key' });
+        .upsert([
+          { key: 'build_box_price_rub', value: String(Math.round(price)) },
+          { key: 'build_box_premium_price_rub', value: String(Math.round(premiumPrice)) },
+        ], { onConflict: 'key' });
       if (error) throw error;
       setBuildBoxMsg('✅ 저장됐습니다.');
     } catch (e) {
@@ -656,8 +670,13 @@ function SiteSettingsTab() {
   const handleSaveBuildBoxUsd = async () => {
     if (!supabase) return;
     const price = Number(buildBoxPriceUsd);
+    const premiumPrice = Number(buildBoxPremiumPriceUsd);
     if (!Number.isFinite(price) || price <= 0) {
-      setBuildBoxUsdMsg('가격은 0보다 큰 숫자여야 합니다.');
+      setBuildBoxUsdMsg('기본 가격은 0보다 큰 숫자여야 합니다.');
+      return;
+    }
+    if (!Number.isFinite(premiumPrice) || premiumPrice <= 0) {
+      setBuildBoxUsdMsg('프리미엄 가격은 0보다 큰 숫자여야 합니다.');
       return;
     }
     setSavingBuildBoxUsd(true);
@@ -665,7 +684,10 @@ function SiteSettingsTab() {
     try {
       const { error } = await supabase
         .from('site_settings')
-        .upsert({ key: 'build_box_price_usd', value: String(price) }, { onConflict: 'key' });
+        .upsert([
+          { key: 'build_box_price_usd', value: String(price) },
+          { key: 'build_box_premium_price_usd', value: String(premiumPrice) },
+        ], { onConflict: 'key' });
       if (error) throw error;
       setBuildBoxUsdMsg('✅ 저장됐습니다.');
     } catch (e) {
@@ -755,7 +777,7 @@ function SiteSettingsTab() {
         </div>
         <div className="px-5 py-4">
           <label className="text-xs font-medium text-slate-600" htmlFor="build-box-price-input">
-            박스 가격 (루블)
+            기본 박스 가격 (루블)
           </label>
           <div className="mt-1 flex items-center gap-2">
             <input
@@ -765,6 +787,22 @@ function SiteSettingsTab() {
               step="100"
               value={buildBoxPrice}
               onChange={(e) => setBuildBoxPrice(e.target.value)}
+              className="w-40 rounded-lg border border-slate-200 px-3 py-2 text-sm tabular-nums focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+            />
+            <span className="text-sm text-slate-500">₽</span>
+          </div>
+          <label className="mt-4 block text-xs font-medium text-slate-600" htmlFor="build-box-premium-price-input">
+            프리미엄 박스 가격 (루블)
+          </label>
+          <div className="mt-1 flex items-center gap-2">
+            <input
+              id="build-box-premium-price-input"
+              type="number"
+              min="1"
+              step="100"
+              value={buildBoxPremiumPrice}
+              onChange={(e) => setBuildBoxPremiumPrice(e.target.value)}
+              placeholder="예: 13990"
               className="w-40 rounded-lg border border-slate-200 px-3 py-2 text-sm tabular-nums focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
             />
             <span className="text-sm text-slate-500">₽</span>
@@ -793,7 +831,7 @@ function SiteSettingsTab() {
         </div>
         <div className="px-5 py-4">
           <label className="text-xs font-medium text-slate-600" htmlFor="build-box-price-usd-input">
-            박스 가격 (달러)
+            기본 박스 가격 (달러)
           </label>
           <div className="mt-1 flex items-center gap-2">
             <input
@@ -804,6 +842,22 @@ function SiteSettingsTab() {
               value={buildBoxPriceUsd}
               onChange={(e) => setBuildBoxPriceUsd(e.target.value)}
               placeholder="예: 149"
+              className="w-40 rounded-lg border border-slate-200 px-3 py-2 text-sm tabular-nums focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+            />
+            <span className="text-sm text-slate-500">$</span>
+          </div>
+          <label className="mt-4 block text-xs font-medium text-slate-600" htmlFor="build-box-premium-price-usd-input">
+            프리미엄 박스 가격 (달러)
+          </label>
+          <div className="mt-1 flex items-center gap-2">
+            <input
+              id="build-box-premium-price-usd-input"
+              type="number"
+              min="1"
+              step="1"
+              value={buildBoxPremiumPriceUsd}
+              onChange={(e) => setBuildBoxPremiumPriceUsd(e.target.value)}
+              placeholder="예: 199"
               className="w-40 rounded-lg border border-slate-200 px-3 py-2 text-sm tabular-nums focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
             />
             <span className="text-sm text-slate-500">$</span>

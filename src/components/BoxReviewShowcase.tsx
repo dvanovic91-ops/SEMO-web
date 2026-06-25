@@ -160,15 +160,19 @@ export function BoxReviewShowcase({
               </p>
               <div className="h-px flex-1 bg-gradient-to-l from-transparent to-amber-300/50" />
             </div>
-            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3">
+            <div className="flex flex-wrap justify-center gap-2.5 sm:gap-3">
               {premiumItems.map((product) => (
-                <ShowcaseItem
+                <div
                   key={product.id}
-                  product={product}
-                  slotKey="premium"
-                  isEn={isEn}
-                  isPremiumItem
-                />
+                  className="w-[calc(50%-0.3125rem)] sm:w-[calc((100%-1.5rem)/3)]"
+                >
+                  <ShowcaseItem
+                    product={product}
+                    slotKey="premium"
+                    isEn={isEn}
+                    isPremiumItem
+                  />
+                </div>
               ))}
             </div>
           </>

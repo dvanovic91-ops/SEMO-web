@@ -27,7 +27,7 @@ const FAQ_CATEGORIES: FaqCategory[] = [
     title: { ru: 'Таможня и пошлины', en: 'Customs & Duties' },
     summary: { ru: 'Лимиты, документы, возможные сборы.', en: 'Limits, documents, possible fees.' },
     items: [
-      { q: { ru: 'Нужно ли платить таможенную пошлину?', en: 'Do I need to pay customs duty?' }, a: { ru: 'Зависит от текущих лимитов и стоимости заказа. При превышении лимита пошлину оплачивает получатель.', en: 'It depends on current limits and order value. If limits are exceeded, duty is paid by the recipient.' } },
+      { q: { ru: 'Нужно ли платить таможенную пошлину?', en: 'Do I need to pay customs duty?' }, a: { ru: 'Для физических лиц действует беспошлинный порог: €200 и не более 31 кг в одном отправлении. Если стоимость заказа превышает этот лимит, таможенная пошлина оплачивается получателем при получении. Мы формируем заказы с учётом действующих лимитов.', en: 'For individuals, the duty-free threshold is €200 and no more than 31 kg per parcel. If the order value exceeds this limit, customs duty is paid by the recipient upon delivery. We form orders within the applicable limits.' } },
       { q: { ru: 'Кто связывается по таможенным вопросам?', en: 'Who contacts me for customs issues?' }, a: { ru: 'Обычно курьерская/логистическая служба напрямую запрашивает данные и подтверждение.', en: 'Usually the courier/logistics partner contacts you directly for required confirmation.' } },
       { q: { ru: 'Какие данные могут запросить?', en: 'What data can be requested?' }, a: { ru: 'ФИО, адрес, ИНН, паспортные данные — только если это требуется для таможенного оформления.', en: 'Full name, address, INN, passport details - only when required for customs clearance.' } },
     ],

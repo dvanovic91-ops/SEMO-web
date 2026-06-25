@@ -161,20 +161,19 @@ function ProductDetailWithKey() {
 function AppLayout() {
   const { productDesktopNav } = useProductNavReplacement();
   const { pathname } = useLocation();
-  const mdProductPad = 'md:pt-[calc(var(--semo-desktop-header-h)+var(--semo-shipping-banner-h))]';
+  const mdProductPad = 'md:pt-[var(--semo-desktop-header-h)]';
   return (
     <>
       <CrossRegionNotice />
       <AddItemFromQuery />
       <Navbar />
-      <ShippingCountdownBanner />
       <GlobalEnglishOverlay />
       <TrackVisit />
       <PasswordRecoveryRouteGuard />
       <PostSignupRedirect />
       <ScrollToTop />
       <div
-        className={`min-w-0 flex-1 overflow-x-hidden pb-[var(--semo-mobile-tabbar-h)] pt-[calc(var(--semo-mobile-header-h)+var(--semo-shipping-banner-h))] md:pb-0 ${mdProductPad}`}
+        className={`min-w-0 flex-1 overflow-x-hidden pb-[var(--semo-mobile-tabbar-h)] pt-[var(--semo-mobile-header-h)] md:pb-0 ${mdProductPad}`}
       >
         <Routes>
               <Route path="/" element={<Home />} />
@@ -224,6 +223,7 @@ function AppLayout() {
               <Route path="/register/shipping" element={<RegisterShipping />} />
             </Routes>
       </div>
+      <ShippingCountdownBanner />
       <Footer />
     </>
   );

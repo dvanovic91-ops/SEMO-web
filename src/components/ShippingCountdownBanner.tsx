@@ -80,7 +80,7 @@ export const ShippingCountdownBanner: React.FC = () => {
     weekday: 'short',
   });
 
-  const bannerBase = 'fixed left-0 right-0 z-[39] flex h-[var(--semo-shipping-banner-h)] items-center justify-center px-4 top-[var(--semo-mobile-header-h)] md:top-[var(--semo-desktop-header-h)]';
+  const bannerBase = 'flex h-[var(--semo-shipping-banner-h)] w-full shrink-0 items-center justify-center border-t border-inherit px-4';
 
   if (isUrgent) {
     return (
@@ -114,7 +114,7 @@ export const ShippingCountdownBanner: React.FC = () => {
       {/* 모바일: 두 줄 */}
       <div style={{ flex: 1, minWidth: 0 }} className="md:hidden">
         <p style={{ margin: 0, fontSize: 11, color: '#2D7A65', fontWeight: 500 }}>
-          {isEn ? "Order by this date to join this month's box" : 'Успейте заказать — войдите в этот бокс'}
+          {isEn ? "Order by this date to join this month's box" : 'Успейте заказать — не пропустите этот бокс'}
         </p>
         <p style={{ margin: 0, fontSize: 15, fontWeight: 600, color: '#1B4F3E', marginTop: 1 }}>
           {isEn ? `Deadline: ${dateStr}` : `До ${dateStr}`}
@@ -124,7 +124,7 @@ export const ShippingCountdownBanner: React.FC = () => {
       <style>{`@keyframes semo-ticker{from{transform:translateX(100vw)}to{transform:translateX(calc(-100% - 1rem))}}`}</style>
       <div className="hidden md:flex" style={{ flex: 1, overflow: 'hidden', alignItems: 'center' }}>
         <span style={{ display: 'inline-block', whiteSpace: 'nowrap', fontSize: 14, fontWeight: 500, color: '#1B4F3E', letterSpacing: '0.07em', willChange: 'transform', animation: 'semo-ticker 22s linear infinite' }}>
-          {isEn ? `Order by ${dateStr} to join this month's box` : `Успейте до ${dateStr} — войдите в этот бокс`}
+          {isEn ? `Order by ${dateStr} to join this month's box` : `Успейте до ${dateStr} — не пропустите этот бокс`}
         </span>
       </div>
       <span style={{ background: '#1B6B55', color: '#fff', fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 99, flexShrink: 0 }}>

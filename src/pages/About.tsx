@@ -74,11 +74,11 @@ export const About: React.FC = () => {
                 </>
               ) : (
                 <>
-                  SEMO делает выбор ухода <strong className={highlight}>Smart</strong>: мы начинаем с AI-анализа кожи и
-                  проверки состава, а не с трендов. Мы делаем процесс <strong className={highlight}>Easy</strong>,
+                  SEMO делает выбор ухода <strong className={highlight}>Умным (Smart)</strong>: мы начинаем с AI-анализа кожи и
+                  проверки состава, а не с трендов. Мы делаем процесс <strong className={highlight}>Простым (Easy)</strong>,
                   сужая бесконечный выбор до понятной рутины. Мы помогаем сократить{' '}
-                  <strong className={highlight}>Minimal</strong> количество проб, лишних покупок и затрат. И каждая
-                  рекомендация остается <strong className={highlight}>Only for you</strong>, проверенной по данным вашей
+                  <strong className={highlight}>до минимума (Minimal)</strong> количество проб, лишних покупок и затрат. И каждая
+                  рекомендация остается <strong className={highlight}>только для вас (Only for you)</strong>, проверенной по данным вашей
                   кожи.
                 </>
               )}
