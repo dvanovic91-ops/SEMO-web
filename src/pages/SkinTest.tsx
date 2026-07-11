@@ -374,30 +374,52 @@ export const SkinTest: React.FC = () => {
         idx: 1 as const, score: sc[1],
         note: en
           ? 'Your skin sits near the dry/oily boundary — combination traits may apply.'
-          : '건성/지성 경계에 가까워요. 복합성 피부 특성도 함께 참고해보세요.',
+          : 'Ваша кожа близка к границе сухого/жирного типа — характеристики комбинированной кожи тоже могут подойти.',
       },
       {
         idx: 2 as const, score: sc[2],
         note: en
           ? 'Sensitivity is moderate — skin can react differently by season or environment.'
-          : '민감도가 중간이에요. 계절·환경 변화에 따라 피부 반응이 달라질 수 있어요.',
+          : 'Чувствительность на среднем уровне — реакция кожи может меняться в зависимости от сезона и среды.',
       },
       {
         idx: 3 as const, score: sc[3],
         note: en
           ? 'Pigmentation tendency is borderline — consistent SPF use is still a good habit.'
-          : '색소 침착 경향이 경계선이에요. 평소 자외선 차단제를 꾸준히 써주세요.',
+          : 'Склонность к пигментации на границе нормы — регулярное использование SPF будет хорошей привычкой.',
       },
       {
         idx: 4 as const, score: sc[4],
         note: en
           ? 'Skin firmness is in the mid-range — a good time to start preventive care.'
-          : '탄력이 중간 수준이에요. 지금부터 관리하면 충분히 유지할 수 있어요.',
+          : 'Упругость кожи на среднем уровне — сейчас хорошее время начать профилактический уход.',
       },
     ];
     return axes
       .filter(a => a.score === 0)
       .map(a => a.note);
+  };
+
+  const englishAvoid = (type: string): string => {
+    const map: Record<string, string> = {
+      DRNT: 'No specific restrictions',
+      DRNW: 'No specific restrictions',
+      DRPT: 'No specific restrictions',
+      DRPW: 'Overly lightweight textures',
+      DSNT: 'Fragrances, alcohol',
+      DSNW: 'High-concentration retinol',
+      DSPT: 'Fragrances, harsh actives',
+      DSPW: 'High-concentration AHAs, alcohol',
+      ORNT: 'No specific restrictions',
+      ORNW: 'No specific restrictions',
+      ORPT: 'No specific restrictions',
+      ORPW: 'Heavy creams',
+      OSNT: 'Oils, fragrances',
+      OSNW: 'Oil-based formulas',
+      OSPT: 'Oils, heavy creams',
+      OSPW: 'Oils, heavy creams',
+    };
+    return map[type.toUpperCase()] ?? 'No specific restrictions';
   };
 
   const englishConcernLabel = (label: string) => {
@@ -2355,91 +2377,20 @@ export const SkinTest: React.FC = () => {
             </div>
           )}
 
-          {/* AI 분석 섹션 */}
-          {!(userId && selfieFirstFlow) && <div className="mt-3 space-y-3">
-            {aiAnalysisText && aiDisplaySections.length > 0 ? (
-              <>
-                {aiDisplaySections.map((sec, idx) => {
-                  const KICKERS_RU = ['Ваша кожа сейчас', 'Рекомендуемый уход', 'Ожидаемый эффект от средств'];
-                  const KICKERS_EN = ['Your skin right now', 'Recommended routine', 'Expected results'];
-                  const kicker = (isEn ? KICKERS_EN : KICKERS_RU)[idx] ?? (isEn ? KICKERS_EN[KICKERS_EN.length - 1] : KICKERS_RU[KICKERS_RU.length - 1]);
-                  const hasSelfie = !!selfieAnalyzeResult;
-                  // 섹션별 문단 소제목 (인덱스 순서 = AI가 쓰는 순서와 동일)
-                  const PARA_LABELS_EN: Record<number, string[]> = {
-                    0: hasSelfie
-                      ? ['What your questionnaire reveals', 'What your photo caught today', 'About your concern']
-                      : ['What your questionnaire reveals', 'About your concern'],
-                    1: ['The shift ahead', "What's in your box"],
-                    2: ["What you'll feel first", 'By the time your next box arrives'],
-                  };
-                  const PARA_LABELS_RU: Record<number, string[]> = {
-                    0: hasSelfie
-                      ? ['Что показывает анкета', 'Что показало фото', 'О вашем запросе']
-                      : ['Что показывает анкета', 'О вашем запросе'],
-                    1: ['Что меняется впереди', 'Что в вашем боксе'],
-                    2: ['Что вы почувствуете сначала', 'К моменту следующего бокса'],
-                  };
-                  const paraLabels = (isEn ? PARA_LABELS_EN : PARA_LABELS_RU)[idx] ?? [];
-                  const paragraphs = String(sec.body || '')
-                    .split(/\n\s*\n/g)
-                    .map((p) => p.trim())
-                    .filter(Boolean);
-                  return (
-                    <div
-                      key={`ai-sec-${idx}-${String(sec.title ?? '').slice(0, 12)}`}
-                      className="rounded-xl border border-slate-100 bg-slate-50/90 px-3 py-3 sm:px-4 sm:py-4"
-                    >
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{kicker}</p>
-                      <div className="mt-2 space-y-4">
-                        {paragraphs.map((para, pIdx) => (
-                          <div key={`sec-${idx}-p-${pIdx}`}>
-                            {paraLabels[pIdx] && (
-                              <p className="mb-1 text-[11px] font-semibold text-slate-500">{paraLabels[pIdx]}</p>
-                            )}
-                            <p className="text-sm leading-relaxed text-slate-700">{para}</p>
-                          </div>
-                        ))}
-                      </div>
-                      {idx === 0 && (
-                        <p className="mt-3 text-[11px] leading-snug text-slate-400">
-                          {isEn
-                            ? 'This reflects skin tendencies, not a medical diagnosis.'
-                            : 'Это профиль тенденций, а не медицинский диагноз.'}
-                        </p>
-                      )}
-                    </div>
-                  );
-                })}
-              </>
-            ) : (!waitingForAiSections && aiAnalysisError ? (
-              <div className="rounded-xl border border-rose-200 bg-rose-50/80 px-3 py-3 sm:px-4 sm:py-4">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-rose-700">
-                  {isEn ? 'Analysis failed' : 'Ошибка анализа'}
-                </p>
-                <p className="mt-2 text-sm leading-relaxed text-rose-700">
-                  {aiAnalysisError}
-                </p>
-              </div>
-            ) : (
-              <div className="rounded-xl border border-brand/20 bg-brand-soft/30 px-3 py-3 sm:px-4 sm:py-4">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-brand">
-                  {isEn ? 'Analysis in progress' : 'Идёт анализ'}
-                </p>
-                <p className="mt-2 text-sm leading-relaxed text-slate-700">
-                  {isEn
-                    ? 'Preparing your final personalized result...'
-                    : 'Подготавливаем ваш персональный результат...'}
-                </p>
-                {aiRetrying && (
-                  <p className="mt-1 text-xs leading-relaxed text-slate-500">
-                    {isEn
-                      ? 'Network signal looks weak, retrying once now...'
-                      : 'Сигнал сети выглядит слабым, пробуем ещё раз...'}
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>}
+          {/* 피부 타입 설명 카드 (SKIN_INFO 기반, API 없음) */}
+          {!(userId && selfieFirstFlow) && (
+            <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50/90 px-4 py-4 sm:px-5 sm:py-5">
+              <p className="text-sm leading-relaxed text-slate-700">
+                {isEn ? englishResultDesc(type) : info.desc}
+              </p>
+              <p className="mt-3 flex items-start gap-1.5 text-xs text-slate-500">
+                <span className="shrink-0 font-medium text-slate-400">
+                  {isEn ? 'Avoid:' : 'Избегать:'}
+                </span>
+                {isEn ? englishAvoid(type) : info.avoid}
+              </p>
+            </div>
+          )}
 
           {/* ── 셀카 업로드 박스: 최초 분석 전/셀피 우선 단계에서만 노출 ── */}
           {userId && selfieCouponCount !== null && (selfieFirstFlow || !selfieAnalyzeResult) && (
