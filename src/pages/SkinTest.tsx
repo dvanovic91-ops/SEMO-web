@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   QUESTIONS,
   ANSWERS,
@@ -12,6 +12,7 @@ import {
 } from '../data/skinTestData';
 import { getRecommendationPath, SKIN_TEST_CATALOG_CATEGORY } from '../config/skinTypeRecommendations';
 import { loadBuildBoxCategories, type BuildProduct, type BuildCategory } from '../lib/buildBoxCatalog';
+import { saveBuildBoxDraft } from '../lib/buildBoxDraft';
 import { userBlockedByPiAvoid } from '../lib/piProfile';
 import { useAuth } from '../context/AuthContext';
 import { useI18n } from '../context/I18nContext';
@@ -531,6 +532,7 @@ export const SkinTest: React.FC = () => {
 
   // ─────────────────────────────────────────────────────────────────────────
 
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const skinTypeQueryParam = searchParams.get('type')?.trim().toUpperCase() ?? '';
   const resultRowIdQueryParam = searchParams.get('id')?.trim() ?? '';
@@ -582,10 +584,12 @@ export const SkinTest: React.FC = () => {
   } | null>(null);
   /** 슬롯별 추천 SKU 6개 (cleanser→toner→serum→ampoule→cream→sunscreen) */
   const [slotRecommendations, setSlotRecommendations] = useState<{ slot: string; labelRu: string; labelEn: string; product: BuildProduct }[] | null>(null);
+  const [slotLoading, setSlotLoading] = useState(false);
 
   useEffect(() => {
     if (!result?.type || !supabase) return;
     let cancelled = false;
+    setSlotLoading(true);
     (async () => {
       try {
         const cats = await loadBuildBoxCategories(supabase);
@@ -594,6 +598,8 @@ export const SkinTest: React.FC = () => {
         setSlotRecommendations(picks);
       } catch {
         /* 조용히 무시 */
+      } finally {
+        if (!cancelled) setSlotLoading(false);
       }
     })();
     return () => { cancelled = true; };
@@ -2753,62 +2759,79 @@ export const SkinTest: React.FC = () => {
           )}
 
           {/* 슬롯별 추천 SKU 6개 카드 — 최신 테스트 결과에만 표시 */}
-          {!isViewingPastResult && !(userId && selfieFirstFlow) && slotRecommendations && slotRecommendations.length > 0 && (
+          {!isViewingPastResult && !(userId && selfieFirstFlow) && (slotLoading || (slotRecommendations && slotRecommendations.length > 0)) && (
             <div className="mt-4">
               <p className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-brand/70">
                 {isEn ? 'Picked for your skin type' : 'Подобрано для вашего типа'}
               </p>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {slotRecommendations.map(({ slot, labelRu, labelEn, product }) => (
-                  <div key={slot} className="relative flex flex-col rounded-xl border border-slate-100 bg-white p-2.5 shadow-sm">
-                    {/* 카테고리 라벨 — BuildBox 스타일 */}
-                    <span className="mb-1.5 inline-block self-start rounded-md bg-brand/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-brand">
-                      {isEn ? labelEn : labelRu}
-                    </span>
-                    {/* 썸네일 */}
-                    {product.imageUrl ? (
-                      <img
-                        src={product.imageUrl}
-                        alt={isEn ? product.nameEn : product.nameRu}
-                        className="mx-auto mb-2 h-16 w-16 object-contain"
-                      />
-                    ) : (
-                      <div className="mx-auto mb-2 h-16 w-16 rounded-lg bg-slate-50" />
-                    )}
-                    {/* 브랜드 */}
-                    <p className="text-[10px] font-medium text-slate-400">{product.brand}</p>
-                    {/* 제품명 */}
-                    <p className="mt-0.5 line-clamp-2 text-xs font-semibold leading-snug text-slate-800">
-                      {isEn ? product.nameEn : product.nameRu}
-                    </p>
-                    {/* 태그 */}
-                    <p className="mt-1 line-clamp-1 text-[10px] text-slate-400">
-                      {isEn ? product.tagEn : product.tagRu}
-                    </p>
-                    {/* 상품 상세 링크 */}
-                    {product.productId && (
-                      <Link
-                        to={`/product/${product.productId}`}
-                        className="mt-2 text-[10px] font-medium text-brand hover:opacity-80"
-                      >
-                        {isEn ? 'View →' : 'Подробнее →'}
-                      </Link>
-                    )}
-                  </div>
-                ))}
+                {slotLoading
+                  ? Array.from({ length: 6 }).map((_, i) => (
+                      <div key={i} className="flex flex-col rounded-xl border border-slate-100 bg-white p-2.5 shadow-sm animate-pulse">
+                        <div className="mb-1.5 h-4 w-14 rounded-md bg-slate-100" />
+                        <div className="mx-auto mb-2 h-16 w-16 rounded-lg bg-slate-100" />
+                        <div className="h-2.5 w-12 rounded bg-slate-100" />
+                        <div className="mt-1.5 h-3 w-full rounded bg-slate-100" />
+                        <div className="mt-1 h-3 w-3/4 rounded bg-slate-100" />
+                      </div>
+                    ))
+                  : slotRecommendations!.map(({ slot, labelRu, labelEn, product }) => (
+                      <div key={slot} className="relative flex flex-col rounded-xl border border-slate-100 bg-white p-2.5 shadow-sm">
+                        <span className="mb-1.5 inline-block self-start rounded-md bg-brand/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-brand">
+                          {isEn ? labelEn : labelRu}
+                        </span>
+                        {product.imageUrl ? (
+                          <img
+                            src={product.imageUrl}
+                            alt={isEn ? product.nameEn : product.nameRu}
+                            className="mx-auto mb-2 h-16 w-16 object-contain"
+                          />
+                        ) : (
+                          <div className="mx-auto mb-2 h-16 w-16 rounded-lg bg-slate-50" />
+                        )}
+                        <p className="text-[10px] font-medium text-slate-400">{product.brand}</p>
+                        <p className="mt-0.5 line-clamp-2 text-xs font-semibold leading-snug text-slate-800">
+                          {isEn ? product.nameEn : product.nameRu}
+                        </p>
+                        <p className="mt-1 line-clamp-1 text-[10px] text-slate-400">
+                          {isEn ? product.tagEn : product.tagRu}
+                        </p>
+                        {product.productId && (
+                          <Link
+                            to={`/product/${product.productId}`}
+                            className="mt-auto pt-2 text-[10px] font-medium text-brand hover:opacity-80"
+                          >
+                            {isEn ? 'View →' : 'Подробнее →'}
+                          </Link>
+                        )}
+                      </div>
+                    ))}
               </div>
-            </div>
-          )}
 
-          {/* 박스 만들러 가기 */}
-          {!(userId && selfieFirstFlow) && !isViewingPastResult && (
-            <div className="mt-3 flex justify-center">
-              <Link
-                to={`/shop/build${result?.type ? `?bt=${result.type}` : ''}`}
-                className="inline-flex min-h-11 w-auto min-w-[180px] items-center justify-center rounded-xl bg-brand px-8 py-3 text-sm font-semibold text-white transition hover:bg-brand/90"
-              >
-                {isEn ? 'Build your box →' : 'Собрать бокс →'}
-              </Link>
+              {/* CTA 버튼 2개 — 추천 세트 구매 / 나만의 박스 */}
+              {!slotLoading && slotRecommendations && slotRecommendations.length > 0 && (
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                  <button
+                    onClick={() => {
+                      const SLOT_ORDER = ['cleanser', 'toner', 'serum', 'ampoule', 'cream', 'sunscreen'];
+                      const ordered = SLOT_ORDER.map(
+                        (s) => slotRecommendations.find((r) => r.slot === s)?.product ?? null,
+                      );
+                      saveBuildBoxDraft(ordered, false);
+                      void navigate('/shop/build?review=1');
+                    }}
+                    className="flex-1 inline-flex min-h-11 items-center justify-center rounded-xl bg-brand px-6 py-3 text-sm font-semibold text-white transition hover:bg-brand/90"
+                  >
+                    {isEn ? 'Buy recommended set →' : 'Купить рекомендованный набор →'}
+                  </button>
+                  <Link
+                    to="/shop/build"
+                    className="flex-1 inline-flex min-h-11 items-center justify-center rounded-xl border border-brand px-6 py-3 text-sm font-semibold text-brand transition hover:bg-brand/5"
+                  >
+                    {isEn ? 'Build my own box' : 'Собрать свой бокс'}
+                  </Link>
+                </div>
+              )}
             </div>
           )}
 
