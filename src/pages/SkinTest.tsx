@@ -11,6 +11,8 @@ import {
   type SkinTypeInfo,
 } from '../data/skinTestData';
 import { getRecommendationPath, SKIN_TEST_CATALOG_CATEGORY } from '../config/skinTypeRecommendations';
+import { loadBuildBoxCategories, type BuildProduct, type BuildCategory } from '../lib/buildBoxCatalog';
+import { userBlockedByPiAvoid } from '../lib/piProfile';
 import { useAuth } from '../context/AuthContext';
 import { useI18n } from '../context/I18nContext';
 import { useCart } from '../context/CartContext';
@@ -453,6 +455,82 @@ export const SkinTest: React.FC = () => {
     return `${base} ${tolerance} ${tone} ${aging}`;
   };
 
+  // ── 슬롯별 SKU 추천 로직 (BuildBox와 동일 알고리즘) ──────────────────────
+  const CONCERN_BADGE_MAP_SR: Record<string, string[]> = {
+    dry:            ['moisture','hydration','nourishing','rich','repair','soothing','gentle','dry skin','balanced moisture'],
+    oily:           ['oil control','oil-free','anti-blemish','blemish','pore','exfoliat'],
+    sensitive:      ['gentle','soothing','low irritation','sensitive skin','balanced moisture','gentle cleanse'],
+    pigmented:      ['brightening','tone-up','renewal','glow','gentle glow'],
+    aging:          ['anti-aging','firming','collagen','cell energy','skin vitality'],
+    glow:           ['brightening','glow','radiance','illuminat','tone-up','renewal','gentle glow'],
+    dehydrated_oily:['oil control','balanced moisture','hydration','moisture-balance','pore','oil-free'],
+  };
+  const parseConcernTagsSR = (text: string): string[] => {
+    if (!text) return [];
+    const t = text.toLowerCase();
+    const tags: string[] = [];
+    if (/dry|tight|moistur|сух|стянут|увлажн/.test(t)) tags.push('dry');
+    if (/oil|sebum|жир|блеск|pore|поры/.test(t)) tags.push('oily');
+    if (/sensitiv|чувствит|redness|красн|irritat|раздраж/.test(t)) tags.push('sensitive');
+    if (/pigment|spot|тон|пятн/.test(t)) tags.push('pigmented');
+    if (/bright|glow|сияние|тускл/.test(t)) tags.push('glow');
+    if (/aging|wrinkle|firm|морщин|упруг|anti.?age/.test(t)) tags.push('aging');
+    return tags;
+  };
+  const baumannScoreSR = (userType: string, productTypes: string[]): number => {
+    if (!productTypes?.length || !userType) return 0;
+    const u = userType.toUpperCase();
+    const scores = productTypes.map(t => {
+      const p = t.toUpperCase();
+      if (p.length !== 4) return -99;
+      let s = 0;
+      s += p[0] === u[0] ? 3 : -2;
+      s += p[1] === u[1] ? 2 : -3;
+      s += p[2] === u[2] ? 1 : 0;
+      s += p[3] === u[3] ? 1 : 0;
+      if (p === u) s += 3;
+      return s;
+    });
+    const best = Math.max(...scores);
+    return best + (productTypes.length <= 2 ? 1 : 0);
+  };
+  const slotConcernScoreSR = (slot: string, badges: string[], baumannType: string, tags: string[]): number => {
+    if (!tags.length || !badges.length) return 0;
+    const isDry = baumannType[0] === 'D';
+    const filtered = tags.filter(tag => {
+      if (['cleanser', 'cream'].includes(slot)) {
+        if (isDry && tag === 'oily') return false;
+        if (!isDry && tag === 'dry') return false;
+      }
+      return true;
+    });
+    const badgesLower = badges.map(b => b.toLowerCase());
+    let score = 0;
+    for (const tag of filtered) {
+      for (const kw of CONCERN_BADGE_MAP_SR[tag] ?? []) {
+        if (badgesLower.some(b => b.includes(kw))) { score += 1.5; break; }
+      }
+    }
+    return Math.min(score, 4);
+  };
+  const pickBestPerSlot = (cats: BuildCategory[], skinType: string, concernText: string): { slot: string; labelRu: string; labelEn: string; product: BuildProduct }[] => {
+    const concernTags = parseConcernTagsSR(concernText);
+    return cats.map(cat => {
+      const eligible = cat.products.filter(p => !userBlockedByPiAvoid(skinType, p.piProfile));
+      const scored = (eligible.length > 0 ? eligible : cat.products).map(p => ({
+        product: p,
+        score: baumannScoreSR(skinType, p.baumannTypes ?? [])
+          + slotConcernScoreSR(cat.key, p.piProfile?.badges?.en ?? [], skinType, concernTags),
+      }));
+      const maxScore = Math.max(...scored.map(s => s.score));
+      const top = scored.filter(s => s.score === maxScore)
+        .sort((a, b) => (a.product.baumannTypes?.length ?? 99) - (b.product.baumannTypes?.length ?? 99));
+      return { slot: cat.key, labelRu: cat.labelRu, labelEn: cat.labelEn, product: top[0].product };
+    });
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+
   const [searchParams, setSearchParams] = useSearchParams();
   const skinTypeQueryParam = searchParams.get('type')?.trim().toUpperCase() ?? '';
   const resultRowIdQueryParam = searchParams.get('id')?.trim() ?? '';
@@ -502,6 +580,26 @@ export const SkinTest: React.FC = () => {
     /** 상품 ID 없음 / 조회 실패 등 — 무한 «Загрузка» 방지 */
     status?: 'ok' | 'no_slot' | 'fetch_failed';
   } | null>(null);
+  /** 슬롯별 추천 SKU 6개 (cleanser→toner→serum→ampoule→cream→sunscreen) */
+  const [slotRecommendations, setSlotRecommendations] = useState<{ slot: string; labelRu: string; labelEn: string; product: BuildProduct }[] | null>(null);
+
+  useEffect(() => {
+    if (!result?.type || !supabase) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const cats = await loadBuildBoxCategories(supabase);
+        if (cancelled) return;
+        const picks = pickBestPerSlot(cats, result.type, concernText);
+        setSlotRecommendations(picks);
+      } catch {
+        /* 조용히 무시 */
+      }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result?.type]);
+
   /** 셀피 직후 통합 문단 요청 시 최신 추천 상품 스냅샷 (클로저 stale 방지) */
   const recommendedProductPreviewRef = useRef(recommendedProductPreview);
   recommendedProductPreviewRef.current = recommendedProductPreview;
@@ -1480,7 +1578,7 @@ export const SkinTest: React.FC = () => {
             .single()
             .then(({ data, error }) => {
               if (error) {
-                console.error('[SkinTest] skin_test_results insert 실패:', error);
+                console.error('[SkinTest] skin_test_results insert 실패:', error, JSON.stringify(error));
                 return;
               }
               if (data?.id) {
@@ -2356,27 +2454,6 @@ export const SkinTest: React.FC = () => {
             </div>
           )}
 
-          {/* AI 준비 전에는 폴백 카드 대신 로딩 안내만 노출 */}
-          {!(userId && selfieFirstFlow) && waitingForAiSections && (
-            <div className="mt-4 rounded-xl border border-brand/20 bg-brand-soft/30 px-3 py-3 sm:px-4 sm:py-4">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-brand">
-                {isEn ? 'Analysis in progress' : 'Идёт анализ'}
-              </p>
-              <p className="mt-2 text-sm leading-relaxed text-slate-700">
-                {isEn
-                  ? 'Generating your personalized result now. This may take 1-2 minutes.'
-                  : 'Формируем персональный результат. Это может занять 1-2 минуты.'}
-              </p>
-              {aiRetrying && (
-                <p className="mt-1 text-xs leading-relaxed text-slate-500">
-                  {isEn
-                    ? 'Network signal looks weak, retrying once now...'
-                    : 'Сигнал сети выглядит слабым, пробуем ещё раз...'}
-                </p>
-              )}
-            </div>
-          )}
-
           {/* 피부 타입 설명 카드 (SKIN_INFO 기반, API 없음) */}
           {!(userId && selfieFirstFlow) && (
             <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50/90 px-4 py-4 sm:px-5 sm:py-5">
@@ -2675,42 +2752,50 @@ export const SkinTest: React.FC = () => {
             </div>
           )}
 
-          {/* 추천 상품 미리보기 — 최신 테스트 결과에만 표시 */}
-          {!isViewingPastResult && !(userId && selfieFirstFlow) && recommendedProductPreview && recommendedProductPreview.status === 'ok' && (
-            <div className="mt-4 rounded-2xl border border-brand/20 bg-gradient-to-br from-brand-soft/20 to-orange-50/60 p-4 sm:p-5">
+          {/* 슬롯별 추천 SKU 6개 카드 — 최신 테스트 결과에만 표시 */}
+          {!isViewingPastResult && !(userId && selfieFirstFlow) && slotRecommendations && slotRecommendations.length > 0 && (
+            <div className="mt-4">
               <p className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-brand/70">
-                {isEn ? 'Recommended for your skin type' : 'Рекомендуем для вашего типа'}
+                {isEn ? 'Picked for your skin type' : 'Подобрано для вашего типа'}
               </p>
-              <div className="flex items-center gap-3">
-                {/* 썸네일 */}
-                {recommendedProductPreview.thumb1 ? (
-                  <img
-                    src={recommendedProductPreview.thumb1}
-                    alt={recommendedProductPreview.name}
-                    className="h-16 w-16 shrink-0 rounded-xl border border-slate-100 bg-white object-contain p-1 sm:h-20 sm:w-20"
-                  />
-                ) : (
-                  <div className="h-16 w-16 shrink-0 rounded-xl border border-slate-100 bg-slate-50 sm:h-20 sm:w-20" />
-                )}
-                {/* 텍스트 */}
-                <div className="min-w-0 flex-1">
-                  <p className="line-clamp-2 text-sm font-medium text-slate-800">
-                    {recommendedProductPreview.name}
-                  </p>
-                  {recommendedProductPreview.prp_price != null && (
-                    <p className="mt-1 text-xs font-semibold text-brand">
-                      {recommendedProductPreview.prp_price.toLocaleString()} ₽
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {slotRecommendations.map(({ slot, labelRu, labelEn, product }) => (
+                  <div key={slot} className="relative flex flex-col rounded-xl border border-slate-100 bg-white p-2.5 shadow-sm">
+                    {/* 카테고리 라벨 — BuildBox 스타일 */}
+                    <span className="mb-1.5 inline-block self-start rounded-md bg-brand/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-brand">
+                      {isEn ? labelEn : labelRu}
+                    </span>
+                    {/* 썸네일 */}
+                    {product.imageUrl ? (
+                      <img
+                        src={product.imageUrl}
+                        alt={isEn ? product.nameEn : product.nameRu}
+                        className="mx-auto mb-2 h-16 w-16 object-contain"
+                      />
+                    ) : (
+                      <div className="mx-auto mb-2 h-16 w-16 rounded-lg bg-slate-50" />
+                    )}
+                    {/* 브랜드 */}
+                    <p className="text-[10px] font-medium text-slate-400">{product.brand}</p>
+                    {/* 제품명 */}
+                    <p className="mt-0.5 line-clamp-2 text-xs font-semibold leading-snug text-slate-800">
+                      {isEn ? product.nameEn : product.nameRu}
                     </p>
-                  )}
-                  {recommendedProductPreview.productId && (
-                    <Link
-                      to={`/product/${recommendedProductPreview.productId}`}
-                      className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-brand hover:opacity-80"
-                    >
-                      {isEn ? 'View product →' : 'Посмотреть →'}
-                    </Link>
-                  )}
-                </div>
+                    {/* 태그 */}
+                    <p className="mt-1 line-clamp-1 text-[10px] text-slate-400">
+                      {isEn ? product.tagEn : product.tagRu}
+                    </p>
+                    {/* 상품 상세 링크 */}
+                    {product.productId && (
+                      <Link
+                        to={`/product/${product.productId}`}
+                        className="mt-2 text-[10px] font-medium text-brand hover:opacity-80"
+                      >
+                        {isEn ? 'View →' : 'Подробнее →'}
+                      </Link>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
           )}
