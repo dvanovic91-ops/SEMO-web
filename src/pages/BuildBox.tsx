@@ -111,7 +111,10 @@ export const BuildBox: React.FC = () => {
   );
   const [categoriesLoaded, setCategoriesLoaded] = useState(false);
   const [cartToast, setCartToast] = useState(false);
-  const [userBaumannType, setUserBaumannType] = useState<string | null>(null);
+  const btParam = searchParams.get('bt')?.trim().toUpperCase() ?? null;
+  const [userBaumannType, setUserBaumannType] = useState<string | null>(
+    btParam && btParam.length === 4 ? btParam : null,
+  );
   const [userConcernText, setUserConcernText] = useState<string>('');
   const [userConcernTags, setUserConcernTags] = useState<string[]>([]);
   const [replaceModal, setReplaceModal] = useState<{ pendingId: string; pendingAction: () => void } | null>(null);
@@ -837,13 +840,7 @@ export const BuildBox: React.FC = () => {
                         {isEn ? 'Selected' : 'Выбрано'}
                         <span aria-hidden="true">✓</span>
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => setSwapModalIndex(premiumAddons.indexOf(product) as 0 | 1)}
-                        className="inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-amber-300 px-2.5 py-1 text-[11px] font-medium text-amber-700 transition hover:bg-amber-50 sm:px-3 sm:text-xs"
-                      >
-                        {isEn ? 'Change' : 'Заменить'}
-                      </button>
+                      {/* Change 버튼 — 현재 비활성화 (프리미엄 구성 고정 운영) */}
                       {(product.skuId || product.productId) && (
                         <Link
                           to={buildBuildProductDetailHref(product) ?? '#'}

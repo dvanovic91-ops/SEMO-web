@@ -365,6 +365,41 @@ export const SkinTest: React.FC = () => {
     return lines.slice(0, 3).join(' ');
   };
 
+  const getBorderlineNotes = (
+    sc: Record<1 | 2 | 3 | 4, number>,
+    en: boolean,
+  ): string[] => {
+    const axes = [
+      {
+        idx: 1 as const, score: sc[1],
+        note: en
+          ? 'Your skin sits near the dry/oily boundary — combination traits may apply.'
+          : '건성/지성 경계에 가까워요. 복합성 피부 특성도 함께 참고해보세요.',
+      },
+      {
+        idx: 2 as const, score: sc[2],
+        note: en
+          ? 'Sensitivity is moderate — skin can react differently by season or environment.'
+          : '민감도가 중간이에요. 계절·환경 변화에 따라 피부 반응이 달라질 수 있어요.',
+      },
+      {
+        idx: 3 as const, score: sc[3],
+        note: en
+          ? 'Pigmentation tendency is borderline — consistent SPF use is still a good habit.'
+          : '색소 침착 경향이 경계선이에요. 평소 자외선 차단제를 꾸준히 써주세요.',
+      },
+      {
+        idx: 4 as const, score: sc[4],
+        note: en
+          ? 'Skin firmness is in the mid-range — a good time to start preventive care.'
+          : '탄력이 중간 수준이에요. 지금부터 관리하면 충분히 유지할 수 있어요.',
+      },
+    ];
+    return axes
+      .filter(a => a.score === 0)
+      .map(a => a.note);
+  };
+
   const englishConcernLabel = (label: string) => {
     const map: Record<string, string> = {
       'Увлажнение': 'Hydration',
@@ -2255,6 +2290,22 @@ export const SkinTest: React.FC = () => {
                 </div>
               </div>
             </div>
+
+            {/* 보더라인 축 코멘트 — 실제 테스트 결과에만 표시, 과거 결과(approximate scores) 제외 */}
+            {!isViewingPastResult && (() => {
+              const notes = getBorderlineNotes(scores, isEn);
+              if (notes.length === 0) return null;
+              return (
+                <div className="mt-3 space-y-1">
+                  {notes.map((note, i) => (
+                    <p key={i} className="flex items-start gap-1.5 text-xs text-slate-500">
+                      <span className="mt-0.5 shrink-0 text-amber-400">≈</span>
+                      {note}
+                    </p>
+                  ))}
+                </div>
+              );
+            })()}
           </div>}
 
           {!(userId && selfieFirstFlow) && (
@@ -2673,11 +2724,51 @@ export const SkinTest: React.FC = () => {
             </div>
           )}
 
+          {/* 추천 상품 미리보기 — 최신 테스트 결과에만 표시 */}
+          {!isViewingPastResult && !(userId && selfieFirstFlow) && recommendedProductPreview && recommendedProductPreview.status === 'ok' && (
+            <div className="mt-4 rounded-2xl border border-brand/20 bg-gradient-to-br from-brand-soft/20 to-orange-50/60 p-4 sm:p-5">
+              <p className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-brand/70">
+                {isEn ? 'Recommended for your skin type' : 'Рекомендуем для вашего типа'}
+              </p>
+              <div className="flex items-center gap-3">
+                {/* 썸네일 */}
+                {recommendedProductPreview.thumb1 ? (
+                  <img
+                    src={recommendedProductPreview.thumb1}
+                    alt={recommendedProductPreview.name}
+                    className="h-16 w-16 shrink-0 rounded-xl border border-slate-100 bg-white object-contain p-1 sm:h-20 sm:w-20"
+                  />
+                ) : (
+                  <div className="h-16 w-16 shrink-0 rounded-xl border border-slate-100 bg-slate-50 sm:h-20 sm:w-20" />
+                )}
+                {/* 텍스트 */}
+                <div className="min-w-0 flex-1">
+                  <p className="line-clamp-2 text-sm font-medium text-slate-800">
+                    {recommendedProductPreview.name}
+                  </p>
+                  {recommendedProductPreview.prp_price != null && (
+                    <p className="mt-1 text-xs font-semibold text-brand">
+                      {recommendedProductPreview.prp_price.toLocaleString()} ₽
+                    </p>
+                  )}
+                  {recommendedProductPreview.productId && (
+                    <Link
+                      to={`/product/${recommendedProductPreview.productId}`}
+                      className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-brand hover:opacity-80"
+                    >
+                      {isEn ? 'View product →' : 'Посмотреть →'}
+                    </Link>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* 박스 만들러 가기 */}
           {!(userId && selfieFirstFlow) && !isViewingPastResult && (
             <div className="mt-3 flex justify-center">
               <Link
-                to="/shop/build"
+                to={`/shop/build${result?.type ? `?bt=${result.type}` : ''}`}
                 className="inline-flex min-h-11 w-auto min-w-[180px] items-center justify-center rounded-xl bg-brand px-8 py-3 text-sm font-semibold text-white transition hover:bg-brand/90"
               >
                 {isEn ? 'Build your box →' : 'Собрать бокс →'}
