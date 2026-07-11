@@ -3,6 +3,7 @@ import { useAuth } from './AuthContext';
 import { useI18n, type AppCurrency } from './I18nContext';
 import { supabase } from '../lib/supabase';
 import { loadProductMarketPrices } from '../lib/productMarketPrices';
+import { IS_RU_REGION } from '../lib/siteRegion';
 
 // custom-build-box 같은 커스텀 ID는 UUID가 아니므로 Supabase 쿼리에서 제외
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -371,8 +372,36 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
           baseMap.set(p.id, { rrp: p.rrp_price ?? null, prp: p.prp_price ?? null });
         });
 
+        // custom-build-box 아이템 가격은 site_settings에서 별도 로드
+        const customBoxItems = items.filter((it) => it.id.startsWith('custom-build-box'));
+        let customPriceMap: Record<string, number> = {};
+        if (customBoxItems.length > 0) {
+          const priceKey = IS_RU_REGION ? 'build_box_price_rub' : 'build_box_price_usd';
+          const premiumKey = IS_RU_REGION ? 'build_box_premium_price_rub' : 'build_box_premium_price_usd';
+          try {
+            const { data: settingsRows } = await supabase!
+              .from('site_settings')
+              .select('key, value')
+              .in('key', [priceKey, premiumKey]);
+            const rows = (settingsRows ?? []) as { key: string; value: string }[];
+            customBoxItems.forEach((it) => {
+              const isPremium = it.id.includes('premium');
+              const key = isPremium ? premiumKey : priceKey;
+              const val = Number(rows.find((r) => r.key === key)?.value);
+              if (Number.isFinite(val) && val > 0) customPriceMap[it.id] = val;
+            });
+          } catch { /* keep existing price */ }
+        }
+        if (!alive) return;
+
         setItems((prev) =>
           prev.map((item) => {
+            // custom-build-box: site_settings에서 로드한 가격으로 갱신
+            if (item.id.startsWith('custom-build-box')) {
+              const newPrice = customPriceMap[item.id] ?? item.price;
+              return { ...item, price: newPrice, currency };
+            }
+
             const marketRows = map.get(item.id) ?? [];
             const match = marketRows.find((r) => r.currency === currency);
             const base = baseMap.get(item.id);
@@ -561,9 +590,11 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       const i = prev.findIndex((x) => x.id === item.id);
       if (i >= 0) {
         const next = [...prev];
+        // custom-build-box는 항상 수량 1 고정 (교체 시 중복 방지)
+        const newQty = item.id.startsWith('custom-build-box') ? 1 : next[i].quantity + qty;
         next[i] = {
           ...next[i],
-          quantity: next[i].quantity + qty,
+          quantity: newQty,
           price: item.price,
           originalPrice: item.originalPrice,
           currency: item.currency,

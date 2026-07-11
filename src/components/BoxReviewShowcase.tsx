@@ -10,6 +10,7 @@ type Props = {
   isEn: boolean;
   isPremium?: boolean;
   premiumAddons?: BuildProduct[];
+  returnPath?: string;
 };
 
 function ProductFallback({ brand }: { brand: string }) {
@@ -31,15 +32,17 @@ function ShowcaseItem({
   slotKey,
   isEn,
   isPremiumItem = false,
+  returnPath,
 }: {
   product: BuildProduct;
   slotKey: BoxSlotKey;
   isEn: boolean;
   isPremiumItem?: boolean;
+  returnPath?: string;
 }) {
   const name = isEn ? product.nameEn : product.nameRu;
   const slotLabel = BOX_SLOT_LABELS[slotKey]?.[isEn ? 'en' : 'ru'] ?? slotKey;
-  const href = buildBuildProductDetailHref(product);
+  const href = buildBuildProductDetailHref(product, returnPath);
 
   const inner = (
     <>
@@ -95,6 +98,7 @@ export function BoxReviewShowcase({
   isEn,
   isPremium = false,
   premiumAddons = [],
+  returnPath,
 }: Props) {
   const baseItems = selected
     .map((product, i) => ({
@@ -147,6 +151,7 @@ export function BoxReviewShowcase({
               product={product}
               slotKey={slotKey}
               isEn={isEn}
+              returnPath={returnPath}
             />
           ))}
         </div>
@@ -171,6 +176,7 @@ export function BoxReviewShowcase({
                     slotKey="premium"
                     isEn={isEn}
                     isPremiumItem
+                    returnPath={returnPath}
                   />
                 </div>
               ))}

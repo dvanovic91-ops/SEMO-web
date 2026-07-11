@@ -6639,44 +6639,48 @@ export const Admin: React.FC = () => {
                 </thead>
                 <tbody>
                   <tr className="border-b border-slate-50">
-                    <td className="px-4 py-2 font-medium text-slate-600">테스트 완료 후 가입</td>
-                    <td className="px-4 py-2 text-slate-600">300 pt (피부 테스트 완료 후 가입 시 1회)</td>
-                  </tr>
-                  <tr className="border-b border-slate-50">
                     <td className="px-4 py-2 font-medium text-slate-600">텔레그램 연동</td>
                     <td className="px-4 py-2 text-slate-600">200 pt (연동 시 1회, 재연동 시 중복 지급 불가)</td>
                   </tr>
                   <tr className="border-b border-slate-50">
+                    <td className="px-4 py-2 font-medium text-slate-600">구매 적립</td>
+                    <td className="px-4 py-2 text-slate-600">실결제가의 1% (소수점 버림)</td>
+                  </tr>
+                  <tr className="border-b border-slate-50">
+                    <td className="px-4 py-2 font-medium text-slate-600">리뷰 포인트 (즉시)</td>
+                    <td className="px-4 py-2 text-slate-600">500 pt (리뷰 작성 직후 자동 지급)</td>
+                  </tr>
+                  <tr className="border-b border-slate-50">
+                    <td className="px-4 py-2 font-medium text-slate-600">리뷰 포인트 (30일)</td>
+                    <td className="px-4 py-2 text-slate-600">200 pt (리뷰 작성 30일 후 자동 지급)</td>
+                  </tr>
+                  <tr className="border-b border-slate-50">
                     <td className="px-4 py-2 font-medium text-slate-600">결제 시 포인트 사용</td>
-                    <td className="px-4 py-2 text-slate-600">최대 1 000 pt (1 pt = 1 ₽), 주문 금액의 10% 한도</td>
-                  </tr>
-                  <tr className="border-b border-slate-50">
-                    <td className="px-4 py-2 font-medium text-slate-600">리뷰 포인트 지급 (일반)</td>
-                    <td className="px-4 py-2 text-slate-600">200 pt</td>
-                  </tr>
-                  <tr className="border-b border-slate-50">
-                    <td className="px-4 py-2 font-medium text-slate-600">리뷰 포인트 지급 (특별)</td>
-                    <td className="px-4 py-2 text-slate-600">500 pt</td>
+                    <td className="px-4 py-2 text-slate-600">최대 500 pt (1 pt = 1 ₽), 주문당 한도</td>
                   </tr>
                 </tbody>
               </table>
             </div>
             <div className="space-y-2 p-4 md:hidden">
               <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3">
-                <p className="text-[11px] font-medium text-slate-500">테스트 완료 후 가입</p>
-                <p className="mt-0.5 text-sm text-slate-700">300 pt (피부 테스트 완료 후 가입 시 1회)</p>
-              </div>
-              <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3">
                 <p className="text-[11px] font-medium text-slate-500">텔레그램 연동</p>
                 <p className="mt-0.5 text-sm text-slate-700">200 pt (연동 시 1회, 재연동 시 중복 지급 불가)</p>
               </div>
               <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3">
-                <p className="text-[11px] font-medium text-slate-500">결제 시 포인트 사용</p>
-                <p className="mt-0.5 text-sm text-slate-700">최대 1 000 pt (1 pt = 1 ₽), 주문 금액의 10% 한도</p>
+                <p className="text-[11px] font-medium text-slate-500">구매 적립</p>
+                <p className="mt-0.5 text-sm text-slate-700">실결제가의 1% (소수점 버림)</p>
               </div>
               <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3">
-                <p className="text-[11px] font-medium text-slate-500">리뷰 포인트 (일반/특별)</p>
-                <p className="mt-0.5 text-sm text-slate-700">일반 200 pt, 특별 500 pt</p>
+                <p className="text-[11px] font-medium text-slate-500">리뷰 포인트 (즉시)</p>
+                <p className="mt-0.5 text-sm text-slate-700">500 pt (리뷰 작성 직후 자동 지급)</p>
+              </div>
+              <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3">
+                <p className="text-[11px] font-medium text-slate-500">리뷰 포인트 (30일)</p>
+                <p className="mt-0.5 text-sm text-slate-700">200 pt (리뷰 작성 30일 후 자동 지급)</p>
+              </div>
+              <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3">
+                <p className="text-[11px] font-medium text-slate-500">결제 시 포인트 사용</p>
+                <p className="mt-0.5 text-sm text-slate-700">최대 500 pt (1 pt = 1 ₽), 주문당 한도</p>
               </div>
             </div>
           </div>
@@ -7428,11 +7432,11 @@ export const Admin: React.FC = () => {
                   <div className="flex-1 overflow-auto px-4 py-2">
                     <h4 className="pb-1 text-[11px] font-semibold text-slate-700">포인트 정책 요약</h4>
                     <ul className="space-y-1 text-[11px] text-slate-600">
-                      <li>테스트 완료 300 pt</li>
                       <li>텔레그램 연동 200 pt (연동 시 1회, 재연동 시 중복 X)</li>
-                      <li>결제 시 포인트 사용 최대 1000 pt (주문 금액의 10% 한도)</li>
-                      <li>리뷰 포인트 (일반) 200 pt</li>
-                      <li>리뷰 포인트 (특별) 500 pt</li>
+                      <li>구매 적립: 실결제가의 1% (소수점 버림)</li>
+                      <li>리뷰 포인트 (즉시) 500 pt — 리뷰 작성 직후 자동 지급</li>
+                      <li>리뷰 포인트 (30일) 200 pt — 리뷰 작성 30일 후 자동 지급</li>
+                      <li>결제 시 포인트 사용 최대 500 pt (1 pt = 1 ₽), 주문당 한도</li>
                     </ul>
                   </div>
                 </div>
@@ -7440,12 +7444,12 @@ export const Admin: React.FC = () => {
                   <h3 className="shrink-0 border-b border-slate-100 px-4 py-3 text-xs font-semibold text-slate-900">쿠폰지급 규정</h3>
                   <div className="flex-1 overflow-auto px-4 py-2">
                     <ul className="space-y-1 text-[11px] text-slate-600">
+                      <li>웰컴 쿠폰: 신규 가입 시 500 ₽ 쿠폰 자동 지급 (만료 90일)</li>
+                      <li>인플루언서 프로모코드: 1,000 ₽ 할인, 쿠폰과 중복 불가 / 포인트와 중복 가능</li>
                       <li>분기 쿠폰: 회원당 동일 분기(예: 2026Q1) 1장만 — 이미 있으면 재지급 시 자동 스킵</li>
                       <li className="pl-3">브론즈 100₽, 실버 200₽, 골드 300₽ · 만료 약 90일</li>
-                      <li>특별 쿠폰: 분기와 무관, tier=special, 만료 14일 — 우측에서 「금액 할인」 선택 후 선택 회원 일괄</li>
-                      <li>셀카 분석 쿠폰: 정밀 셀카 1회당 1장 소모 — 우측에서 「셀카 분석」 선택·장수 입력 후 선택 회원(관리자 포함) 일괄 지급, 잔액은 쿠폰 현황에서 확인</li>
-                      <li>신규 가입 시 셀카 쿠폰 1장은 DB 트리거로 자동 지급(마이그레이션 적용 시)</li>
-                      <li>향후 바우처 코드 활성화 검토</li>
+                      <li>특별 쿠폰: tier=special, 만료 14일 — 우측에서 「금액 할인」 선택 후 선택 회원 일괄</li>
+                      <li>셀카 분석 쿠폰: 정밀 셀카 1회당 1장 소모 — 우측에서 「셀카 분석」 선택·장수 입력 후 선택 회원(관리자 포함) 일괄 지급</li>
                     </ul>
                   </div>
                 </div>

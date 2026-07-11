@@ -67,7 +67,17 @@ function storefrontLibRole(
   return '';
 }
 
-type TabKey = 'info' | 'ingredients' | 'usage';
+type TabKey = 'info' | 'ingredients' | 'usage' | 'reviews';
+
+type SkuReview = {
+  id: string;
+  user_id: string;
+  rating: number;
+  body: string | null;
+  created_at: string;
+  profiles?: { name: string | null; email: string | null } | null;
+  review_photos?: { image_url: string }[];
+};
 
 type SkuHeroRow = { name: string; ko: string; en: string; ru: string };
 
@@ -150,6 +160,9 @@ export const BoxComponentDetail: React.FC = () => {
   const [productName, setProductName] = useState<string | null>(null);
   const [sku, setSku] = useState<SkuStorefrontRow | null>(null);
   const [tab, setTab] = useState<TabKey>('info');
+  const [skuReviews, setSkuReviews] = useState<SkuReview[]>([]);
+  const [skuReviewsLoading, setSkuReviewsLoading] = useState(false);
+  const [skuReviewsFetched, setSkuReviewsFetched] = useState(false);
   const [showAllHeroes, setShowAllHeroes] = useState(false);
   /** false: 전체 INCI 블록 접힘(버튼만). true: 나머지 전체 목록 표시 */
   const [fullInciExpanded, setFullInciExpanded] = useState(false);
@@ -239,6 +252,61 @@ export const BoxComponentDetail: React.FC = () => {
       cancelled = true;
     };
   }, [productId, skuId, isEn, standaloneSku]);
+
+  useEffect(() => {
+    const sb = supabase;
+    if (tab !== 'reviews' || skuReviewsFetched || !sb || !skuId) return;
+    let cancelled = false;
+    const fetchReviews = async () => {
+      setSkuReviewsLoading(true);
+      try {
+        const { data: reviewData } = await sb
+          .from('product_reviews')
+          .select('id, user_id, rating, body, created_at')
+          .eq('product_id', skuId)
+          .order('created_at', { ascending: false });
+        const rows = (reviewData ?? []) as SkuReview[];
+        const userIds = [...new Set(rows.map((r) => r.user_id).filter(Boolean))];
+        let profilesMap: Record<string, { name: string | null; email: string | null }> = {};
+        if (userIds.length > 0) {
+          const { data: profileData } = await sb
+            .from('profiles')
+            .select('id, name, email')
+            .in('id', userIds);
+          (profileData ?? []).forEach((p: { id: string; name: string | null; email: string | null }) => {
+            profilesMap[p.id] = { name: p.name ?? null, email: p.email ?? null };
+          });
+        }
+        const reviewIds = rows.map((r) => r.id);
+        let photosMap: Record<string, { image_url: string }[]> = {};
+        if (reviewIds.length > 0) {
+          const { data: photoData } = await sb
+            .from('review_photos')
+            .select('review_id, image_url')
+            .in('review_id', reviewIds);
+          (photoData ?? []).forEach((p: { review_id: string; image_url: string }) => {
+            if (!photosMap[p.review_id]) photosMap[p.review_id] = [];
+            photosMap[p.review_id].push({ image_url: p.image_url });
+          });
+        }
+        if (!cancelled) {
+          setSkuReviews(rows.map((r) => ({
+            ...r,
+            profiles: profilesMap[r.user_id] ?? null,
+            review_photos: photosMap[r.id] ?? [],
+          })));
+          setSkuReviewsFetched(true);
+        }
+      } catch (_) {
+        if (!cancelled) setSkuReviews([]);
+      } finally {
+        if (!cancelled) setSkuReviewsLoading(false);
+      }
+    };
+    void fetchReviews();
+    return () => { cancelled = true; };
+  }, [tab, skuReviewsFetched, skuId]);
+
 
   useEffect(() => {
     setShowAllHeroes(false);
@@ -518,6 +586,19 @@ export const BoxComponentDetail: React.FC = () => {
                 }`}
               >
                 {tr('How to use', 'Применение')}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab === 'reviews'}
+                onClick={() => setTab('reviews')}
+                className={`min-h-[2.5rem] flex-1 rounded-lg px-3 py-2 text-center text-xs font-semibold transition sm:text-[13px] ${
+                  tab === 'reviews'
+                    ? 'bg-white text-brand shadow-sm ring-1 ring-slate-200/80'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                {tr('Reviews', 'Отзывы')}
               </button>
             </div>
 
@@ -802,6 +883,44 @@ export const BoxComponentDetail: React.FC = () => {
                       'Инструкция по применению будет добавлена позже.',
                     )}
                   </p>
+                )}
+              </div>
+            )}
+
+            {tab === 'reviews' && (
+              <div className="space-y-3">
+                {skuReviewsLoading ? (
+                  <p className="text-sm text-slate-400">{tr('Loading…', 'Загрузка…')}</p>
+                ) : skuReviews.length === 0 ? (
+                  <p className="text-sm text-slate-500">{tr('No reviews yet.', 'Пока нет отзывов.')}</p>
+                ) : (
+                  <ul className="space-y-3">
+                    {skuReviews.map((r) => (
+                      <li key={r.id} className="rounded-xl border border-slate-100 bg-slate-50/30 p-4">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium text-sm text-slate-800">
+                            {r.profiles?.name?.trim()
+                              ? r.profiles.name.trim()
+                              : r.profiles?.email
+                              ? r.profiles.email.split('@')[0]
+                              : tr('Guest', 'Гость')}
+                          </span>
+                          <span className="text-amber-500 text-sm">{'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}</span>
+                          <span className="text-xs text-slate-400">
+                            {new Date(r.created_at).toLocaleDateString(isEn ? 'en-GB' : 'ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          </span>
+                        </div>
+                        {r.body && <p className="mt-2 text-sm text-slate-700">{r.body}</p>}
+                        {r.review_photos && r.review_photos.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {r.review_photos.map((ph, i) => (
+                              <img key={i} src={ph.image_url} alt="" className="h-16 w-16 rounded-lg object-cover" />
+                            ))}
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </div>
             )}

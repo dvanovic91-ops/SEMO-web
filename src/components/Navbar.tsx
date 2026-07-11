@@ -353,23 +353,27 @@ export const Navbar: React.FC = () => {
                   </CartItemWrap>
                   <div className="flex min-w-0 items-center justify-between gap-2">
                     <div className="flex shrink-0 items-center gap-0.5">
-                      <button
-                        type="button"
-                        aria-label="Уменьшить"
-                        onClick={() => updateQuantity(it.id, it.quantity - 1)}
-                        className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:border-brand hover:text-brand"
-                      >
-                        −
-                      </button>
+                      {!it.id.startsWith('custom-build-box') && (
+                        <button
+                          type="button"
+                          aria-label="Уменьшить"
+                          onClick={() => updateQuantity(it.id, it.quantity - 1)}
+                          className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:border-brand hover:text-brand"
+                        >
+                          −
+                        </button>
+                      )}
                       <span className="min-w-[1.5rem] text-center text-sm tabular-nums">{it.quantity}</span>
-                      <button
-                        type="button"
-                        aria-label="Увеличить"
-                        onClick={() => updateQuantity(it.id, it.quantity + 1)}
-                        className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:border-brand hover:text-brand"
-                      >
-                        +
-                      </button>
+                      {!it.id.startsWith('custom-build-box') && (
+                        <button
+                          type="button"
+                          aria-label="Увеличить"
+                          onClick={() => updateQuantity(it.id, it.quantity + 1)}
+                          className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:border-brand hover:text-brand"
+                        >
+                          +
+                        </button>
+                      )}
                     </div>
                     <div className="min-w-0 max-w-[min(100%,11.5rem)] shrink text-right leading-tight">
                       {it.originalPrice != null && it.originalPrice > 0 && (

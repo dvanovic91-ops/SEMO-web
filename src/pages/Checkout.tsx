@@ -121,9 +121,7 @@ function deliveryFormToShippingFormCamel(form: DeliveryForm): ShippingFormCamel 
 }
 
 /** 결제 시 포인트 최대 사용 한도 (점) — 1점 = 1 руб */
-const MAX_POINTS_TO_USE = 1000;
-/** 포인트 사용 상한: 찐 판매가(total)의 10%를 넘을 수 없음 */
-const POINTS_MAX_PERCENT_OF_TOTAL = 0.1;
+const MAX_POINTS_TO_USE = 500;
 const SIGNUP_EMAIL_RESEND_COOLDOWN_SEC = 60;
 
 export const Checkout: React.FC = () => {
@@ -173,6 +171,10 @@ export const Checkout: React.FC = () => {
   const [step, setStep] = useState<'delivery' | 'payment'>('delivery');
   const [paymentMethod, setPaymentMethod] = useState<string>('card');
   const [pointsToUse, setPointsToUse] = useState<number>(0);
+  const [promoCode, setPromoCode] = useState('');
+  const [promoLoading, setPromoLoading] = useState(false);
+  const [promoApplied, setPromoApplied] = useState<{ code: string; discount: number } | null>(null);
+  const [promoError, setPromoError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [deliveryForm, setDeliveryForm] = useState<DeliveryForm>(() =>
     buildInitialDeliveryForm(null, {})
@@ -371,8 +373,7 @@ export const Checkout: React.FC = () => {
   // 결제 단계 포인트 상한 맞춤 — 훅은 early return 위에 두어 호출 순서 고정
   useEffect(() => {
     if (step !== 'payment') return;
-    const maxByPercent = Math.floor(total * POINTS_MAX_PERCENT_OF_TOTAL);
-    const effMax = Math.min(userPoints, MAX_POINTS_TO_USE, total, maxByPercent);
+    const effMax = Math.min(userPoints, MAX_POINTS_TO_USE, total);
     setPointsToUse((prev) => (prev > effMax ? effMax : prev));
   }, [step, total, userPoints]);
 
@@ -384,8 +385,7 @@ export const Checkout: React.FC = () => {
     }
     if (step !== 'payment' || !supabase || !userId || paymentStepViewedLoggedRef.current) return;
     paymentStepViewedLoggedRef.current = true;
-    const maxByPercent = Math.floor(total * POINTS_MAX_PERCENT_OF_TOTAL);
-    const effMax = Math.min(userPoints, MAX_POINTS_TO_USE, total, maxByPercent);
+    const effMax = Math.min(userPoints, MAX_POINTS_TO_USE, total);
     const clamped = Math.min(pointsToUse, effMax, total);
     const finalCents = Math.round((total - clamped) * 100);
     supabase
@@ -551,9 +551,8 @@ export const Checkout: React.FC = () => {
   );
   const benefitAmount = originalTotal - total;
 
-  // 포인트: 최대 1000점, 보유 포인트·주문 금액 초과 불가, 판매가(total)의 10% 초과 불가
-  const maxPointsByPercent = Math.floor(total * POINTS_MAX_PERCENT_OF_TOTAL);
-  const effectivePointsMax = Math.min(userPoints, MAX_POINTS_TO_USE, total, maxPointsByPercent);
+  // 포인트: 최대 500점, 보유 포인트·주문 금액 초과 불가
+  const effectivePointsMax = Math.min(userPoints, MAX_POINTS_TO_USE, total);
   const clampedPointsToUse = Math.min(pointsToUse, effectivePointsMax, total);
   const selectedCoupon = membershipCoupons.find((c) => c.id === selectedCouponId) ?? null;
   const maxCouponDiscount = Math.max(0, total - clampedPointsToUse);
@@ -563,7 +562,29 @@ export const Checkout: React.FC = () => {
       ? maxCouponDiscount
       : Math.min(selectedCoupon.amount, maxCouponDiscount)
     : 0;
-  const finalAmount = total - clampedPointsToUse - couponDiscount;
+  const promoDiscount = promoApplied?.discount ?? 0;
+  const finalAmount = total - clampedPointsToUse - couponDiscount - promoDiscount;
+
+  const handleApplyPromo = async () => {
+    const code = promoCode.trim().toUpperCase();
+    if (!code) return;
+    setPromoLoading(true);
+    setPromoError(null);
+    try {
+      const { data, error } = await supabase.rpc('redeem_promo_code', { p_code: code });
+      if (error || !data) {
+        setPromoError('Промокод недействителен или уже использован.');
+      } else {
+        // redeem_promo_code가 쿠폰을 생성하므로 discount는 1000루블 고정
+        setPromoApplied({ code, discount: 1000 });
+        setSelectedCouponId(null); // 쿠폰과 중복 불가
+      }
+    } catch {
+      setPromoError('Ошибка при применении промокода.');
+    } finally {
+      setPromoLoading(false);
+    }
+  };
 
   const handleConfirmOrder = async () => {
     if (!isEmailConfirmed) {
@@ -1020,6 +1041,12 @@ export const Checkout: React.FC = () => {
         </div>
       )}
 
+      {items.filter(i => i.id.startsWith('custom-build-box') || i.id.startsWith('semo-box')).length > 1 && (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          ⚠️ При заказе нескольких боксов общая стоимость может превысить 200 € — в этом случае возможно начисление таможенной пошлины.
+        </div>
+      )}
+
       {/* 1. 주문 요약 — 맨 위: 품목별 사진·가격·수량 (읽기 전용) */}
       <section className="mt-8 rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
         <h2 className="mb-4 text-sm font-semibold text-slate-800">Ваш заказ</h2>
@@ -1052,6 +1079,11 @@ export const Checkout: React.FC = () => {
             <p className="text-sm font-medium text-brand">Скидка: −{formatPrice(benefitAmount)}</p>
           )}
           <p className="text-base font-semibold text-slate-900">К оплате: {formatPrice(total)}</p>
+          {items.reduce((sum, i) => sum + i.quantity, 0) >= 2 && (
+            <p className="mt-2 text-xs font-medium text-red-600">
+              При заказе 2 и более боксов сумма может превысить беспошлинный лимит €200 — возможно начисление таможенной пошлины.
+            </p>
+          )}
         </div>
       </section>
 
@@ -1439,7 +1471,7 @@ export const Checkout: React.FC = () => {
             <>
               <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/50 p-4">
                 <p className="mb-2 text-sm font-medium text-slate-700">
-                  Баллы: <span className="tabular-nums text-amber-600">{userPoints}</span> доступно (макс. {MAX_POINTS_TO_USE} или 10% от суммы заказа)
+                  Баллы: <span className="tabular-nums text-amber-600">{userPoints}</span> доступно (макс. {MAX_POINTS_TO_USE} баллов)
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
                   <input
@@ -1474,7 +1506,8 @@ export const Checkout: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setSelectedCouponId(null)}
-                      className={`w-full rounded-lg border px-3 py-2 text-left text-xs ${
+                      disabled={!!promoApplied}
+                      className={`w-full rounded-lg border px-3 py-2 text-left text-xs disabled:opacity-50 ${
                         selectedCouponId === null ? 'border-brand bg-brand-soft/20 text-brand' : 'border-slate-200 bg-white text-slate-700'
                       }`}
                     >
@@ -1496,7 +1529,8 @@ export const Checkout: React.FC = () => {
                           key={c.id}
                           type="button"
                           onClick={() => setSelectedCouponId(c.id)}
-                          className={`w-full rounded-lg border px-3 py-2 text-left text-xs ${
+                          disabled={!!promoApplied}
+                          className={`w-full rounded-lg border px-3 py-2 text-left text-xs disabled:opacity-50 ${
                             selected ? 'border-brand bg-brand-soft/30 text-brand' : 'border-slate-200 bg-white text-slate-700'
                           }`}
                         >
@@ -1508,6 +1542,43 @@ export const Checkout: React.FC = () => {
                 )}
               </div>
 
+              <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/50 p-4">
+                <p className="mb-2 text-sm font-medium text-slate-700">Промокод</p>
+                {promoApplied ? (
+                  <div className="flex items-center justify-between rounded-lg border border-green-200 bg-green-50 px-3 py-2">
+                    <span className="text-sm font-medium text-green-700">
+                      {promoApplied.code} · −{promoApplied.discount} ₽
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => { setPromoApplied(null); setPromoCode(''); }}
+                      className="text-xs text-slate-500 hover:text-slate-700"
+                    >
+                      Удалить
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={promoCode}
+                      onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+                      placeholder="Введите промокод"
+                      className="h-10 flex-1 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleApplyPromo()}
+                      disabled={promoLoading || !promoCode.trim()}
+                      className="rounded-lg border border-brand px-4 py-2 text-sm font-medium text-brand transition hover:bg-brand/5 disabled:opacity-50"
+                    >
+                      {promoLoading ? '...' : 'Применить'}
+                    </button>
+                  </div>
+                )}
+                {promoError && <p className="mt-1.5 text-xs text-red-500">{promoError}</p>}
+              </div>
+
               <div className="mt-4 space-y-1 rounded-xl border border-slate-100 bg-slate-50/50 p-4 text-sm">
                 <p className="text-slate-600">Сумма заказа: {formatPrice(total)}</p>
                 {clampedPointsToUse > 0 && (
@@ -1515,6 +1586,9 @@ export const Checkout: React.FC = () => {
                 )}
                 {couponDiscount > 0 && (
                   <p className="font-medium text-brand">Купон: −{formatPrice(couponDiscount)}</p>
+                )}
+                {promoDiscount > 0 && (
+                  <p className="font-medium text-brand">Промокод: −{formatPrice(promoDiscount)}</p>
                 )}
                 <p className="text-base font-semibold text-slate-900">Итого к оплате: {formatPrice(finalAmount)}</p>
               </div>

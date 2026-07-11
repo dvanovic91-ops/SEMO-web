@@ -115,9 +115,23 @@ export const BuildBox: React.FC = () => {
   const [userConcernText, setUserConcernText] = useState<string>('');
   const [userConcernTags, setUserConcernTags] = useState<string[]>([]);
   const [replaceModal, setReplaceModal] = useState<{ pendingId: string; pendingAction: () => void } | null>(null);
+  const [showRebuildConfirm, setShowRebuildConfirm] = useState(false);
+  const [hasRebuilt, setHasRebuilt] = useState(false);
+  const [swapModalIndex, setSwapModalIndex] = useState<0 | 1 | null>(null);
+  const [allPremiumProducts, setAllPremiumProducts] = useState<BuildProduct[]>(PREMIUM_ADDONS);
   const [carouselIdx, setCarouselIdx] = useState(0);
   const pauseUntilRef = useRef<number>(0);
   const carouselIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // 장바구니에 이미 박스가 있고, 완전히 새로운 진입일 때만 확인 팝업
+  // wantReview=true(카트에서 직접 진입) 또는 wasReviewing=true(리뷰 중이었음 = 상세페이지 갔다 복귀)이면 팝업 안 띄움
+  useEffect(() => {
+    if (wantReview || wasReviewing) return;
+    const hasBoxInCart = cartItems.some((it) => it.id.startsWith('custom-build-box'));
+    if (hasBoxInCart) setShowRebuildConfirm(true);
+  // cartItems가 hydrate된 직후 한 번만 실행
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!supabase) return;
@@ -265,7 +279,16 @@ export const BuildBox: React.FC = () => {
         return;
       }
 
-      setSelected(new Array(next.length).fill(null));
+      // 이미 선택이 시작된 경우(사용자가 FALLBACK으로 빠르게 선택)엔 초기화 안 하고
+      // 실제 Supabase 제품 데이터로만 매핑 업데이트
+      setSelected((prev) => {
+        if (prev.every((p) => p === null)) return new Array(next.length).fill(null);
+        return prev.map((p, i) => {
+          if (!p) return null;
+          const cat = next[i];
+          return cat?.products.find((x) => x.id === p.id) ?? p;
+        });
+      });
       setCurrentStep(0);
       setShowReview(false);
       setShowPremiumStep(false);
@@ -284,6 +307,31 @@ export const BuildBox: React.FC = () => {
   useEffect(() => {
     saveBuildBoxDraft(selected, isPremiumPlan);
   }, [selected, isPremiumPlan]);
+
+  useEffect(() => {
+    if (swapModalIndex === null) return;
+    if (allPremiumProducts.length > 0) return;
+    if (!supabase) { setAllPremiumProducts(PREMIUM_ADDONS); return; }
+    supabase
+      .from('box_builder_options')
+      .select('id, slot, brand, name_ru, name_en, tag_ru, tag_en, image_url, sku_id, product_id')
+      .eq('is_active', true)
+      .order('sort_order')
+      .then(({ data }) => {
+        const mapped = (data ?? []).map((r: { id: string; slot?: string; brand?: string | null; name_ru?: string | null; name_en?: string | null; tag_ru?: string | null; tag_en?: string | null; image_url?: string | null; sku_id?: string | null; product_id?: string | null }) => ({
+          id: r.id,
+          brand: r.brand ?? '',
+          nameRu: r.name_ru ?? '',
+          nameEn: r.name_en ?? '',
+          tagRu: r.tag_ru ?? '',
+          tagEn: r.tag_en ?? '',
+          imageUrl: r.image_url ?? undefined,
+          skuId: r.sku_id ?? undefined,
+          productId: r.product_id ?? undefined,
+        }));
+        setAllPremiumProducts(mapped.length > 0 ? mapped : PREMIUM_ADDONS);
+      });
+  }, [swapModalIndex, allPremiumProducts.length]);
 
   const totalSteps = categories.length;
   const category = categories[currentStep]!;
@@ -325,6 +373,8 @@ export const BuildBox: React.FC = () => {
     setShowPremiumStep(false);
     setIsPremiumPlan(false);
     setCarouselIdx(0);
+    setHasRebuilt(true);
+    navigate('/shop/build', { replace: true });
   };
 
   const existingBoxId = cartItems.find((i) => i.id.startsWith('custom-build-box'))?.id;
@@ -340,9 +390,13 @@ export const BuildBox: React.FC = () => {
     setIsPremiumPlan(false);
     const id = 'custom-build-box';
     const name = isEn ? 'Custom Box' : 'Свой бокс';
-    if (existingBoxId && existingBoxId !== id) {
-      setReplaceModal({ pendingId: existingBoxId, pendingAction: () => { removeItem(existingBoxId); doAddToCart(id, name, boxPrice, false); } });
-      return;
+    if (existingBoxId) {
+      if (existingBoxId !== id) {
+        setReplaceModal({ pendingId: existingBoxId, pendingAction: () => { removeItem(existingBoxId); doAddToCart(id, name, boxPrice, false); } });
+        return;
+      }
+      // 같은 타입 박스 교체: 기존 제거 후 새로 추가
+      removeItem(existingBoxId);
     }
     doAddToCart(id, name, boxPrice, false);
   };
@@ -351,9 +405,12 @@ export const BuildBox: React.FC = () => {
     setIsPremiumPlan(true);
     const id = 'custom-build-box-premium';
     const name = isEn ? 'Custom Box Premium' : 'Свой бокс Премиум';
-    if (existingBoxId && existingBoxId !== id) {
-      setReplaceModal({ pendingId: existingBoxId, pendingAction: () => { removeItem(existingBoxId); doAddToCart(id, name, premiumBoxPrice, true); } });
-      return;
+    if (existingBoxId) {
+      if (existingBoxId !== id) {
+        setReplaceModal({ pendingId: existingBoxId, pendingAction: () => { removeItem(existingBoxId); doAddToCart(id, name, premiumBoxPrice, true); } });
+        return;
+      }
+      removeItem(existingBoxId);
     }
     doAddToCart(id, name, premiumBoxPrice, true);
   };
@@ -777,9 +834,16 @@ export const BuildBox: React.FC = () => {
                     <div className="-mx-3 mb-2 h-px bg-slate-100" />
                     <div className="mt-auto flex flex-col items-stretch gap-1.5 sm:flex-row sm:items-center sm:justify-center sm:gap-2">
                       <span className="inline-flex shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-full bg-amber-500 px-2.5 py-1 text-[11px] font-medium text-white sm:px-3 sm:text-xs">
-                        {isEn ? 'Included' : 'Включено'}
+                        {isEn ? 'Selected' : 'Выбрано'}
                         <span aria-hidden="true">✓</span>
                       </span>
+                      <button
+                        type="button"
+                        onClick={() => setSwapModalIndex(premiumAddons.indexOf(product) as 0 | 1)}
+                        className="inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-amber-300 px-2.5 py-1 text-[11px] font-medium text-amber-700 transition hover:bg-amber-50 sm:px-3 sm:text-xs"
+                      >
+                        {isEn ? 'Change' : 'Заменить'}
+                      </button>
                       {(product.skuId || product.productId) && (
                         <Link
                           to={buildBuildProductDetailHref(product) ?? '#'}
@@ -819,6 +883,165 @@ export const BuildBox: React.FC = () => {
             {isEn ? 'Box added to cart!' : 'Бокс добавлен в корзину!'}
           </div>
         )}
+
+        {swapModalIndex !== null && (
+          <div
+            className="fixed inset-0 z-50 flex items-end justify-center bg-black/40"
+            onClick={() => setSwapModalIndex(null)}
+          >
+            <div
+              className="w-full max-w-lg rounded-t-2xl bg-white"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* 핸들 */}
+              <div className="flex justify-center pb-1 pt-3">
+                <div className="h-1 w-10 rounded-full bg-slate-200" />
+              </div>
+
+              {/* 헤더 */}
+              <div className="flex items-center justify-between px-5 pb-3 pt-1">
+                <h3 className="text-sm font-semibold text-slate-900">
+                  {isEn ? 'Choose a product' : 'Выберите продукт'}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setSwapModalIndex(null)}
+                  className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* 리스트 */}
+              <div className="max-h-[60vh] overflow-y-auto pb-6">
+                {allPremiumProducts.length === 0 ? (
+                  <p className="px-5 py-8 text-center text-sm text-slate-400">
+                    {isEn ? 'No products available.' : 'Нет доступных продуктов.'}
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-slate-100 px-4">
+                    {allPremiumProducts.map((p) => {
+                      const isCurrentlySelected = swapModalIndex !== null && premiumAddons[swapModalIndex]?.id === p.id;
+                      const name = isEn ? p.nameEn : p.nameRu;
+                      const tag = isEn ? p.tagEn : p.tagRu;
+                      return (
+                        <li key={p.id}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = [...premiumAddons] as [BuildProduct, BuildProduct];
+                              next[swapModalIndex!] = p;
+                              setPremiumAddons(next);
+                              setSwapModalIndex(null);
+                            }}
+                            className={`flex w-full items-center gap-3 rounded-xl px-2 py-3 text-left transition hover:bg-amber-50/60 ${isCurrentlySelected ? 'bg-amber-50' : ''}`}
+                          >
+                            {/* 썸네일 */}
+                            <div className="flex h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-slate-100 bg-slate-50">
+                              {p.imageUrl ? (
+                                <img src={p.imageUrl} alt="" className="h-full w-full object-contain" />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center">
+                                  <BrandInitials brand={p.brand} compact />
+                                </div>
+                              )}
+                            </div>
+
+                            {/* 텍스트 */}
+                            <div className="flex min-w-0 flex-1 flex-col">
+                              <p className="truncate text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                                {p.brand === 'TBD' ? (isEn ? 'To be announced' : 'Скоро') : p.brand}
+                              </p>
+                              <p className="mt-0.5 line-clamp-2 text-sm font-medium leading-snug text-slate-800">
+                                {name}
+                              </p>
+                              {tag && (
+                                <p className="mt-1 truncate text-[11px] text-slate-400">{tag}</p>
+                              )}
+                            </div>
+
+                            {/* 선택 상태 */}
+                            <div className="shrink-0">
+                              {isCurrentlySelected ? (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-amber-500 px-2.5 py-1 text-[11px] font-medium text-white">
+                                  {isEn ? 'Selected' : 'Выбрано'} ✓
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-500">
+                                  {isEn ? 'Select' : 'Выбрать'}
+                                </span>
+                              )}
+                            </div>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {replaceModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+              <p className="mb-4 text-sm text-slate-700">
+                {isEn ? 'Replace the existing box in your cart?' : 'Заменить существующий бокс в корзине?'}
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => { replaceModal.pendingAction(); setReplaceModal(null); }}
+                  className="flex-1 rounded-full bg-brand py-2.5 text-sm font-semibold text-white"
+                >
+                  {isEn ? 'Replace' : 'Заменить'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReplaceModal(null)}
+                  className="flex-1 rounded-full border border-slate-200 py-2.5 text-sm font-medium text-slate-700"
+                >
+                  {isEn ? 'Cancel' : 'Отмена'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+    );
+  }
+
+  // ── 기존 박스 대체 확인 팝업 ────────────────────────────────
+  if (showRebuildConfirm) {
+    return (
+      <main className="flex min-h-[70vh] items-center justify-center px-4">
+        <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-center text-base font-semibold text-slate-900">
+            {isEn ? 'Replace your box?' : 'Пересобрать бокс?'}
+          </h2>
+          <p className="mt-2 text-center text-sm text-slate-500">
+            {isEn
+              ? 'You already have a box in your cart. Building a new one will replace it.'
+              : 'У тебя уже есть бокс в корзине. Новая сборка заменит его.'}
+          </p>
+          <div className="mt-6 flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => { setShowRebuildConfirm(false); setHasRebuilt(true); }}
+              className="w-full rounded-full bg-brand py-2.5 text-sm font-semibold text-white hover:bg-brand/90"
+            >
+              {isEn ? 'Yes, build a new box' : 'Да, собрать новый'}
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/cart')}
+              className="w-full rounded-full border border-slate-200 py-2.5 text-sm font-medium text-slate-700 hover:border-brand hover:text-brand"
+            >
+              {isEn ? 'Back to cart' : 'Вернуться в корзину'}
+            </button>
+          </div>
+        </div>
       </main>
     );
   }
@@ -849,7 +1072,7 @@ export const BuildBox: React.FC = () => {
         <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:gap-6">
 
           {/* 가격 카드 + 프리미엄 — 분리된 레이아웃 */}
-          <div className="order-2 flex flex-col gap-3 sm:order-1 sm:w-64 sm:shrink-0">
+          <div className="order-2 flex flex-col gap-3 sm:order-1 sm:w-80 sm:shrink-0">
 
             {/* 기본박스 카드 */}
             <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -857,19 +1080,32 @@ export const BuildBox: React.FC = () => {
                 <p className="text-[9px] font-semibold uppercase tracking-wider text-slate-400">
                   {isEn ? 'Basic Box · 6 items' : 'Базовый бокс · 6 продуктов'}
                 </p>
-                <p className="mt-2 text-[1.75rem] font-bold leading-none tracking-tight text-slate-900">
+                <p className="mt-2 text-right text-[1.75rem] font-bold leading-none tracking-tight text-slate-900">
                   {boxPrice.toLocaleString()} {currSym}
                 </p>
-                <button
-                  type="button"
-                  onClick={handleAddToCart}
-                  className="mt-5 flex w-full items-center justify-center gap-1.5 rounded-full bg-brand py-2.5 text-xs font-semibold text-white transition hover:bg-brand/90"
-                >
-                  <svg className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-                  </svg>
-                  {isEn ? 'Add to cart' : 'Добавить в корзину'}
-                </button>
+                {!wantReview && (
+                  existingBoxId === 'custom-build-box' && !hasRebuilt ? (
+                    <Link
+                      to="/cart"
+                      className="mt-5 flex w-full items-center justify-center gap-1.5 rounded-full border border-brand py-2.5 text-xs font-semibold text-brand transition hover:bg-brand/5"
+                    >
+                      {isEn ? 'View in cart →' : 'Перейти в корзину →'}
+                    </Link>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleAddToCart}
+                      className="mt-5 flex w-full items-center justify-center gap-1.5 rounded-full bg-brand py-2.5 text-xs font-semibold text-white transition hover:bg-brand/90"
+                    >
+                      <svg className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                      </svg>
+                      {existingBoxId
+                        ? (isEn ? 'Replace box in cart' : 'Заменить бокс в корзине')
+                        : (isEn ? 'Add to cart' : 'Добавить в корзину')}
+                    </button>
+                  )
+                )}
               </div>
             </div>
 
@@ -883,20 +1119,26 @@ export const BuildBox: React.FC = () => {
                   {premiumBoxPrice.toLocaleString()} {currSym}
                 </p>
               </div>
-              <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+              <div className="mt-2 flex flex-col gap-y-1">
                 {premiumAddons.map((addon) => (
-                  <span key={addon.id} className="flex min-w-0 items-center gap-1 text-[11px] text-slate-500">
+                  <span key={addon.id} className="flex items-start gap-1 text-[11px] text-slate-500">
                     <span className="shrink-0 text-amber-500">+</span>
-                    <span className="truncate">{isEn ? addon.nameEn : addon.nameRu}</span>
+                    <span>{isEn ? addon.nameEn : addon.nameRu}</span>
                   </span>
                 ))}
+                <span className="flex items-start gap-1 text-[11px] text-slate-400">
+                  <span className="shrink-0 text-amber-300">+</span>
+                  <span>{isEn ? 'Swap for any product from our full catalog' : 'Любой продукт на ваш выбор из каталога'}</span>
+                </span>
               </div>
               <button
                 type="button"
                 onClick={() => { setIsPremiumPlan(true); setShowReview(false); setShowPremiumStep(true); }}
                 className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-full border border-amber-400 bg-transparent py-2 text-xs font-semibold text-amber-700 transition hover:bg-amber-100"
               >
-                {isEn ? 'Upgrade to Premium' : 'Апгрейд до Премиум'}
+                {existingBoxId === 'custom-build-box-premium'
+                  ? (isEn ? 'Replace Premium in cart' : 'Заменить Премиум в корзине')
+                  : (isEn ? 'Upgrade to Premium' : 'Апгрейд до Премиум')}
               </button>
             </div>
 
@@ -905,7 +1147,7 @@ export const BuildBox: React.FC = () => {
               onClick={handleStartOver}
               className="flex w-full items-center justify-center gap-1.5 rounded-full border border-slate-200 bg-white py-2.5 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
             >
-              {isEn ? 'Start over' : 'Собрать с начала'}
+              {isEn ? 'Rebuild box' : 'Собрать с начала'}
             </button>
 
           </div>
@@ -917,6 +1159,7 @@ export const BuildBox: React.FC = () => {
               isEn={isEn}
               isPremium={isPremiumPlan}
               premiumAddons={premiumAddons}
+              returnPath={wantReview ? '/shop/build?review=1' : '/shop/build'}
             />
           </div>
         </div>
@@ -961,6 +1204,15 @@ export const BuildBox: React.FC = () => {
             </div>
           </div>
         )}
+      </main>
+    );
+  }
+
+  // ── 드래프트 복원 대기 중: 카테고리 로드 전까지 스피너 ──────
+  if (shouldRestoreDraft && !categoriesLoaded) {
+    return (
+      <main className="flex min-h-[60vh] items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-brand" />
       </main>
     );
   }

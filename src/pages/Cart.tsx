@@ -121,21 +121,25 @@ export const Cart: React.FC = () => {
               </div>
               <div className="flex min-w-0 items-center justify-between gap-2">
                 <div className="flex shrink-0 items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                    className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-600 hover:border-brand hover:text-brand"
-                  >
-                    −
-                  </button>
+                  {!item.id.startsWith('custom-build-box') && (
+                    <button
+                      type="button"
+                      onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                      className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-600 hover:border-brand hover:text-brand"
+                    >
+                      −
+                    </button>
+                  )}
                   <span className="min-w-[2rem] text-center text-sm font-medium tabular-nums">{item.quantity}</span>
-                  <button
-                    type="button"
-                    onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                    className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-600 hover:border-brand hover:text-brand"
-                  >
-                    +
-                  </button>
+                  {!item.id.startsWith('custom-build-box') && (
+                    <button
+                      type="button"
+                      onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                      className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-600 hover:border-brand hover:text-brand"
+                    >
+                      +
+                    </button>
+                  )}
                 </div>
                 <div className="min-w-0 max-w-[min(100%,11.5rem)] shrink text-right leading-tight">
                   {item.originalPrice != null && item.originalPrice > 0 && (
@@ -169,21 +173,25 @@ export const Cart: React.FC = () => {
                 <span className="font-semibold text-slate-900">{formatPrice(item.price * item.quantity)}</span>
               </div>
               <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                  className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-600 hover:border-brand hover:text-brand"
-                >
-                  −
-                </button>
+                {!item.id.startsWith('custom-build-box') && (
+                  <button
+                    type="button"
+                    onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-600 hover:border-brand hover:text-brand"
+                  >
+                    −
+                  </button>
+                )}
                 <span className="min-w-[2rem] text-center font-medium tabular-nums">{item.quantity}</span>
-                <button
-                  type="button"
-                  onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                  className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-600 hover:border-brand hover:text-brand"
-                >
-                  +
-                </button>
+                {!item.id.startsWith('custom-build-box') && (
+                  <button
+                    type="button"
+                    onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-600 hover:border-brand hover:text-brand"
+                  >
+                    +
+                  </button>
+                )}
               </div>
               <button
                 type="button"
@@ -221,7 +229,14 @@ export const Cart: React.FC = () => {
         </div>
       </div>
 
-      <div className="mt-8 grid grid-cols-1 gap-3 sm:mx-auto sm:max-w-md sm:grid-cols-2 sm:justify-center sm:gap-4">
+      {items.reduce((sum, i) => sum + i.quantity, 0) >= 2 && (
+        <p className="mt-4 text-center text-xs font-medium text-red-600 sm:mx-auto sm:max-w-md">
+          {language === 'en'
+            ? 'Orders of 2+ boxes may exceed Russia\'s €200 duty-free limit — customs duties may apply.'
+            : 'При заказе 2 и более боксов сумма может превысить беспошлинный лимит €200 — возможно начисление таможенной пошлины.'}
+        </p>
+      )}
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:mx-auto sm:max-w-md sm:grid-cols-2 sm:justify-center sm:gap-4">
         <Link
           to="/shop"
           className="rounded-full border border-slate-200 px-6 py-3 text-center text-sm font-medium text-slate-700 hover:border-brand hover:text-brand"
