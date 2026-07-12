@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { JourneyStepImage } from '../components/JourneyStepImage';
+import { JourneyStepArt } from '../components/JourneyStepArt';
 import { useI18n } from '../context/I18nContext';
 import { JOURNEY_INTRO_SUBLINE_CLASS, JOURNEY_STEPS } from '../data/journeySteps';
 
@@ -19,8 +19,8 @@ export const Journey: React.FC = () => {
         </h1>
         <p className={JOURNEY_INTRO_SUBLINE_CLASS}>
           {isEn
-            ? 'From AI Skin Testing to Direct Korea Delivery—Complete Your Skincare in 4 Easy Steps.'
-            : 'От AI-теста кожи до прямой доставки из Кореи — идеальный уход в 4 простых шага.'}
+            ? 'Perfect Korean skincare — already picked for you.'
+            : 'Идеальный корейский уход — мы уже всё подобрали за вас.'}
         </p>
       </header>
 
@@ -35,17 +35,9 @@ export const Journey: React.FC = () => {
               className="grid gap-8 md:grid-cols-2 md:items-center md:gap-12 lg:gap-16"
             >
               <div
-                className={`overflow-hidden rounded-2xl bg-slate-100 ${isImageLeft ? '' : 'md:order-2'}`}
+                className={`overflow-hidden rounded-2xl ${isImageLeft ? '' : 'md:order-2'}`}
               >
-                {step.imageUrl ? (
-                  <JourneyStepImage src={step.imageUrl} alt={titleText} />
-                ) : (
-                  <div className="flex min-h-[280px] w-full items-center justify-center bg-gradient-to-br from-brand-soft/30 to-slate-100 sm:min-h-[360px] md:min-h-[420px] lg:min-h-[460px]">
-                    <span className="text-4xl font-semibold text-slate-300 sm:text-5xl md:text-6xl">
-                      {step.imagePlaceholder}
-                    </span>
-                  </div>
-                )}
+                <JourneyStepArt index={index} />
               </div>
 
               <div

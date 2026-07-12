@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useI18n } from '../context/I18nContext';
 import { formatStorefrontDate } from '../lib/formatStorefrontDate';
-import { JourneyStepImage } from '../components/JourneyStepImage';
+import { JourneyStepArt } from '../components/JourneyStepArt';
 import { JOURNEY_INTRO_SUBLINE_CLASS, JOURNEY_STEPS } from '../data/journeySteps';
 import { BoxBuilderSkuCatalog } from '../components/BoxBuilderSkuCatalog';
 
@@ -276,8 +276,8 @@ function JourneyHomeSection() {
             }`}
           >
             {isEn
-              ? 'From AI Skin Testing to Direct Korea Delivery—Complete Your Skincare in 4 Easy Steps.'
-              : 'От AI-теста кожи до прямой доставки из Кореи — идеальный уход в 4 простых шага.'}
+              ? 'Perfect Korean skincare — already picked for you.'
+              : 'Идеальный корейский уход — мы уже всё подобрали за вас.'}
           </p>
           <div
             className={`mx-auto mt-5 h-px w-10 bg-gradient-to-r from-transparent via-brand/35 to-transparent transition-all delay-200 duration-700 ${
@@ -294,14 +294,8 @@ function JourneyHomeSection() {
             return (
               <OrderStepReveal key={step.title.en} staggerIndex={index} className="block w-full">
                 <article className="grid gap-8 md:grid-cols-2 md:items-center md:gap-10 lg:gap-14">
-                  <div className={`overflow-hidden rounded-2xl bg-slate-100 ${isImageLeft ? '' : 'md:order-2'}`}>
-                    {step.imageUrl ? (
-                      <JourneyStepImage src={step.imageUrl} alt={titleText} loading="lazy" />
-                    ) : (
-                      <div className="flex min-h-[220px] w-full items-center justify-center bg-gradient-to-br from-brand-soft/30 to-slate-100 sm:min-h-[280px] md:min-h-[320px]">
-                        <span className="text-4xl font-semibold text-slate-300">{step.imagePlaceholder}</span>
-                      </div>
-                    )}
+                  <div className={`overflow-hidden rounded-2xl ${isImageLeft ? '' : 'md:order-2'}`}>
+                    <JourneyStepArt index={index} compact />
                   </div>
                   <div className={`flex min-w-0 flex-col justify-center ${isImageLeft ? '' : 'md:order-1'}`}>
                     <span className="text-sm font-semibold tracking-wide text-brand">Step {stepNum}</span>

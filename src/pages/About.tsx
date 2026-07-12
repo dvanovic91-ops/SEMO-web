@@ -5,19 +5,10 @@ import { useI18n } from '../context/I18nContext';
 const storyLine = 'prose-ru text-[0.95rem] leading-[1.85] text-slate-700 sm:text-base';
 const highlight = 'font-medium text-brand';
 
-/** SEMO orange box (премиальная коробка) — при необходимости замените файл в public */
-const SEMO_ORANGE_BOX_IMG = '/images/journey/step4-unbox-beauty-box.png';
-
 const storyCopy = {
   en: {
     headline: 'Skincare should not be a guessing game.',
     subheadline: 'SEMO finds your perfect K-beauty box.',
-    intro:
-      'Have you ever felt lost in front of endless shelves or while scrolling through countless product pages? SEMO began with that exact uncertainty: “Will this really work for me?” and “Am I buying products I do not need?”',
-    body:
-      'SEMO makes skincare choices Smart and Easy. Through AI skin analysis and ingredient verification, we recommend Only for you products while helping reduce Minimal trial, waste, and cost. We do not simply sell what is trending. We start by understanding each product’s ingredients and checking whether they truly match your skin data.',
-    conclusion:
-      'We source directly from trusted Korean brands and select only verified, high-quality K-beauty. Your routine arrives as one All-in-One solution, safely delivered from Korea to your doorstep.',
     imageCaption: 'A complete skincare routine, packed into one SEMO box.',
     ctaLead: 'Not sure what your skin really needs? Start with the test.',
     ctaPrimary: 'Take skin test',
@@ -26,12 +17,6 @@ const storyCopy = {
   ru: {
     headline: 'Уход за кожей — не игра в догадки.',
     subheadline: 'SEMO подбирает ваш идеальный K-beauty box.',
-    intro:
-      'Вы когда-нибудь терялись перед полками с бесконечным количеством товаров или в длинных страницах интернет-магазина? SEMO начался именно с этой неопределенности: «Подойдет ли это мне?» и «Не покупаю ли я лишнее?»',
-    body:
-      'SEMO делает выбор ухода Smart и Easy. С помощью AI-анализа кожи и проверки состава мы рекомендуем продукты Only for you, помогая сократить Minimal количество проб, лишних покупок и затрат. Мы не просто продаем то, что модно. Мы начинаем с анализа ингредиентов и проверяем, действительно ли они подходят данным вашей кожи.',
-    conclusion:
-      'Мы напрямую закупаем продукты у надежных корейских брендов и отбираем только проверенные, качественные K-beauty средства. Ваш уход приходит как одно All-in-One решение, безопасно доставленное из Кореи прямо к вашей двери.',
     imageCaption: 'Полный уход за кожей, собранный в одном SEMO box.',
     ctaLead: 'Не уверены, что действительно нужно вашей коже? Начните с теста.',
     ctaPrimary: 'Пройти тест кожи',
@@ -40,7 +25,7 @@ const storyCopy = {
 };
 
 /**
- * About SEMO — инфографика + история бренда (полный русский текст сохранён).
+ * About SEMO — 브랜드 스토리 (공감 → 해결, 짧게 두 문단).
  */
 export const About: React.FC = () => {
   const { language } = useI18n();
@@ -48,7 +33,7 @@ export const About: React.FC = () => {
   const copy = isEn ? storyCopy.en : storyCopy.ru;
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10 md:py-14">
+    <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8 md:py-10">
       <section>
         <div className="mx-auto max-w-5xl text-center">
           <h1 className="prose-ru mx-auto text-center text-[1.75rem] font-medium leading-tight tracking-tight text-slate-950 sm:text-[2.05rem] md:text-[2.35rem] lg:text-[2.55rem]">
@@ -59,83 +44,127 @@ export const About: React.FC = () => {
           </p>
         </div>
 
-        <div className="mt-9 grid gap-10 md:grid-cols-[minmax(0,1fr)_minmax(320px,0.78fr)] md:items-center md:gap-14 lg:mt-10 lg:gap-20">
-          <div>
-          <div className="space-y-5">
-            <p className={storyLine}>{copy.intro}</p>
-            <p className={storyLine}>
-              {isEn ? (
-                <>
-                  SEMO makes skincare choices <strong className={highlight}>Smart</strong>: we start with AI skin
-                  analysis and ingredient verification, not with trends. We make the process{' '}
-                  <strong className={highlight}>Easy</strong> by narrowing countless products into a clear routine. We
-                  help reduce <strong className={highlight}>Minimal</strong> trial, waste, and cost. And every
-                  recommendation is <strong className={highlight}>Only for you</strong>, checked against your skin data.
-                </>
-              ) : (
-                <>
-                  SEMO делает выбор ухода <strong className={highlight}>Умным (Smart)</strong>: мы начинаем с AI-анализа кожи и
-                  проверки состава, а не с трендов. Мы делаем процесс <strong className={highlight}>Простым (Easy)</strong>,
-                  сужая бесконечный выбор до понятной рутины. Мы помогаем сократить{' '}
-                  <strong className={highlight}>до минимума (Minimal)</strong> количество проб, лишних покупок и затрат. И каждая
-                  рекомендация остается <strong className={highlight}>только для вас (Only for you)</strong>, проверенной по данным вашей
-                  кожи.
-                </>
-              )}
-            </p>
-            <p className={storyLine}>
-              {isEn ? (
-                <>
-                  We source directly from trusted Korean brands and select only verified, high-quality{' '}
-                  <strong className={highlight}>K-beauty</strong>. Your routine arrives as one{' '}
-                  <strong className={highlight}>All-in-One</strong> solution, safely delivered from Korea to your
-                  doorstep.
-                </>
-              ) : (
-                <>
-                  Мы напрямую закупаем продукты у надежных корейских брендов и отбираем только проверенные, качественные{' '}
-                  <strong className={highlight}>K-beauty</strong> средства. Ваш уход приходит как одно{' '}
-                  <strong className={highlight}>All-in-One</strong> решение, безопасно доставленное из Кореи прямо к
-                  вашей двери.
-                </>
-              )}
-            </p>
-          </div>
+        {/* 브랜드 스토리 — 중앙 단일 컬럼, 읽기 좋은 폭 */}
+        <div className="mx-auto mt-8 max-w-2xl space-y-5 text-center sm:mt-10">
+          <p className={storyLine}>
+            {isEn ? (
+              <>
+                Endless shelves, countless reviews — and still the same questions: “Will this actually
+                work for me?” “Do I even need this?” SEMO began exactly there.
+              </>
+            ) : (
+              <>
+                Бесконечные полки, сотни отзывов — и всё те же вопросы: «Подойдёт ли это мне?»,
+                «Нужно ли мне это вообще?» SEMO начался именно с этого.
+              </>
+            )}
+          </p>
+          <p className={storyLine}>
+            {isEn ? (
+              <>
+                So we removed the guesswork: a short <strong className={highlight}>skin type test</strong>, a
+                routine built from Korea’s real <strong className={highlight}>bestsellers</strong>, and{' '}
+                <strong className={highlight}>one box</strong> at your door. Nothing you don’t need.
+              </>
+            ) : (
+              <>
+                Поэтому мы убрали догадки: короткий <strong className={highlight}>тест типа кожи</strong>,
+                рутина из настоящих <strong className={highlight}>корейских бестселлеров</strong> — и{' '}
+                <strong className={highlight}>один бокс</strong> у вашей двери. Ничего лишнего.
+              </>
+            )}
+          </p>
+        </div>
+      </section>
 
-          <div className="mt-10">
-            <p className="prose-ru mb-5 text-sm font-normal leading-relaxed text-slate-600 sm:text-[0.95rem]">
-              {copy.ctaLead}
-            </p>
-            <div className="flex w-full flex-col gap-3 sm:max-w-xl sm:flex-row sm:gap-4">
-              <Link
-                to="/skin-test"
-                className="inline-flex min-h-[3rem] flex-1 items-center justify-center rounded-full bg-brand px-4 py-3 text-center text-sm font-semibold text-white transition hover:bg-brand/90"
-              >
-                {copy.ctaPrimary}
-              </Link>
-              <Link
-                to="/shop"
-                className="inline-flex min-h-[3rem] flex-1 items-center justify-center rounded-full border border-slate-200 bg-white px-4 py-3 text-center text-sm font-semibold text-slate-800 transition hover:border-brand hover:text-brand"
-              >
-                {copy.ctaSecondary}
-              </Link>
+      {/* ─── Why SEMO — 차별성 4가지 (구분선 없이 자연스럽게 이어짐) ─── */}
+      <section className="mt-14 sm:mt-16">
+        <h2 className="prose-ru text-center text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl md:text-[1.7rem]">
+          {isEn ? 'What makes SEMO different' : 'Чем SEMO отличается'}
+        </h2>
+        <div className="mx-auto mt-10 grid max-w-4xl gap-x-12 gap-y-10 sm:mt-12 md:grid-cols-2">
+          {(isEn ? WHY_SEMO.en : WHY_SEMO.ru).map((item, i) => (
+            <div key={item.title} className="flex gap-4">
+              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-soft text-sm font-semibold text-brand">
+                {i + 1}
+              </span>
+              <div>
+                <h3 className="prose-ru text-base font-semibold text-slate-900 sm:text-lg">{item.title}</h3>
+                <p className="prose-ru mt-2 text-[0.95rem] leading-[1.8] text-slate-600">{item.body}</p>
+              </div>
             </div>
-          </div>
+          ))}
         </div>
 
-          <figure className="mx-auto w-full max-w-xl md:max-w-none">
-          <div className="overflow-hidden rounded-[2rem] bg-slate-100 shadow-[0_24px_70px_-35px_rgba(15,23,42,0.45)] ring-1 ring-slate-200/80">
-            <img
-              src={SEMO_ORANGE_BOX_IMG}
-              alt={isEn ? 'SEMO premium beauty box' : 'Премиальная коробка SEMO с уходовой косметикой'}
-              className="aspect-[4/3] w-full object-cover"
-              loading="lazy"
-              decoding="async"
-            />
+        {/* CTA — 설득이 끝난 지점에 배치 */}
+        <div className="mx-auto mt-14 max-w-xl text-center sm:mt-16">
+          <p className="prose-ru mb-5 text-sm font-normal leading-relaxed text-slate-600 sm:text-[0.95rem]">
+            {copy.ctaLead}
+          </p>
+          <div className="flex w-full flex-col gap-3 sm:flex-row sm:gap-4">
+            <Link
+              to="/skin-test"
+              className="inline-flex min-h-[3rem] flex-1 items-center justify-center rounded-full bg-brand px-4 py-3 text-center text-sm font-semibold text-white transition hover:bg-brand/90"
+            >
+              {copy.ctaPrimary}
+            </Link>
+            <Link
+              to="/shop"
+              className="inline-flex min-h-[3rem] flex-1 items-center justify-center rounded-full border border-slate-200 bg-white px-4 py-3 text-center text-sm font-semibold text-slate-800 transition hover:border-brand hover:text-brand"
+            >
+              {copy.ctaSecondary}
+            </Link>
           </div>
-        </figure>
         </div>
       </section>
     </main>
   );
+};
+
+/** Why SEMO — 차별성 카피 (EN/RU) */
+const WHY_SEMO = {
+  en: [
+    {
+      title: 'We watch the shelves, not the trends.',
+      body:
+        'Many products sold abroad as “K-beauty” are export-only lines Koreans have never heard of. SEMO carries only what actually tops the shelves of Korea’s biggest beauty stores — the products Koreans buy for themselves.',
+    },
+    {
+      title: 'Bought in Korea, same as Koreans buy.',
+      body:
+        'We purchase every item directly in Korea — the same stores, the same official stock. No grey warehouses, no near-expiry batches. What arrives at your door is exactly what’s sold in Seoul today.',
+    },
+    {
+      title: 'Your skin type decides, not our margin.',
+      body:
+        'Every recommendation starts from your skin type test based on the Baumann framework used in dermatology. The box is built around what your skin needs — not around what’s most profitable to sell.',
+    },
+    {
+      title: 'Packed by people, not a conveyor belt.',
+      body:
+        'We are a small team, and every box is checked and packed by hand before it leaves Korea. If something is wrong, you talk to us directly — not to a call-center script.',
+    },
+  ],
+  ru: [
+    {
+      title: 'Мы смотрим на полки, а не на тренды.',
+      body:
+        'Многое из того, что продаётся за рубежом как «K-beauty», — экспортные линейки, о которых корейцы даже не слышали. В SEMO только то, что действительно занимает полки крупнейших бьюти-магазинов Кореи — то, что корейцы покупают для себя.',
+    },
+    {
+      title: 'Куплено в Корее — как покупают сами корейцы.',
+      body:
+        'Каждый продукт мы покупаем напрямую в Корее — в тех же магазинах, из того же официального ассортимента. Никаких серых складов и партий с истекающим сроком. К вам приезжает ровно то, что сегодня продаётся в Сеуле.',
+    },
+    {
+      title: 'Решает ваш тип кожи, а не наша маржа.',
+      body:
+        'Каждая рекомендация начинается с теста типа кожи по методике Баумана, используемой в дерматологии. Бокс собирается вокруг того, что нужно вашей коже, — а не того, что выгоднее продать.',
+    },
+    {
+      title: 'Собирают люди, а не конвейер.',
+      body:
+        'Мы небольшая команда, и каждый бокс проверяется и упаковывается вручную перед отправкой из Кореи. Если что-то не так — вы говорите напрямую с нами, а не со скриптом колл-центра.',
+    },
+  ],
 };

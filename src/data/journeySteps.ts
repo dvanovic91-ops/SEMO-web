@@ -12,12 +12,12 @@ export type JourneyStep = {
 export const JOURNEY_STEPS: JourneyStep[] = [
   {
     title: {
-      en: 'AI Skin Analysis & Smart Matching',
-      ru: 'AI-анализ кожи и умный подбор',
+      en: 'Skin Type Test & Smart Matching',
+      ru: 'Тест типа кожи и умный подбор',
     },
     description: {
-      en: 'We analyze your skin precisely using AI-powered Baumann tests and selfie diagnostics. Based on the data, SEMO configures the perfect combination for you, selected exclusively from our verified, high-quality product lineup.',
-      ru: 'Мы точно анализируем вашу кожу с помощью AI-теста Баумана и селфи-диагностики. На основе этих данных SEMO подберет для вас идеальную комбинацию, составленную исключительно из нашей проверенной линейки высококачественных продуктов.',
+      en: 'Answer a quick skin type test and SEMO matches you with the exact products your skin needs — only official bestsellers that top Korea\'s own store shelves.',
+      ru: 'Пройдите короткий тест типа кожи, и SEMO подберёт именно те продукты, которые нужны вашей коже — только официальные бестселлеры с полок ведущих корейских магазинов.',
     },
     imagePlaceholder: '1',
     imageUrl: '/images/journey/step1-ai-skin-analysis.png',
@@ -28,8 +28,8 @@ export const JOURNEY_STEPS: JourneyStep[] = [
       ru: 'Простая оплата и готовность к таможне',
     },
     description: {
-      en: 'Just enter your shipping info and customs ID—no complicated paperwork. Pay easily from anywhere in the world with a secure payment system that meets global standards.',
-      ru: 'Просто введите адрес и данные для таможни — никаких лишних бумаг. Оплачивайте легко из любой точки мира через безопасную систему, соответствующую глобальным стандартам.',
+      en: 'No customs headaches — we handle all the paperwork for you. Just enter your address and pay the way you like, through a secure payment system.',
+      ru: 'Никаких сложностей с таможней — мы всё оформим за вас. Просто укажите адрес и оплатите удобным способом через безопасную платёжную систему.',
     },
     imagePlaceholder: '2',
     imageUrl: '/images/journey/step2-checkout-secure-payment.png',
@@ -40,8 +40,8 @@ export const JOURNEY_STEPS: JourneyStep[] = [
       ru: 'Прямая доставка и отслеживание',
     },
     description: {
-      en: 'From Korea to your doorstep, SEMO seamlessly connects every step of the journey. We ensure 100% authentic products with transparent, real-time tracking.',
-      ru: 'Из Кореи прямо к вашей двери — SEMO обеспечивает безупречность на каждом этапе. Мы гарантируем 100% подлинность товаров и прозрачное отслеживание в реальном времени.',
+      en: 'Orders ship directly from Korea twice a month — on the 15th and 30th. Follow your box in real time, from our hands to your door.',
+      ru: 'Заказы отправляются напрямую из Кореи дважды в месяц — 15-го и 30-го числа. Следите за посылкой в реальном времени — от отправки до вашей двери.',
     },
     imagePlaceholder: '3',
     imageUrl: '/images/journey/step3-direct-shipping-tracking.png',
@@ -53,8 +53,8 @@ export const JOURNEY_STEPS: JourneyStep[] = [
       ru: 'Ваше идеальное решение в одной коробке',
     },
     description: {
-      en: 'Meet your personalized All-in-One beauty box delivered to your door. Stop worrying—start your perfect skincare today with the single solution completed by SEMO.',
-      ru: 'Получите ваш персональный Beauty Box прямо у двери. Больше никаких сомнений — начните идеальный уход за кожей уже сегодня с готовым решением от SEMO.',
+      en: 'Open the box — inside is your complete routine, matched to your skin. From test to perfect skincare, all in one step.',
+      ru: 'Откройте коробку — внутри полный уход, подобранный именно для вашей кожи. От теста до идеальной рутины — один шаг.',
     },
     imagePlaceholder: '4',
     imageUrl: '/images/journey/step4-unbox-beauty-box.png',

@@ -12,7 +12,8 @@ import {
 } from '../data/skinTestData';
 import { getRecommendationPath, SKIN_TEST_CATALOG_CATEGORY } from '../config/skinTypeRecommendations';
 import { loadBuildBoxCategories, type BuildProduct, type BuildCategory } from '../lib/buildBoxCatalog';
-import { saveBuildBoxDraft } from '../lib/buildBoxDraft';
+import { saveBuildBoxDraft, clearBuildBoxDraft } from '../lib/buildBoxDraft';
+import { IS_RU_REGION } from '../lib/siteRegion';
 import { userBlockedByPiAvoid } from '../lib/piProfile';
 import { useAuth } from '../context/AuthContext';
 import { useI18n } from '../context/I18nContext';
@@ -537,7 +538,7 @@ export const SkinTest: React.FC = () => {
   const skinTypeQueryParam = searchParams.get('type')?.trim().toUpperCase() ?? '';
   const resultRowIdQueryParam = searchParams.get('id')?.trim() ?? '';
   const resultRowIdFromQueryOk = SKIN_TEST_RESULT_ROW_UUID_RE.test(resultRowIdQueryParam);
-  const { addItem } = useCart();
+  const { addItem, removeItem, items: cartItems } = useCart();
   /** `profiles.is_admin` — 관리자/매니저는 횟수 제한 없음 */
   const noTestLimit = isAdmin;
   const [stage, setStage] = useState<Stage>('intro');
@@ -1566,9 +1567,7 @@ export const SkinTest: React.FC = () => {
             })
             .eq('id', userId);
 
-          void supabase
-            .from('skin_test_results')
-            .insert({
+          const fullPayload = {
               user_id: userId,
               skin_type: type,
               concern_text: concernText || null,
@@ -1579,10 +1578,27 @@ export const SkinTest: React.FC = () => {
               routine: profileData.routine ?? null,
               source: profileData.source ?? null,
               dehydrated_oily: dehydratedOily,
-            })
-            .select('id')
-            .single()
-            .then(({ data, error }) => {
+            };
+          const minimalPayload = { user_id: userId, skin_type: type };
+
+          const doInsert = (payload: Record<string, unknown>) =>
+            supabase.from('skin_test_results').insert(payload).select('id').single();
+
+          void doInsert(fullPayload).then(async ({ data, error }) => {
+              // 스키마 캐시 미갱신(PGRST204)이면 최소 컬럼으로 재시도
+              if (error?.code === 'PGRST204') {
+                console.warn('[SkinTest] 스키마 캐시 미갱신 — 최소 컬럼으로 재시도');
+                const retry = await doInsert(minimalPayload);
+                if (retry.error) {
+                  console.error('[SkinTest] 재시도도 실패:', retry.error);
+                  return;
+                }
+                if (retry.data?.id) {
+                  pendingSkinTestResultRowIdRef.current = retry.data.id;
+                  try { sessionStorage.setItem(SKIN_RESULT_ROW_STORAGE, retry.data.id); } catch { /* ignore */ }
+                }
+                return;
+              }
               if (error) {
                 console.error('[SkinTest] skin_test_results insert 실패:', error, JSON.stringify(error));
                 return;
@@ -2070,8 +2086,8 @@ export const SkinTest: React.FC = () => {
                 </p>
                 <p className="mt-0.5 text-xs leading-relaxed text-slate-500">
                   {isEn
-                    ? 'Q&A test + AI-powered detailed skin analysis using your selfie photo'
-                    : 'Тест-опросник + детальный AI-анализ кожи на основе фотографии'}
+                    ? 'Q&A test + saved results, personalized box recommendations and skin history'
+                    : 'Тест-опросник + сохранение результатов, персональные рекомендации бокса и история кожи'}
                 </p>
               </div>
             </div>
@@ -2090,7 +2106,7 @@ export const SkinTest: React.FC = () => {
                 to="/login"
                 className="text-xs text-slate-400 hover:text-brand hover:underline"
               >
-                {isEn ? 'Sign up for full analysis →' : 'Зарегистрироваться для полного анализа →'}
+                {isEn ? 'Sign up to save your results →' : 'Зарегистрироваться, чтобы сохранить результаты →'}
               </Link>
             )}
           </div>
@@ -2475,8 +2491,8 @@ export const SkinTest: React.FC = () => {
             </div>
           )}
 
-          {/* ── 셀카 업로드 박스: 최초 분석 전/셀피 우선 단계에서만 노출 ── */}
-          {userId && selfieCouponCount !== null && (selfieFirstFlow || !selfieAnalyzeResult) && (
+          {/* 셀피 분석 카드 제거됨 */}
+          {false && userId && selfieCouponCount !== null && (selfieFirstFlow || !selfieAnalyzeResult) && (
             <div className={selfieFirstFlow ? 'mx-auto mt-0 w-full max-w-4xl' : 'mt-3'}>
               {selfieCouponCount > 0 && !selfieOpen ? (
                 <div className="rounded-xl border border-brand/20 bg-brand-soft/25 px-4 py-4 sm:px-5">
@@ -2810,7 +2826,7 @@ export const SkinTest: React.FC = () => {
 
               {/* CTA 버튼 2개 — 추천 세트 구매 / 나만의 박스 */}
               {!slotLoading && slotRecommendations && slotRecommendations.length > 0 && (
-                <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                <div className="mt-4 flex justify-center gap-2">
                   <button
                     onClick={() => {
                       const SLOT_ORDER = ['cleanser', 'toner', 'serum', 'ampoule', 'cream', 'sunscreen'];
@@ -2818,18 +2834,24 @@ export const SkinTest: React.FC = () => {
                         (s) => slotRecommendations.find((r) => r.slot === s)?.product ?? null,
                       );
                       saveBuildBoxDraft(ordered, false);
-                      void navigate('/shop/build?review=1');
+                      const boxId = 'custom-build-box';
+                      const boxName = isEn ? 'Custom Box' : 'Свой бокс';
+                      const boxPrice = IS_RU_REGION ? 10990 : 149;
+                      const existing = cartItems.find((i) => i.id.startsWith('custom-build-box'));
+                      if (existing) removeItem(existing.id);
+                      addItem({ id: boxId, name: boxName, price: boxPrice, imageUrl: null, currency });
+                      void navigate('/cart');
                     }}
-                    className="flex-1 inline-flex min-h-11 items-center justify-center rounded-xl bg-brand px-6 py-3 text-sm font-semibold text-white transition hover:bg-brand/90"
+                    className="inline-flex w-48 items-center justify-center rounded-xl bg-brand py-2.5 text-sm font-semibold text-white transition hover:bg-brand/90"
                   >
-                    {isEn ? 'Buy recommended set →' : 'Купить рекомендованный набор →'}
+                    {isEn ? 'Buy recommended set' : 'Купить рекомендованный набор'}
                   </button>
-                  <Link
-                    to="/shop/build"
-                    className="flex-1 inline-flex min-h-11 items-center justify-center rounded-xl border border-brand px-6 py-3 text-sm font-semibold text-brand transition hover:bg-brand/5"
+                  <button
+                    onClick={() => { clearBuildBoxDraft(); void navigate('/shop/build'); }}
+                    className="inline-flex w-48 items-center justify-center rounded-xl border border-brand py-2.5 text-sm font-semibold text-brand transition hover:bg-brand/5"
                   >
                     {isEn ? 'Build my own box' : 'Собрать свой бокс'}
-                  </Link>
+                  </button>
                 </div>
               )}
             </div>

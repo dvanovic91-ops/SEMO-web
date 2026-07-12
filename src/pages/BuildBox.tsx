@@ -721,7 +721,7 @@ export const BuildBox: React.FC = () => {
         const sel = selected[i];
         return (
           <React.Fragment key={cat.key}>
-            <div className="flex w-[52px] shrink-0 flex-col items-center gap-1.5 px-0.5 sm:w-auto sm:min-w-0 sm:flex-1 sm:max-w-[5.25rem]">
+            <div className="flex w-[48px] shrink-0 flex-col items-center gap-1.5 px-0.5 sm:w-auto sm:min-w-0 sm:flex-1 sm:max-w-[5.25rem]">
               <button
                 type="button"
                 onClick={() => {
@@ -754,7 +754,7 @@ export const BuildBox: React.FC = () => {
               )}
             </div>
             {i < categories.length - 1 && (
-              <div className={`mt-4 h-px w-4 shrink-0 sm:w-2.5 ${isDone ? 'bg-emerald-400' : 'bg-slate-200'}`} />
+              <div className={`mt-4 h-px w-2 shrink-0 sm:w-2.5 ${isDone ? 'bg-emerald-400' : 'bg-slate-200'}`} />
             )}
           </React.Fragment>
         );
