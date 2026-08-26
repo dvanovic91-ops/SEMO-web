@@ -20,7 +20,7 @@ export const ComingSoon: React.FC = () => {
   return (
     <main className="relative min-h-screen w-full overflow-hidden bg-slate-950">
       <img
-        src="/semo-box.png"
+        src="/images/journey/step4-unbox-beauty-box.png"
         alt=""
         className="absolute inset-0 h-full w-full object-cover"
         draggable={false}
@@ -33,12 +33,12 @@ export const ComingSoon: React.FC = () => {
           <span className="text-white"> box</span>
         </p>
         <h1 className="max-w-md font-serif text-2xl font-medium leading-snug text-white sm:text-3xl">
-          {isEn ? 'K-beauty, curated box by box.' : 'K-beauty — по одной коробке за раз.'}
+          {isEn ? 'Korean beauty, made for you.' : 'Корейская красота — для вас.'}
         </h1>
-        <p className="mt-4 max-w-sm text-sm leading-relaxed text-white/70 sm:text-base">
+        <p className="mt-4 max-w-md text-sm leading-relaxed text-white/70 sm:text-base">
           {isEn
-            ? 'A new way to discover Korean beauty is on its way.'
-            : 'Новый способ открыть для себя корейскую красоту уже в пути.'}
+            ? 'A more personal way to enjoy K-beauty is on its way.'
+            : 'Скоро — более персональный подход к K-beauty.'}
         </p>
 
         <a
