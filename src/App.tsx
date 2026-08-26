@@ -119,6 +119,7 @@ import { Checkout } from './pages/Checkout';
 import { CheckoutComplete } from './pages/CheckoutComplete';
 import { Home } from './pages/Home';
 import { ComingSoon } from './pages/ComingSoon';
+import { GateNotice } from './pages/GateNotice';
 import { DeepkorTerms, DeepkorPrivacy } from './pages/DeepkorLegal';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
@@ -191,6 +192,7 @@ function AppLayout() {
         <Routes>
               {/* 판매 준비되면 <Home /> 으로 되돌릴 것 — import는 그대로 남겨둠 */}
               <Route path="/" element={<ComingSoon />} />
+              <Route path="/notice" element={<GateNotice />} />
               <Route path="/about" element={<About />} />
               <Route path="/deepkor/terms" element={<DeepkorTerms />} />
               <Route path="/deepkor/privacy" element={<DeepkorPrivacy />} />

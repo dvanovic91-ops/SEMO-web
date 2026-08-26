@@ -58,11 +58,14 @@ export const ComingSoon: React.FC = () => {
         {/* Footer를 통째로 숨겨서 이 페이지엔 법적 고지 링크가 하나도 없었음
             — 최소한의 흔적은 남겨둔다(App Store 등 심사에서도 개인정보
             처리방침이 쉽게 눈에 띄는지 보는 경우가 있음). */}
+        {/* 기존 /legal은 쇼핑몰 운영 중을 전제로 한 문서(결제/배송/환불 등)라
+            지금(스토어 닫힘) 상태와 안 맞아서 안 쓴다 — 지금 상태에 맞는
+            별도의 짧은 고지 페이지로 연결. */}
         <Link
-          to="/legal"
+          to="/notice"
           className="mt-10 text-xs text-white/40 underline-offset-2 hover:text-white/70 hover:underline"
         >
-          {isEn ? 'Privacy & Terms' : 'Конфиденциальность и условия'}
+          {isEn ? 'Notice' : 'Уведомление'}
         </Link>
       </div>
     </main>
