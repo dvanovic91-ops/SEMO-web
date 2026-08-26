@@ -7,6 +7,7 @@ import { useI18n } from '../context/I18nContext';
 import { formatCurrencyAmount } from '../lib/market';
 
 import { isNonProductCartItemId } from '../lib/cartItemLink';
+import { BoxCartThumb, isCustomBoxId, isPremiumBoxId } from '../components/BoxCartThumb';
 
 function ProductLink({ id, className, children }: { id: string; className?: string; children: React.ReactNode }) {
   if (isNonProductCartItemId(id)) {
@@ -100,6 +101,8 @@ export const Cart: React.FC = () => {
               <ProductLink id={item.id} className="row-span-2 flex h-14 w-14 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-50">
                 {item.imageUrl ? (
                   <img src={item.imageUrl} alt={item.name} className="h-full w-full object-cover" />
+                ) : isCustomBoxId(item.id) ? (
+                  <BoxCartThumb premium={isPremiumBoxId(item.id)} />
                 ) : (
                   <span className="flex h-full w-full items-center justify-center text-xs text-slate-400">{tt.slot}</span>
                 )}
@@ -159,6 +162,8 @@ export const Cart: React.FC = () => {
               <ProductLink id={item.id} className="flex h-14 w-14 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-50">
                 {item.imageUrl ? (
                   <img src={item.imageUrl} alt={item.name} className="h-full w-full object-cover" />
+                ) : isCustomBoxId(item.id) ? (
+                  <BoxCartThumb premium={isPremiumBoxId(item.id)} />
                 ) : (
                   <span className="flex h-full w-full items-center justify-center text-xs text-slate-400">{tt.slot}</span>
                 )}

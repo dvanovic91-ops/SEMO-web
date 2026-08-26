@@ -8,6 +8,7 @@ import { useCart } from '../context/CartContext';
 import { useNotifications, type NotificationRow } from '../hooks/useNotifications';
 import { notificationKindBadgeRu, resolveNotificationHref } from '../lib/notificationNavigation';
 import { getSemoBoxSubmenu, isSemoBoxSubmenuPath } from '../lib/semoBoxSubmenu';
+import { BoxCartThumb, isCustomBoxId, isPremiumBoxId } from './BoxCartThumb';
 import { isNonProductCartItemId } from '../lib/cartItemLink';
 import { formatCurrencyAmount } from '../lib/market';
 import { formatStorefrontDateTimeShort } from '../lib/formatStorefrontDate';
@@ -345,6 +346,8 @@ export const Navbar: React.FC = () => {
                     <div className="row-span-2 flex h-14 w-14 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-white">
                       {it.imageUrl ? (
                         <img src={it.imageUrl} alt="" className="h-full w-full object-cover" />
+                      ) : isCustomBoxId(it.id) ? (
+                        <BoxCartThumb premium={isPremiumBoxId(it.id)} />
                       ) : (
                         <span className="flex h-full w-full items-center justify-center text-[10px] text-slate-400">Слот</span>
                       )}

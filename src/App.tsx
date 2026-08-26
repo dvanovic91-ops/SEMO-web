@@ -118,6 +118,8 @@ import { Cart } from './pages/Cart';
 import { Checkout } from './pages/Checkout';
 import { CheckoutComplete } from './pages/CheckoutComplete';
 import { Home } from './pages/Home';
+import { ComingSoon } from './pages/ComingSoon';
+import { DeepkorTerms, DeepkorPrivacy } from './pages/DeepkorLegal';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 import { RegisterShipping } from './pages/RegisterShipping';
@@ -162,22 +164,36 @@ function AppLayout() {
   const { productDesktopNav } = useProductNavReplacement();
   const { pathname } = useLocation();
   const mdProductPad = 'md:pt-[var(--semo-desktop-header-h)]';
+  // 루트(/) = 판매 준비 중 안내 화면 — 상단바/하단 푸터(회사정보)까지 다
+  // 걷어내고 사진 하나만 꽉 채워 보여준다. 2026-08-27.
+  const isGate = pathname === '/';
   return (
     <>
-      <CrossRegionNotice />
+      {!isGate && (
+        <>
+          <CrossRegionNotice />
+          <Navbar />
+          <GlobalEnglishOverlay />
+        </>
+      )}
       <AddItemFromQuery />
-      <Navbar />
-      <GlobalEnglishOverlay />
       <TrackVisit />
       <PasswordRecoveryRouteGuard />
       <PostSignupRedirect />
       <ScrollToTop />
       <div
-        className={`min-w-0 flex-1 overflow-x-hidden pb-[var(--semo-mobile-tabbar-h)] pt-[var(--semo-mobile-header-h)] md:pb-0 ${mdProductPad}`}
+        className={
+          isGate
+            ? 'min-w-0 flex-1 overflow-x-hidden'
+            : `min-w-0 flex-1 overflow-x-hidden pb-[var(--semo-mobile-tabbar-h)] pt-[var(--semo-mobile-header-h)] md:pb-0 ${mdProductPad}`
+        }
       >
         <Routes>
-              <Route path="/" element={<Home />} />
+              {/* 판매 준비되면 <Home /> 으로 되돌릴 것 — import는 그대로 남겨둠 */}
+              <Route path="/" element={<ComingSoon />} />
               <Route path="/about" element={<About />} />
+              <Route path="/deepkor/terms" element={<DeepkorTerms />} />
+              <Route path="/deepkor/privacy" element={<DeepkorPrivacy />} />
               <Route path="/journey" element={<Journey />} />
               <Route path="/promo" element={<Promo />} />
               <Route
@@ -223,8 +239,12 @@ function AppLayout() {
               <Route path="/register/shipping" element={<RegisterShipping />} />
             </Routes>
       </div>
-      <ShippingCountdownBanner />
-      <Footer />
+      {!isGate && (
+        <>
+          <ShippingCountdownBanner />
+          <Footer />
+        </>
+      )}
     </>
   );
 }
