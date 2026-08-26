@@ -169,7 +169,7 @@ function AppLayout() {
   // 푸터(회사정보, 다른 메뉴 등 기존 인프라 전부)를 걷어내고 그 페이지
   // 내용만 보이게 한다. /notice도 /와 마찬가지로 완전히 가려야 함
   // (2026-08-27, 사용자 명시 지적으로 /notice 누락 수정).
-  const isGate = pathname === '/' || pathname === '/notice';
+  const isGate = pathname === '/' || pathname === '/notice' || pathname.startsWith('/deepkor/');
   return (
     <>
       {!isGate && (
