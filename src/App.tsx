@@ -121,6 +121,7 @@ import { Home } from './pages/Home';
 import { ComingSoon } from './pages/ComingSoon';
 import { GateNotice } from './pages/GateNotice';
 import { DeepkorTerms, DeepkorPrivacy } from './pages/DeepkorLegal';
+import { DeepkorYandexCallback } from './pages/DeepkorYandexCallback';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 import { RegisterShipping } from './pages/RegisterShipping';
@@ -198,6 +199,7 @@ function AppLayout() {
               <Route path="/about" element={<About />} />
               <Route path="/deepkor/terms" element={<DeepkorTerms />} />
               <Route path="/deepkor/privacy" element={<DeepkorPrivacy />} />
+              <Route path="/deepkor/auth/yandex/callback" element={<DeepkorYandexCallback />} />
               <Route path="/journey" element={<Journey />} />
               <Route path="/promo" element={<Promo />} />
               <Route
