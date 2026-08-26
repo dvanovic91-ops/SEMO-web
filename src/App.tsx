@@ -165,9 +165,11 @@ function AppLayout() {
   const { productDesktopNav } = useProductNavReplacement();
   const { pathname } = useLocation();
   const mdProductPad = 'md:pt-[var(--semo-desktop-header-h)]';
-  // 루트(/) = 판매 준비 중 안내 화면 — 상단바/하단 푸터(회사정보)까지 다
-  // 걷어내고 사진 하나만 꽉 채워 보여준다. 2026-08-27.
-  const isGate = pathname === '/';
+  // 루트(/)와 /notice = 판매 준비 중 상태에서 쓰는 화면들 — 상단바/하단
+  // 푸터(회사정보, 다른 메뉴 등 기존 인프라 전부)를 걷어내고 그 페이지
+  // 내용만 보이게 한다. /notice도 /와 마찬가지로 완전히 가려야 함
+  // (2026-08-27, 사용자 명시 지적으로 /notice 누락 수정).
+  const isGate = pathname === '/' || pathname === '/notice';
   return (
     <>
       {!isGate && (
