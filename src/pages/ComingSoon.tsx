@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { useI18n } from '../context/I18nContext';
 
 /**
@@ -10,6 +11,10 @@ import { useI18n } from '../context/I18nContext';
  * App.tsx에서 `/` 라우트만 다시 <Home />으로 되돌리면 된다.
  *
  * 2026-08-27 도입.
+ *
+ * TODO(앱스토어 등록 후): 지금 CTA는 텔레그램 팔로우인데, Deepkor 앱이
+ * App Store/Google Play에 올라가면 이 버튼을 앱 다운로드 링크(스토어
+ * 배지 또는 스마트 링크)로 교체할 것 — 지금은 등록 전이라 대기.
  */
 const TELEGRAM_BOT_URL = 'https://t.me/My_SEMO_Beautybot';
 
@@ -49,6 +54,16 @@ export const ComingSoon: React.FC = () => {
         >
           {isEn ? 'Follow on Telegram' : 'Подписаться в Telegram'}
         </a>
+
+        {/* Footer를 통째로 숨겨서 이 페이지엔 법적 고지 링크가 하나도 없었음
+            — 최소한의 흔적은 남겨둔다(App Store 등 심사에서도 개인정보
+            처리방침이 쉽게 눈에 띄는지 보는 경우가 있음). */}
+        <Link
+          to="/legal"
+          className="mt-10 text-xs text-white/40 underline-offset-2 hover:text-white/70 hover:underline"
+        >
+          {isEn ? 'Privacy & Terms' : 'Конфиденциальность и условия'}
+        </Link>
       </div>
     </main>
   );
