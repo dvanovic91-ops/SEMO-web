@@ -70,11 +70,19 @@ function getClientIp(req: Request): string {
 }
 
 // ── redirect_uri 허용 목록 ──
+// 세모박스 자체 로그인(YandexCallback.tsx, /auth/yandex/callback)과 Deepkor 앱
+// 릴레이(DeepkorYandexCallback.tsx, /deepkor/auth/yandex/callback)가 같은 이
+// 함수를 공유한다 — 실서버에는 이미 /deepkor 쪽이 반영돼 있었는데 이 로컬
+// 파일에는 빠져있던 걸 맞췄다(2026-08-29, 소스 드리프트 방지).
 const ALLOWED_REDIRECT_URIS = new Set([
   'https://semo-box.com/auth/yandex/callback',
   'https://semo-box.ru/auth/yandex/callback',
   'http://localhost:5173/auth/yandex/callback',
   'http://localhost:3001/auth/yandex/callback',
+  'https://semo-box.com/deepkor/auth/yandex/callback',
+  'https://semo-box.ru/deepkor/auth/yandex/callback',
+  'http://localhost:5173/deepkor/auth/yandex/callback',
+  'http://localhost:3001/deepkor/auth/yandex/callback',
 ]);
 
 function bufToHex(buf: ArrayBuffer): string {

@@ -31,6 +31,13 @@ export const DeepkorYandexCallback: React.FC = () => {
   const isEn = language === 'en';
   const [status, setStatus] = useState<Status>('processing');
   const [errorDetail, setErrorDetail] = useState<string>('');
+  // 자동 리다이렉트(window.location.href)에 쓴 딥링크 — 성공하면 화면에 남을
+  // 일이 없지만, 실패(사파리가 조용히 무시)했을 때를 대비해 진짜 탭 가능한
+  // 링크로도 같이 보여준다(2026-08-29). 사파리는 fetch()로 서버 응답을 기다린
+  // 뒤의 비동기 window.location.href 리다이렉트를 "유저 상호작용이 오래됐다"고
+  // 판단해 조용히 무시하는 경우가 있다(Apple 개발자 포럼에서 확인된 동작) —
+  // 반면 실제 탭(진짜 유저 제스처)으로 여는 링크는 항상 통한다.
+  const [appLink, setAppLink] = useState<string>('');
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -67,7 +74,9 @@ export const DeepkorYandexCallback: React.FC = () => {
           return;
         }
         setStatus('redirecting');
-        window.location.href = `${APP_CALLBACK_SCHEME}?token_hash=${encodeURIComponent(data.token_hash)}`;
+        const link = `${APP_CALLBACK_SCHEME}?token_hash=${encodeURIComponent(data.token_hash)}`;
+        setAppLink(link);
+        window.location.href = link; // 성공하면 이 페이지는 바로 배경으로 밀려남 — 실패해도 아래 버튼이 있음.
       } catch {
         setErrorDetail('network_error');
         setStatus('error');
@@ -85,6 +94,14 @@ export const DeepkorYandexCallback: React.FC = () => {
               ? (isEn ? 'Signed in — returning to Deepkor…' : 'Вход выполнен — возвращаемся в Deepkor…')
               : (isEn ? 'Signing in…' : 'Выполняется вход…')}
           </p>
+          {status === 'redirecting' && appLink && (
+            <a
+              href={appLink}
+              className="mt-8 rounded-full bg-white px-6 py-3 text-sm font-medium text-slate-950"
+            >
+              {isEn ? 'Open Deepkor' : 'Открыть Deepkor'}
+            </a>
+          )}
         </>
       ) : (
         <>
