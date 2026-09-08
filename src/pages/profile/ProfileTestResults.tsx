@@ -23,11 +23,19 @@ export const ProfileTestResults: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // 로그인 직후엔 auth 컨텍스트가 세션을 확정하기 전까지 userId가 잠깐
+    // undefined다 — 그 순간을 "로그인 안 함/결과 없음"으로 성급하게 확정
+    // 지으면, 실제로는 결과가 있는데도 빈 상태를 먼저 보여줬다가 userId가
+    // 채워진 뒤에야 다시 불러와서 뒤늦게 뜨는 것처럼 보인다(2026-08-30,
+    // 얀덱스 로그인 직후 재현 확인). initialized가 true가 될 때까지는
+    // 아무 것도 확정하지 않고 로딩 상태를 유지한다.
+    if (!initialized) return;
     if (!supabase || !userId) {
       setList([]);
       setLoading(false);
       return;
     }
+    setLoading(true);
     supabase
       .from('skin_test_results')
       .select('id, skin_type, completed_at, selfie_analysis')
@@ -47,7 +55,7 @@ export const ProfileTestResults: React.FC = () => {
       })
       .catch(() => setList([]))
       .finally(() => setLoading(false));
-  }, [userId]);
+  }, [initialized, userId]);
 
   if (!initialized) return null;
   if (!isLoggedIn) return <Navigate to="/login" replace />;
