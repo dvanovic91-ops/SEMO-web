@@ -19,6 +19,15 @@ export const KoskosAdmin: React.FC = () => {
   const [signingIn, setSigningIn] = useState(false);
   const [tab, setTab] = useState<AdminTab>('home');
   const [banner, setBanner] = useState<string | null>(null);
+  const [homeDirty, setHomeDirty] = useState(false);
+
+  function selectTab(next: AdminTab) {
+    if (next !== tab && tab === 'home' && homeDirty) {
+      const ok = window.confirm('홈 화면 변경이 아직 저장되지 않았습니다. 다른 탭으로 나갈까요?');
+      if (!ok) return;
+    }
+    setTab(next);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -113,7 +122,7 @@ export const KoskosAdmin: React.FC = () => {
               <button
                 key={id}
                 type="button"
-                onClick={() => setTab(id)}
+                onClick={() => selectTab(id)}
                 className={`rounded-full px-3 py-1.5 text-sm ${
                   tab === id ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
                 }`}
@@ -137,7 +146,7 @@ export const KoskosAdmin: React.FC = () => {
             </button>
           </div>
         )}
-        {tab === 'home' && <HomeCmsPanel onError={setBanner} />}
+        {tab === 'home' && <HomeCmsPanel onError={setBanner} onDirtyChange={setHomeDirty} />}
         {tab === 'pending' && <PendingApprovals onError={setBanner} />}
         {tab === 'members' && <MembersPanel onError={setBanner} />}
         {tab === 'notices' && <NoticesPanel onError={setBanner} />}
