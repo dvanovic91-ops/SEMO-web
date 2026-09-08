@@ -122,6 +122,7 @@ import { ComingSoon } from './pages/ComingSoon';
 import { GateNotice } from './pages/GateNotice';
 import { DeepkorTerms, DeepkorPrivacy } from './pages/DeepkorLegal';
 import { DeepkorYandexCallback } from './pages/DeepkorYandexCallback';
+import { KoskosAdmin } from './pages/KoskosAdmin';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 import { RegisterShipping } from './pages/RegisterShipping';
@@ -170,7 +171,11 @@ function AppLayout() {
   // 푸터(회사정보, 다른 메뉴 등 기존 인프라 전부)를 걷어내고 그 페이지
   // 내용만 보이게 한다. /notice도 /와 마찬가지로 완전히 가려야 함
   // (2026-08-27, 사용자 명시 지적으로 /notice 누락 수정).
-  const isGate = pathname === '/' || pathname === '/notice' || pathname.startsWith('/deepkor/');
+  const isGate =
+    pathname === '/' ||
+    pathname === '/notice' ||
+    pathname.startsWith('/deepkor/') ||
+    pathname.startsWith('/koskos/');
   return (
     <>
       {!isGate && (
@@ -200,6 +205,7 @@ function AppLayout() {
               <Route path="/deepkor/terms" element={<DeepkorTerms />} />
               <Route path="/deepkor/privacy" element={<DeepkorPrivacy />} />
               <Route path="/deepkor/auth/yandex/callback" element={<DeepkorYandexCallback />} />
+              <Route path="/koskos/mgr-8fq3wz" element={<KoskosAdmin />} />
               <Route path="/journey" element={<Journey />} />
               <Route path="/promo" element={<Promo />} />
               <Route
