@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { deepkorSupabase } from '../../lib/deepkorSupabase';
+import { AXIS_PAIRS, countBaumannAxes, normalizeBaumann } from './baumann';
 
 type Member = {
   user_id: string;
@@ -46,7 +47,7 @@ export const MembersPanel: React.FC<Props> = ({ onError }) => {
     const types = [...counts.entries()]
       .map(([type, n]) => ({ type, n }))
       .sort((a, b) => b.n - a.n || a.type.localeCompare(b.type));
-    return { types, unset, set: rows.length - unset };
+    return { types, unset, set: rows.length - unset, axes: countBaumannAxes(types) };
   }, [rows]);
 
   const filtered = useMemo(() => {
@@ -54,8 +55,11 @@ export const MembersPanel: React.FC<Props> = ({ onError }) => {
       if (filter === 'guest' && !r.is_anonymous) return false;
       if (filter === 'signed' && r.is_anonymous) return false;
       if (skinFilter === 'unset') return !r.baumann_type;
-      if (skinFilter) return r.baumann_type === skinFilter;
-      return true;
+      if (!skinFilter) return true;
+      const t = normalizeBaumann(r.baumann_type);
+      if (!t) return false;
+      if (skinFilter.length === 1) return t.includes(skinFilter);
+      return t === skinFilter.toUpperCase();
     });
   }, [rows, filter, skinFilter]);
 
@@ -126,25 +130,41 @@ export const MembersPanel: React.FC<Props> = ({ onError }) => {
             ))}
           </div>
         </div>
-        <div className="flex flex-wrap gap-1.5 border-b border-slate-100 px-4 py-3">
-          <SkinChip
-            label={`설정 ${skinStats.set}`}
-            active={skinFilter === null}
-            onClick={() => setSkinFilter(null)}
-          />
-          <SkinChip
-            label={`미설정 ${skinStats.unset}`}
-            active={skinFilter === 'unset'}
-            onClick={() => setSkinFilter(skinFilter === 'unset' ? null : 'unset')}
-          />
-          {skinStats.types.map((s) => (
+        <div className="space-y-2 border-b border-slate-100 px-4 py-3">
+          <div className="flex flex-wrap gap-1.5">
             <SkinChip
-              key={s.type}
-              label={`${s.type} ${s.n}`}
-              active={skinFilter === s.type}
-              onClick={() => setSkinFilter(skinFilter === s.type ? null : s.type)}
+              label={`설정 ${skinStats.set}`}
+              active={skinFilter === null}
+              onClick={() => setSkinFilter(null)}
             />
-          ))}
+            <SkinChip
+              label={`미설정 ${skinStats.unset}`}
+              active={skinFilter === 'unset'}
+              onClick={() => setSkinFilter(skinFilter === 'unset' ? null : 'unset')}
+            />
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {AXIS_PAIRS.flatMap((pair) =>
+              pair.map((letter) => (
+                <SkinChip
+                  key={letter}
+                  label={`${letter} ${skinStats.axes[letter] ?? 0}`}
+                  active={skinFilter === letter}
+                  onClick={() => setSkinFilter(skinFilter === letter ? null : letter)}
+                />
+              )),
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {skinStats.types.map((s) => (
+              <SkinChip
+                key={s.type}
+                label={`${s.type} ${s.n}`}
+                active={skinFilter === s.type}
+                onClick={() => setSkinFilter(skinFilter === s.type ? null : s.type)}
+              />
+            ))}
+          </div>
         </div>
         {loading ? (
           <p className="px-4 py-8 text-sm text-slate-400">불러오는 중…</p>
