@@ -34,9 +34,10 @@ export const MembersPanel: React.FC<Props> = ({ onError }) => {
   const [detail, setDetail] = useState<MemberDetail | null>(null);
 
   const skinStats = useMemo(() => {
+    const signedRows = rows.filter((r) => !r.is_anonymous);
     const counts = new Map<string, number>();
     let unset = 0;
-    for (const row of rows) {
+    for (const row of signedRows) {
       const t = row.baumann_type?.trim();
       if (!t) {
         unset += 1;
@@ -47,15 +48,16 @@ export const MembersPanel: React.FC<Props> = ({ onError }) => {
     const types = [...counts.entries()]
       .map(([type, n]) => ({ type, n }))
       .sort((a, b) => b.n - a.n || a.type.localeCompare(b.type));
-    return { types, unset, set: rows.length - unset, axes: countBaumannAxes(types) };
+    return { types, unset, set: signedRows.length - unset, axes: countBaumannAxes(types) };
   }, [rows]);
 
   const filtered = useMemo(() => {
     return rows.filter((r) => {
       if (filter === 'guest' && !r.is_anonymous) return false;
       if (filter === 'signed' && r.is_anonymous) return false;
-      if (skinFilter === 'unset') return !r.baumann_type;
+      if (skinFilter === 'unset') return !r.is_anonymous && !r.baumann_type;
       if (!skinFilter) return true;
+      if (r.is_anonymous) return false;
       const t = normalizeBaumann(r.baumann_type);
       if (!t) return false;
       if (skinFilter.length === 1) return t.includes(skinFilter);
@@ -107,7 +109,7 @@ export const MembersPanel: React.FC<Props> = ({ onError }) => {
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
           <p className="text-sm font-medium text-slate-800">
-            계정 {rows.length} · 로그인 {signed} · 게스트 {rows.length - signed}
+            로그인 {signed} · 게스트 {rows.length - signed}
           </p>
           <div className="flex gap-1">
             {(
@@ -131,6 +133,7 @@ export const MembersPanel: React.FC<Props> = ({ onError }) => {
           </div>
         </div>
         <div className="space-y-2 border-b border-slate-100 px-4 py-3">
+          <p className="text-[10px] text-slate-400">피부타입은 로그인 회원만 집계합니다.</p>
           <div className="flex flex-wrap gap-1.5">
             <SkinChip
               label={`설정 ${skinStats.set}`}

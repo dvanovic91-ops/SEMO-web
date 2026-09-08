@@ -295,7 +295,7 @@ export const HomeCmsPanel: React.FC<Props> = ({ onError, onDirtyChange }) => {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
+    <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3">
         <div>
           <p className="text-sm font-medium text-slate-900">홈 화면 편집</p>
@@ -323,7 +323,10 @@ export const HomeCmsPanel: React.FC<Props> = ({ onError, onDirtyChange }) => {
         </div>
       </div>
 
-      <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[280px_1fr_340px]">
+      {/* min-h-0 + sticky + overflow-hidden 조합이면, 제목 입력 때 미리보기가
+          다시 안 그려지고 회색 박스로 멈춘 것처럼 보인다. 페이지 스크롤 +
+          aside 자체 sticky로 바꾼다. */}
+      <div className="grid items-start gap-4 xl:grid-cols-[280px_minmax(0,1fr)_300px]">
         <aside className="rounded-2xl border border-slate-200 bg-white">
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
             <p className="text-sm font-medium">섹션 순서</p>
@@ -529,8 +532,8 @@ export const HomeCmsPanel: React.FC<Props> = ({ onError, onDirtyChange }) => {
           )}
         </section>
 
-        <aside className="hidden xl:block">
-          <div className="sticky top-4 mx-auto w-[300px]">
+        <aside className="hidden xl:sticky xl:top-4 xl:block xl:self-start">
+          <div className="w-[300px]">
             <div className="mb-2 flex items-center justify-between">
               <p className="text-[10px] text-slate-400">{dirty ? '미리보기 (미저장)' : '앱 미리보기'}</p>
               <div className="flex overflow-hidden rounded-full border border-slate-200 text-[10px]">
@@ -550,17 +553,26 @@ export const HomeCmsPanel: React.FC<Props> = ({ onError, onDirtyChange }) => {
                 </button>
               </div>
             </div>
-            {/* iPhone 14 논리 해상도 390×844 — 테두리 포함 폭 300에 맞춰 높이 고정, 내용은 안에서만 스크롤 */}
-            <div className="h-[648px] overflow-hidden rounded-[2.2rem] border-[10px] border-slate-900 bg-slate-900">
-              <div className="h-full space-y-4 overflow-y-auto bg-slate-50 px-3 py-3">
+            {/* isolate: 폰 프레임 다시 그리기가 sticky 조상에 먹히지 않게 레이어 분리 */}
+            <div className="isolate h-[648px] overflow-hidden rounded-[2.2rem] border-[10px] border-slate-900 bg-slate-900">
+              <div className="h-full space-y-4 overflow-y-auto bg-slate-50 px-3 py-3 [transform:translateZ(0)]">
                 {sections
                   .filter((s) => s.visible)
                   .map((s) => {
                     const sectionTitle = previewLang === 'ru' ? s.title_ru : s.title_en;
-                    const firstCard = cards.find((c) => c.section_id === s.id && c.visible);
+                    const sectionCards = cards
+                      .filter((c) => c.section_id === s.id && c.visible)
+                      .sort((a, b) => a.sort_order - b.sort_order);
+                    const firstCard = sectionCards[0];
+                    const selected = s.id === selectedId;
                     return (
-                      <div key={s.id}>
-                        <p className="mb-1.5 text-[12px] font-semibold text-slate-900">{sectionTitle}</p>
+                      <div
+                        key={s.id}
+                        className={selected ? '-mx-1 rounded-xl bg-white/80 px-1 py-1 ring-1 ring-slate-300' : ''}
+                      >
+                        <p className="mb-1.5 text-[12px] font-semibold text-slate-900">
+                          {sectionTitle || (s.kind === 'recommended' ? 'For you' : 'Discover')}
+                        </p>
                         {s.kind === 'recommended' ? (
                           <div className="flex gap-2 overflow-hidden">
                             {[0, 1].map((i) => (
@@ -612,19 +624,26 @@ function PhoneBannerCard({
 }) {
   const title = card ? (lang === 'ru' ? card.title_ru : card.title_en) : '';
   const subtitle = card ? (lang === 'ru' ? card.subtitle_ru : card.subtitle_en) : '';
+  // 슬라이더는 사진 높이. 제목/태그는 그 아래에 항상 보이게 — 예전엔 전체
+  // 카드에 고정 height를 줘서 149px처럼 낮으면 글이 잘리고 회색 박스로 멈춘 것처럼 보였다.
+  const imageHeight = Math.max(56, height * PREVIEW_SCALE - 52);
   return (
-    <div
-      className="flex flex-col rounded-[14px] border border-slate-200 bg-white p-2.5"
-      style={{ height: height * PREVIEW_SCALE }}
-    >
-      <div className="min-h-0 flex-1 overflow-hidden rounded-[10px] bg-slate-100">
+    <div className="flex flex-col rounded-[14px] border border-slate-200 bg-white p-2.5">
+      <div
+        className="overflow-hidden rounded-[10px] bg-slate-100"
+        style={{ height: imageHeight }}
+      >
         {card?.image_url ? (
           <img src={card.image_url} alt="" className="h-full w-full object-cover" />
         ) : (
-          <div className="flex h-full items-center justify-center text-[10px] text-slate-400">배너</div>
+          <div className="flex h-full items-center justify-center text-[10px] text-slate-400">
+            {card ? '사진 없음' : '카드 없음'}
+          </div>
         )}
       </div>
-      <p className="mt-2 truncate text-[11px] font-semibold leading-tight text-slate-900">{title || ' '}</p>
+      <p className="mt-2 truncate text-[11px] font-semibold leading-tight text-slate-900">
+        {card ? title || '제목 없음' : '카드를 추가하세요'}
+      </p>
       <p className="mt-0.5 truncate text-[10px] leading-tight text-slate-500">{subtitle || ' '}</p>
     </div>
   );

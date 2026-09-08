@@ -183,8 +183,12 @@ export const StatsPanel: React.FC<Props> = ({ onError }) => {
       </section>
 
       <section className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="전체 계정" value={data.totals.accounts} hint={`게스트 ${data.totals.guests} · 로그인 ${data.totals.signed_in}`} />
-        <StatCard label="피부타입 설정" value={data.totals.with_skin_type} />
+        <StatCard
+          label="전체 계정"
+          value={data.totals.signed_in}
+          hint={`가입(로그인)만 · 게스트 세션 ${data.totals.guests}은 제외`}
+        />
+        <StatCard label="피부타입 설정" value={data.totals.with_skin_type} hint="로그인 회원만" />
         <StatCard label="즐겨찾기" value={data.totals.favorites} />
         <StatCard label="리뷰 / 승인대기 제보" value={`${data.totals.reviews} / ${data.totals.pending_open}`} />
       </section>
@@ -290,7 +294,8 @@ function BaumannCard({ types }: { types: NamedCount[] }) {
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4">
-      <p className="mb-3 text-sm font-medium text-slate-800">바우만 피부타입</p>
+      <p className="mb-1 text-sm font-medium text-slate-800">바우만 피부타입</p>
+      <p className="mb-3 text-[10px] text-slate-400">로그인 회원만 집계합니다. 게스트 테스트는 넣지 않습니다.</p>
       <div className="mb-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
         {AXIS_PAIRS.map(([a, b]) => (
           <React.Fragment key={a}>
