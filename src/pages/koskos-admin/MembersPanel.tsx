@@ -10,6 +10,8 @@ type Member = {
   last_sign_in_at: string | null;
   nickname: string | null;
   baumann_type: string | null;
+  device_country: string | null;
+  app_locale: string | null;
   scan_count: number | string;
   submission_count: number | string;
 };
@@ -26,14 +28,36 @@ export const MembersPanel: React.FC<Props> = ({ onError }) => {
   const [rows, setRows] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'guest' | 'signed'>('all');
+  const [skinFilter, setSkinFilter] = useState<string | 'unset' | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<MemberDetail | null>(null);
 
+  const skinStats = useMemo(() => {
+    const counts = new Map<string, number>();
+    let unset = 0;
+    for (const row of rows) {
+      const t = row.baumann_type?.trim();
+      if (!t) {
+        unset += 1;
+        continue;
+      }
+      counts.set(t, (counts.get(t) ?? 0) + 1);
+    }
+    const types = [...counts.entries()]
+      .map(([type, n]) => ({ type, n }))
+      .sort((a, b) => b.n - a.n || a.type.localeCompare(b.type));
+    return { types, unset, set: rows.length - unset };
+  }, [rows]);
+
   const filtered = useMemo(() => {
-    if (filter === 'guest') return rows.filter((r) => r.is_anonymous);
-    if (filter === 'signed') return rows.filter((r) => !r.is_anonymous);
-    return rows;
-  }, [rows, filter]);
+    return rows.filter((r) => {
+      if (filter === 'guest' && !r.is_anonymous) return false;
+      if (filter === 'signed' && r.is_anonymous) return false;
+      if (skinFilter === 'unset') return !r.baumann_type;
+      if (skinFilter) return r.baumann_type === skinFilter;
+      return true;
+    });
+  }, [rows, filter, skinFilter]);
 
   const signed = rows.filter((r) => !r.is_anonymous).length;
 
@@ -102,6 +126,26 @@ export const MembersPanel: React.FC<Props> = ({ onError }) => {
             ))}
           </div>
         </div>
+        <div className="flex flex-wrap gap-1.5 border-b border-slate-100 px-4 py-3">
+          <SkinChip
+            label={`설정 ${skinStats.set}`}
+            active={skinFilter === null}
+            onClick={() => setSkinFilter(null)}
+          />
+          <SkinChip
+            label={`미설정 ${skinStats.unset}`}
+            active={skinFilter === 'unset'}
+            onClick={() => setSkinFilter(skinFilter === 'unset' ? null : 'unset')}
+          />
+          {skinStats.types.map((s) => (
+            <SkinChip
+              key={s.type}
+              label={`${s.type} ${s.n}`}
+              active={skinFilter === s.type}
+              onClick={() => setSkinFilter(skinFilter === s.type ? null : s.type)}
+            />
+          ))}
+        </div>
         {loading ? (
           <p className="px-4 py-8 text-sm text-slate-400">불러오는 중…</p>
         ) : (
@@ -112,6 +156,7 @@ export const MembersPanel: React.FC<Props> = ({ onError }) => {
                   <th className="px-4 py-2 font-medium">계정</th>
                   <th className="px-4 py-2 font-medium">타입</th>
                   <th className="px-4 py-2 font-medium">피부</th>
+                  <th className="px-4 py-2 font-medium">국적</th>
                   <th className="px-4 py-2 font-medium">스캔</th>
                   <th className="px-4 py-2 font-medium">가입</th>
                 </tr>
@@ -133,6 +178,7 @@ export const MembersPanel: React.FC<Props> = ({ onError }) => {
                       {row.is_anonymous ? '게스트' : row.provider || '로그인'}
                     </td>
                     <td className="px-4 py-2 text-xs">{row.baumann_type || '—'}</td>
+                    <td className="px-4 py-2 text-xs">{row.device_country || '—'}</td>
                     <td className="px-4 py-2 text-xs">{row.scan_count}</td>
                     <td className="px-4 py-2 text-xs">{formatDate(row.created_at)}</td>
                   </tr>
@@ -152,6 +198,8 @@ export const MembersPanel: React.FC<Props> = ({ onError }) => {
             <Meta label="이메일" value={detail.email || '없음 (게스트)'} />
             <Meta label="로그인" value={detail.is_anonymous ? '익명 게스트' : detail.provider || '—'} />
             <Meta label="피부타입" value={detail.baumann_type || '미설정'} />
+            <Meta label="기기 지역" value={detail.device_country || '아직 없음'} />
+            <Meta label="앱 언어" value={detail.app_locale || '아직 없음'} />
             <Meta label="스캔 / 제보" value={`${detail.scan_count} / ${detail.submission_count}`} />
             <Meta label="가입" value={formatDate(detail.created_at)} />
             <Meta label="최근 접속" value={detail.last_sign_in_at ? formatDate(detail.last_sign_in_at) : '—'} />
@@ -187,4 +235,18 @@ function Meta({ label, value }: { label: string; value: string }) {
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function SkinChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full px-2.5 py-1 text-[11px] ${
+        active ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+      }`}
+    >
+      {label}
+    </button>
+  );
 }
