@@ -1,5 +1,6 @@
 {
   "rewrites": [
+    { "source": "/deepkor/auth/yandex/callback", "destination": "/deepkor-yandex-callback.html" },
     { "source": "/((?!.*\\.[a-zA-Z0-9]+$).*)", "destination": "/index.html" }
   ]
 }

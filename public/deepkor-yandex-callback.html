@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>KOSKOS</title>
+  <style>
+    html, body { margin: 0; background: #0b0b0b; min-height: 100%; }
+    #fallback {
+      display: none;
+      place-items: center;
+      min-height: 100vh;
+      font-family: -apple-system, system-ui, sans-serif;
+    }
+    a {
+      color: #fff;
+      background: #D85A30;
+      text-decoration: none;
+      padding: 14px 28px;
+      border-radius: 999px;
+      font-size: 15px;
+    }
+  </style>
+  <script>
+    (function () {
+      var p = new URLSearchParams(location.search);
+      if (p.get('error') || !p.get('code')) return;
+      var u = 'com.deepkor.deepkor://yandex-callback?yandex_code=' +
+        encodeURIComponent(p.get('code'));
+      var s = p.get('state');
+      if (s) u += '&state=' + encodeURIComponent(s);
+      window.__appLink = u;
+      location.replace(u);
+    })();
+  </script>
+</head>
+<body>
+  <div id="fallback">
+    <a id="open" href="#">Открыть KOSKOS</a>
+  </div>
+  <script>
+    setTimeout(function () {
+      var u = window.__appLink;
+      if (!u) return;
+      var a = document.getElementById('open');
+      var f = document.getElementById('fallback');
+      a.href = u;
+      f.style.display = 'grid';
+    }, 1200);
+  </script>
+</body>
+</html>
