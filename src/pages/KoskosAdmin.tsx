@@ -5,6 +5,7 @@ import { MembersPanel } from './koskos-admin/MembersPanel';
 import { NoticesPanel } from './koskos-admin/NoticesPanel';
 import { ScansPanel } from './koskos-admin/ScansPanel';
 import { HomeCmsPanel } from './koskos-admin/HomeCmsPanel';
+import { StatsPanel } from './koskos-admin/StatsPanel';
 import { KOSKOS_ADMIN_PATH } from './koskos-admin/types';
 
 /**
@@ -12,12 +13,12 @@ import { KOSKOS_ADMIN_PATH } from './koskos-admin/types';
  * 관리자가 아니면 404처럼 보이게 해서 존재 자체를 숨긴다.
  */
 type GateState = 'checking' | 'signedOut' | 'notAdmin' | 'admin';
-type AdminTab = 'home' | 'pending' | 'members' | 'notices' | 'scans' | 'ingredients';
+type AdminTab = 'stats' | 'home' | 'pending' | 'members' | 'notices' | 'scans' | 'ingredients';
 
 export const KoskosAdmin: React.FC = () => {
   const [state, setState] = useState<GateState>('checking');
   const [signingIn, setSigningIn] = useState(false);
-  const [tab, setTab] = useState<AdminTab>('home');
+  const [tab, setTab] = useState<AdminTab>('stats');
   const [banner, setBanner] = useState<string | null>(null);
   const [homeDirty, setHomeDirty] = useState(false);
 
@@ -111,6 +112,7 @@ export const KoskosAdmin: React.FC = () => {
           <nav className="flex flex-wrap justify-center gap-1">
             {(
               [
+                ['stats', '통계'],
                 ['home', '홈 화면'],
                 ['pending', '제보 승인'],
                 ['members', '회원'],
@@ -146,6 +148,7 @@ export const KoskosAdmin: React.FC = () => {
             </button>
           </div>
         )}
+        {tab === 'stats' && <StatsPanel onError={setBanner} />}
         {tab === 'home' && <HomeCmsPanel onError={setBanner} onDirtyChange={setHomeDirty} />}
         {tab === 'pending' && <PendingApprovals onError={setBanner} />}
         {tab === 'members' && <MembersPanel onError={setBanner} />}

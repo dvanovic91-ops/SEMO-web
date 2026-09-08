@@ -530,7 +530,7 @@ export const HomeCmsPanel: React.FC<Props> = ({ onError, onDirtyChange }) => {
         </section>
 
         <aside className="hidden xl:block">
-          <div className="sticky top-4 mx-auto w-[300px] rounded-[2rem] border-[10px] border-slate-900 bg-slate-50 p-3">
+          <div className="sticky top-4 mx-auto w-[300px]">
             <div className="mb-2 flex items-center justify-between">
               <p className="text-[10px] text-slate-400">{dirty ? '미리보기 (미저장)' : '앱 미리보기'}</p>
               <div className="flex overflow-hidden rounded-full border border-slate-200 text-[10px]">
@@ -550,34 +550,37 @@ export const HomeCmsPanel: React.FC<Props> = ({ onError, onDirtyChange }) => {
                 </button>
               </div>
             </div>
-            <div className="max-h-[640px] space-y-4 overflow-y-auto pr-1">
-              {sections
-                .filter((s) => s.visible)
-                .map((s) => {
-                  const sectionTitle = previewLang === 'ru' ? s.title_ru : s.title_en;
-                  const firstCard = cards.find((c) => c.section_id === s.id && c.visible);
-                  return (
-                    <div key={s.id}>
-                      <p className="mb-1.5 text-[12px] font-semibold text-slate-900">{sectionTitle}</p>
-                      {s.kind === 'recommended' ? (
-                        <div className="flex gap-2 overflow-hidden">
-                          {[0, 1].map((i) => (
-                            <div
-                              key={i}
-                              className="shrink-0 rounded-[10px] border border-slate-200 bg-white"
-                              style={{
-                                width: (s.card_width ?? 128) * PREVIEW_SCALE,
-                                height: s.card_height * PREVIEW_SCALE,
-                              }}
-                            />
-                          ))}
-                        </div>
-                      ) : (
-                        <PhoneBannerCard card={firstCard} lang={previewLang} height={s.card_height} />
-                      )}
-                    </div>
-                  );
-                })}
+            {/* iPhone 14 논리 해상도 390×844 — 테두리 포함 폭 300에 맞춰 높이 고정, 내용은 안에서만 스크롤 */}
+            <div className="h-[648px] overflow-hidden rounded-[2.2rem] border-[10px] border-slate-900 bg-slate-900">
+              <div className="h-full space-y-4 overflow-y-auto bg-slate-50 px-3 py-3">
+                {sections
+                  .filter((s) => s.visible)
+                  .map((s) => {
+                    const sectionTitle = previewLang === 'ru' ? s.title_ru : s.title_en;
+                    const firstCard = cards.find((c) => c.section_id === s.id && c.visible);
+                    return (
+                      <div key={s.id}>
+                        <p className="mb-1.5 text-[12px] font-semibold text-slate-900">{sectionTitle}</p>
+                        {s.kind === 'recommended' ? (
+                          <div className="flex gap-2 overflow-hidden">
+                            {[0, 1].map((i) => (
+                              <div
+                                key={i}
+                                className="shrink-0 rounded-[10px] border border-slate-200 bg-white"
+                                style={{
+                                  width: (s.card_width ?? 128) * PREVIEW_SCALE,
+                                  height: s.card_height * PREVIEW_SCALE,
+                                }}
+                              />
+                            ))}
+                          </div>
+                        ) : (
+                          <PhoneBannerCard card={firstCard} lang={previewLang} height={s.card_height} />
+                        )}
+                      </div>
+                    );
+                  })}
+              </div>
             </div>
           </div>
         </aside>

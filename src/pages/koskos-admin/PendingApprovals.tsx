@@ -272,17 +272,24 @@ function PendingDetail({
           )}
         </div>
         {row.web_search_source_url && (
-          <p className="mt-3 text-xs text-slate-500">
-            출처:{' '}
+          <div className="mt-3 space-y-1 text-xs text-slate-500">
+            <p>
+              전성분은 그 몰을 우리가 스크래핑한 게 아닙니다. 구글 검색이
+              <span className="font-medium text-slate-700"> 실제로 인용한 페이지</span>
+              를 출처로 붙입니다. 인용이 없거나 주소가 안 열리면 출처를 믿지 마세요.
+            </p>
+            {row.web_search_source_description && (
+              <p className="text-slate-600">{row.web_search_source_description}</p>
+            )}
             <a
               href={row.web_search_source_url}
               target="_blank"
               rel="noreferrer"
-              className="underline"
+              className="block break-all underline"
             >
-              {row.web_search_source_description || row.web_search_source_url}
+              {row.web_search_source_url}
             </a>
-          </p>
+          </div>
         )}
         {brandLooksNew && (
           <label className="mt-4 flex items-start gap-2 text-sm text-slate-700">
