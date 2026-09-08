@@ -556,9 +556,7 @@ export const HomeCmsPanel: React.FC<Props> = ({ onError, onDirtyChange }) => {
             {/* isolate: 폰 프레임 다시 그리기가 sticky 조상에 먹히지 않게 레이어 분리 */}
             <div className="isolate h-[648px] overflow-hidden rounded-[2.2rem] border-[10px] border-slate-900 bg-slate-900">
               <div className="h-full space-y-4 overflow-y-auto bg-slate-50 px-3 py-3 [transform:translateZ(0)]">
-                {sections
-                  .filter((s) => s.visible)
-                  .map((s) => {
+                {sections.map((s) => {
                     const sectionTitle = previewLang === 'ru' ? s.title_ru : s.title_en;
                     const sectionCards = cards
                       .filter((c) => c.section_id === s.id && c.visible)
@@ -568,10 +566,15 @@ export const HomeCmsPanel: React.FC<Props> = ({ onError, onDirtyChange }) => {
                     return (
                       <div
                         key={s.id}
-                        className={selected ? '-mx-1 rounded-xl bg-white/80 px-1 py-1 ring-1 ring-slate-300' : ''}
+                        className={`${selected ? '-mx-1 rounded-xl bg-white/80 px-1 py-1 ring-1 ring-slate-300' : ''} ${
+                          s.visible ? '' : 'opacity-40'
+                        }`}
                       >
                         <p className="mb-1.5 text-[12px] font-semibold text-slate-900">
                           {sectionTitle || (s.kind === 'recommended' ? 'For you' : 'Discover')}
+                          {!s.visible ? (
+                            <span className="ml-1 text-[10px] font-normal text-slate-400">숨김</span>
+                          ) : null}
                         </p>
                         {s.kind === 'recommended' ? (
                           <div className="flex gap-2 overflow-hidden">
