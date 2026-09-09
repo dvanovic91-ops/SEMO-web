@@ -53,7 +53,7 @@ const termsEn: Section[] = [
   },
   {
     heading: 'Content you provide',
-    body: 'When you scan an ingredient label or add photos to a review, you keep ownership of those photos. By submitting them, you grant Deepkor a non-exclusive, worldwide, royalty-free license to use, store, and display that content to operate the service — including using ingredient-label scan photos to improve our recognition accuracy. Review photos are shown publicly to other users; you can also choose, in Settings, whether photos you add to reviews may additionally be used to help improve our recognition models. You are responsible for only uploading photos you have the right to share, and for not including other people’s personal information in what you submit.',
+    body: 'When you scan a product or ingredient label, or add photos to a review, you keep ownership of those photos. By submitting them, you grant Deepkor a non-exclusive, worldwide, royalty-free license to use, store, and display that content to operate the service — including using those photos to improve our recognition accuracy. Review photos are also shown publicly to other users. You are responsible for only uploading photos you have the right to share, and for not including other people’s personal information in what you submit.',
   },
   {
     heading: 'Acceptable use',
@@ -101,7 +101,7 @@ const termsRu: Section[] = [
   },
   {
     heading: 'Контент, который вы добавляете',
-    body: 'Сканируя этикетку состава или добавляя фото к отзыву, вы сохраняете права на эти фотографии. Отправляя их, вы предоставляете Deepkor неисключительную, безвозмездную лицензию на использование, хранение и показ этого контента для работы сервиса — включая использование фото сканов состава для улучшения точности распознавания. Фото из отзывов видны другим пользователям; в настройках вы можете дополнительно решить, могут ли фото из отзывов использоваться для улучшения моделей распознавания. Вы несёте ответственность за то, что загружаете только те фото, на которые имеете право, и не включаете в них личные данные других людей.',
+    body: 'Сканируя продукт или этикетку состава, либо добавляя фото к отзыву, вы сохраняете права на эти фотографии. Отправляя их, вы предоставляете Deepkor неисключительную, безвозмездную лицензию на использование, хранение и показ этого контента для работы сервиса — включая использование этих фото для улучшения точности распознавания. Фото из отзывов также видны другим пользователям. Вы несёте ответственность за то, что загружаете только те фото, на которые имеете право, и не включаете в них личные данные других людей.',
   },
   {
     heading: 'Допустимое использование',
@@ -141,11 +141,11 @@ const privacyEn: Section[] = [
   },
   {
     heading: 'Information we collect',
-    body: 'Account info: if you sign in, we receive your email or the basic profile info shared by Google/Apple/Yandex. Guest use doesn’t require any of this.\n\nBeauty profile: your Baumann skin-type quiz answers, skin concerns, allergy and pregnancy/nursing flags, and ingredients you’ve chosen to avoid.\n\nPhotos: ingredient-label photos you scan, and photos you add to reviews.\n\nUsage data: products you view, search, scan, or save, and reviews you write.',
+    body: 'Account info: if you sign in, we receive your email or the basic profile info shared by Google/Apple/Yandex. Guest use doesn’t require any of this.\n\nBeauty profile: your Baumann skin-type quiz answers, skin concerns, allergy and pregnancy/nursing flags, and ingredients you’ve chosen to avoid.\n\nPhotos: product and ingredient-label photos you scan, and photos you add to reviews.\n\nUsage data: products you view, search, scan, or save, and reviews you write.',
   },
   {
     heading: 'How we use your information',
-    body: 'To run the core service — matching products and ingredients to your skin profile, showing scan results, and displaying your saved history and reviews.\n\nTo improve ingredient recognition — photos of ingredient labels you scan help us improve how accurately we read and match ingredients. This is part of how the scan feature itself works.\n\nOptionally, to improve recognition further — if you’ve enabled it in Settings, photos you add to reviews may also be used for this. You can turn this off anytime; it’s on by default and does not affect your ability to use the app either way.',
+    body: 'To run the core service — matching products and ingredients to your skin profile, showing scan results, and displaying your saved history and reviews.\n\nTo improve recognition — photos you scan and photos you add to reviews help us match products and read ingredient labels more accurately. This is part of how the service works.',
   },
   {
     heading: 'Third-party services',
@@ -161,7 +161,7 @@ const privacyEn: Section[] = [
   },
   {
     heading: 'Your rights',
-    body: 'You can review and edit your beauty profile and avoided ingredients, and delete your account, directly in the app. You can also request access to, correction of, or deletion of your data, and withdraw any consent you’ve given (for example, the optional AI-training toggle in Settings) at any time, by contacting semo@semo-box.com. Withdrawing consent doesn’t affect the lawfulness of processing before you withdrew it.',
+    body: 'You can review and edit your beauty profile and avoided ingredients, and delete your account, directly in the app. You can also request access to, correction of, or deletion of your data at any time by contacting semo@semo-box.com.',
   },
   {
     heading: 'Children’s privacy',
@@ -181,11 +181,11 @@ const privacyRu: Section[] = [
   },
   {
     heading: 'Какие данные мы собираем',
-    body: 'Данные аккаунта: при входе мы получаем ваш email или базовые данные профиля, предоставленные Google/Apple/Yandex. Для использования в гостевом режиме это не требуется.\n\nПрофиль красоты: ответы теста Баумана на тип кожи, проблемы кожи, отметки об аллергии и беременности/кормлении, а также компоненты, которые вы выбрали избегать.\n\nФото: фотографии этикеток состава, которые вы сканируете, и фото, которые вы добавляете к отзывам.\n\nДанные использования: продукты, которые вы просматриваете, ищете, сканируете или сохраняете, а также отзывы, которые вы пишете.',
+    body: 'Данные аккаунта: при входе мы получаем ваш email или базовые данные профиля, предоставленные Google/Apple/Yandex. Для использования в гостевом режиме это не требуется.\n\nПрофиль красоты: ответы теста Баумана на тип кожи, проблемы кожи, отметки об аллергии и беременности/кормлении, а также компоненты, которые вы выбрали избегать.\n\nФото: фотографии продуктов и этикеток состава, которые вы сканируете, и фото, которые вы добавляете к отзывам.\n\nДанные использования: продукты, которые вы просматриваете, ищете, сканируете или сохраняете, а также отзывы, которые вы пишете.',
   },
   {
     heading: 'Как мы используем данные',
-    body: 'Для работы основного сервиса — сопоставления продуктов и компонентов с вашим профилем кожи, показа результатов сканирования, истории и отзывов.\n\nДля улучшения распознавания компонентов — фото этикеток состава, которые вы сканируете, помогают точнее распознавать и сопоставлять компоненты. Это часть работы самой функции сканирования.\n\nДополнительно, для дальнейшего улучшения распознавания — если вы включили эту опцию в настройках, фото из отзывов также могут для этого использоваться. Вы можете отключить это в любой момент; по умолчанию опция включена и не влияет на возможность пользоваться приложением в любом случае.',
+    body: 'Для работы основного сервиса — сопоставления продуктов и компонентов с вашим профилем кожи, показа результатов сканирования, истории и отзывов.\n\nДля улучшения распознавания — фото, которые вы сканируете, и фото из отзывов помогают точнее находить продукты и читать состав. Это часть работы сервиса.',
   },
   {
     heading: 'Сторонние сервисы',
@@ -201,7 +201,7 @@ const privacyRu: Section[] = [
   },
   {
     heading: 'Ваши права',
-    body: 'Вы можете просматривать и редактировать свой профиль красоты, список избегаемых компонентов и удалять аккаунт прямо в приложении. Вы также можете запросить доступ к данным, их исправление или удаление, а также отозвать любое ранее данное согласие (например, опцию AI-обучения в настройках) в любой момент, написав на semo@semo-box.com. Отзыв согласия не влияет на законность обработки, проведённой до его отзыва.',
+    body: 'Вы можете просматривать и редактировать свой профиль красоты, список избегаемых компонентов и удалять аккаунт прямо в приложении. Вы также можете запросить доступ к данным, их исправление или удаление в любой момент, написав на semo@semo-box.com.',
   },
   {
     heading: 'Конфиденциальность детей',
