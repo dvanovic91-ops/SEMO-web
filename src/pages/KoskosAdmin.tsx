@@ -7,6 +7,7 @@ import { ScansPanel } from './koskos-admin/ScansPanel';
 import { HomeCmsPanel } from './koskos-admin/HomeCmsPanel';
 import { StatsPanel } from './koskos-admin/StatsPanel';
 import { HiddenProductsPanel } from './koskos-admin/HiddenProductsPanel';
+import { SunSpfQueuePanel } from './koskos-admin/SunSpfQueuePanel';
 import { KOSKOS_ADMIN_PATH } from './koskos-admin/types';
 
 /**
@@ -14,7 +15,16 @@ import { KOSKOS_ADMIN_PATH } from './koskos-admin/types';
  * 관리자가 아니면 404처럼 보이게 해서 존재 자체를 숨긴다.
  */
 type GateState = 'checking' | 'signedOut' | 'notAdmin' | 'admin';
-type AdminTab = 'stats' | 'home' | 'pending' | 'hidden' | 'members' | 'notices' | 'scans' | 'ingredients';
+type AdminTab =
+  | 'stats'
+  | 'home'
+  | 'pending'
+  | 'sunspf'
+  | 'hidden'
+  | 'members'
+  | 'notices'
+  | 'scans'
+  | 'ingredients';
 
 export const KoskosAdmin: React.FC = () => {
   const [state, setState] = useState<GateState>('checking');
@@ -116,6 +126,7 @@ export const KoskosAdmin: React.FC = () => {
                 ['stats', '통계'],
                 ['home', '홈 화면'],
                 ['pending', '제보 승인'],
+                ['sunspf', '스캔 SPF 확인'],
                 ['hidden', '숨긴 제품'],
                 ['members', '회원'],
                 ['notices', '공지'],
@@ -153,6 +164,7 @@ export const KoskosAdmin: React.FC = () => {
         {tab === 'stats' && <StatsPanel onError={setBanner} />}
         {tab === 'home' && <HomeCmsPanel onError={setBanner} onDirtyChange={setHomeDirty} />}
         {tab === 'pending' && <PendingApprovals onError={setBanner} />}
+        {tab === 'sunspf' && <SunSpfQueuePanel onError={setBanner} />}
         {tab === 'hidden' && <HiddenProductsPanel onError={setBanner} />}
         {tab === 'members' && <MembersPanel onError={setBanner} />}
         {tab === 'notices' && <NoticesPanel onError={setBanner} />}
