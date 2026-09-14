@@ -2,9 +2,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { deepkorSupabase } from '../../lib/deepkorSupabase';
 import {
   CATEGORY_OPTIONS,
+  type ApprovedProductInfo,
   type PendingMatchedItem,
   type PendingRow,
   categoryLabel,
+  cleanserMechanismLine,
   collectPhotos,
   matchStats,
 } from './types';
@@ -13,11 +15,54 @@ type Props = {
   onError: (message: string) => void;
 };
 
+/** 승인 결과 알림. 승인하면 목록이 다시 불러와져 카드가 사라지므로 부모(이 컴포넌트)에 둔다. */
+type ApprovalNotice = {
+  key: string;
+  productId: string;
+  title: string;
+  cleanserLine: string | null;
+};
+
+const APPROVED_PRODUCT_COLUMNS =
+  'id, brand, name_en, category, is_bundle, cleanser_mechanism, cleanser_mechanism_reason';
+
+/**
+ * 트리거가 채운 세정방식 분류를 다시 읽는다. cleanser_gentleness는 다른 작업에서 추가 중일 수
+ * 있는 컬럼이라 먼저 같이 요청하고, 실패하면(컬럼 없음 42703 등) 빼고 한 번 더 요청한다.
+ */
+async function fetchApprovedProduct(productId: string): Promise<ApprovedProductInfo | null> {
+  const withGentleness = await deepkorSupabase
+    .from('products')
+    .select(`${APPROVED_PRODUCT_COLUMNS}, cleanser_gentleness`)
+    .eq('id', productId)
+    .maybeSingle();
+  if (!withGentleness.error) return (withGentleness.data as ApprovedProductInfo | null) ?? null;
+  const plain = await deepkorSupabase
+    .from('products')
+    .select(APPROVED_PRODUCT_COLUMNS)
+    .eq('id', productId)
+    .maybeSingle();
+  if (plain.error) return null;
+  return (plain.data as ApprovedProductInfo | null) ?? null;
+}
+
 export const PendingApprovals: React.FC<Props> = ({ onError }) => {
   const [rows, setRows] = useState<PendingRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [notices, setNotices] = useState<ApprovalNotice[]>([]);
+
+  async function handleApproved(productId: string, fallbackTitle: string) {
+    const info = await fetchApprovedProduct(productId);
+    const title = info
+      ? [info.brand, info.name_en].filter(Boolean).join(' · ') || fallbackTitle
+      : fallbackTitle;
+    setNotices((prev) => [
+      { key: `${productId}-${Date.now()}`, productId, title, cleanserLine: cleanserMechanismLine(info) },
+      ...prev,
+    ]);
+  }
 
   const selected = rows.find((r) => r.id === selectedId) ?? null;
 
@@ -42,70 +87,96 @@ export const PendingApprovals: React.FC<Props> = ({ onError }) => {
   }, []);
 
   return (
-    <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[280px_1fr]">
-      <aside className="overflow-y-auto rounded-2xl border border-slate-200 bg-white">
-        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-          <p className="text-sm font-medium text-slate-800">대기 {rows.length}</p>
-          <button
-            type="button"
-            onClick={load}
-            className="text-xs text-slate-500 hover:text-slate-800"
-          >
-            새로고침
-          </button>
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      {notices.length > 0 && (
+        <div className="space-y-2">
+          {notices.map((n) => (
+            <div
+              key={n.key}
+              className="flex items-start justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900"
+            >
+              <div className="min-w-0">
+                <p className="font-medium">승인 완료: {n.title}</p>
+                {n.cleanserLine && <p className="mt-1">{n.cleanserLine}</p>}
+                <p className="mt-1 break-all text-[11px] text-emerald-700">id: {n.productId}</p>
+              </div>
+              <button
+                type="button"
+                className="shrink-0 text-xs underline"
+                onClick={() => setNotices((prev) => prev.filter((x) => x.key !== n.key))}
+              >
+                닫기
+              </button>
+            </div>
+          ))}
         </div>
-        {loading ? (
-          <p className="px-4 py-6 text-sm text-slate-400">불러오는 중…</p>
-        ) : rows.length === 0 ? (
-          <p className="px-4 py-6 text-sm text-slate-400">대기 중인 제보가 없습니다.</p>
-        ) : (
-          <ul>
-            {rows.map((row) => {
-              const stats = matchStats(row);
-              const active = row.id === selectedId;
-              return (
-                <li key={row.id}>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedId(row.id)}
-                    className={`w-full border-b border-slate-100 px-4 py-3 text-left ${
-                      active ? 'bg-slate-900 text-white' : 'hover:bg-slate-50'
-                    }`}
-                  >
-                    <p className="truncate text-sm font-medium">
-                      {row.extracted_brand || '브랜드 없음'}
-                    </p>
-                    <p className={`truncate text-xs ${active ? 'text-white/70' : 'text-slate-500'}`}>
-                      {row.extracted_name || row.extracted_name_translation || '이름 없음'}
-                    </p>
-                    <p className={`mt-1 text-[11px] ${active ? 'text-white/60' : 'text-slate-400'}`}>
-                      매칭 {stats.matched} · 미매칭 {stats.unmatched}
-                      {row.brand_known ? '' : ' · 신규브랜드'}
-                    </p>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </aside>
-
-      <section className="min-w-0">
-        {selected ? (
-          <PendingDetail
-            key={selected.id}
-            row={selected}
-            busy={busy}
-            setBusy={setBusy}
-            onError={onError}
-            onDone={load}
-          />
-        ) : (
-          <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-6 py-16 text-center text-sm text-slate-400">
-            왼쪽에서 제보를 고르세요.
+      )}
+      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[280px_1fr]">
+        <aside className="overflow-y-auto rounded-2xl border border-slate-200 bg-white">
+          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+            <p className="text-sm font-medium text-slate-800">대기 {rows.length}</p>
+            <button
+              type="button"
+              onClick={load}
+              className="text-xs text-slate-500 hover:text-slate-800"
+            >
+              새로고침
+            </button>
           </div>
-        )}
-      </section>
+          {loading ? (
+            <p className="px-4 py-6 text-sm text-slate-400">불러오는 중…</p>
+          ) : rows.length === 0 ? (
+            <p className="px-4 py-6 text-sm text-slate-400">대기 중인 제보가 없습니다.</p>
+          ) : (
+            <ul>
+              {rows.map((row) => {
+                const stats = matchStats(row);
+                const active = row.id === selectedId;
+                return (
+                  <li key={row.id}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId(row.id)}
+                      className={`w-full border-b border-slate-100 px-4 py-3 text-left ${
+                        active ? 'bg-slate-900 text-white' : 'hover:bg-slate-50'
+                      }`}
+                    >
+                      <p className="truncate text-sm font-medium">
+                        {row.extracted_brand || '브랜드 없음'}
+                      </p>
+                      <p className={`truncate text-xs ${active ? 'text-white/70' : 'text-slate-500'}`}>
+                        {row.extracted_name || row.extracted_name_translation || '이름 없음'}
+                      </p>
+                      <p className={`mt-1 text-[11px] ${active ? 'text-white/60' : 'text-slate-400'}`}>
+                        매칭 {stats.matched} · 미매칭 {stats.unmatched}
+                        {row.brand_known ? '' : ' · 신규브랜드'}
+                      </p>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </aside>
+
+        <section className="min-w-0">
+          {selected ? (
+            <PendingDetail
+              key={selected.id}
+              row={selected}
+              busy={busy}
+              setBusy={setBusy}
+              onError={onError}
+              onDone={load}
+              onApproved={handleApproved}
+            />
+          ) : (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-6 py-16 text-center text-sm text-slate-400">
+              왼쪽에서 제보를 고르세요.
+            </div>
+          )}
+        </section>
+      </div>
     </div>
   );
 };
@@ -116,12 +187,15 @@ function PendingDetail({
   setBusy,
   onError,
   onDone,
+  onApproved,
 }: {
   row: PendingRow;
   busy: boolean;
   setBusy: (v: boolean) => void;
   onError: (message: string) => void;
   onDone: () => void;
+  /** 승인 RPC가 돌려준 새 product id. 부모가 조회해서 알림으로 남긴다(카드는 onDone으로 사라짐). */
+  onApproved: (productId: string, fallbackTitle: string) => Promise<void>;
 }) {
   const photos = useMemo(() => collectPhotos(row), [row]);
   const stats = useMemo(() => matchStats(row), [row]);
@@ -170,7 +244,7 @@ function PendingDetail({
       }
       const nameEnValue = nameEn.trim();
       const nameKrValue = nameKr.trim() || nameEnValue;
-      const { error } = await deepkorSupabase.rpc('admin_approve_pending_submission', {
+      const { data: productId, error } = await deepkorSupabase.rpc('admin_approve_pending_submission', {
         p_submission_id: row.id,
         p_name_kr: nameKrValue,
         p_name_en: nameEnValue,
@@ -182,6 +256,11 @@ function PendingDetail({
         p_unlisted_proposals: row.unlisted_ingredient_proposals ?? [],
       });
       if (error) throw error;
+      // 알림용 조회를 먼저 끝낸다 — onDone()이 목록을 다시 불러오면 이 카드가 사라진다.
+      // 조회가 실패해도 승인 자체는 끝났으니 알림만 간단히 남는다.
+      if (typeof productId === 'string' && productId) {
+        await onApproved(productId, [brand.trim(), nameEnValue].filter(Boolean).join(' · '));
+      }
       onDone();
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));

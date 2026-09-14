@@ -60,6 +60,58 @@ export function collectPhotos(row: PendingRow): string[] {
   return out;
 }
 
+/** 승인 직후 알림용 products 조회 결과. cleanser_gentleness는 아직 없을 수 있는 컬럼. */
+export type ApprovedProductInfo = {
+  id: string;
+  brand: string | null;
+  name_en: string | null;
+  category: string | null;
+  is_bundle: boolean | null;
+  cleanser_mechanism: string | null;
+  cleanser_mechanism_reason: string | null;
+  cleanser_gentleness?: string | null;
+};
+
+const CLEANSER_GENTLENESS_LABELS: Record<string, string> = {
+  gentle: '순함',
+  moderate: '보통',
+  strong: '강함',
+};
+
+/**
+ * 트리거(20260915120000)가 채운 세정방식 분류를 승인자용 한 줄로. 클렌저가 아니면 null.
+ * 텔레그램 봇 `_cleanser_mechanism_line`과 같은 문구.
+ * 예: '세정방식: 폼 (근거: sodium laureth sulfate #2)'
+ */
+export function cleanserMechanismLine(info: ApprovedProductInfo | null): string | null {
+  if (!info || info.category !== 'cleanser') return null;
+  const reason = (info.cleanser_mechanism_reason ?? '').trim();
+  let line: string;
+  if (info.cleanser_mechanism === 'surfactant') {
+    if (reason.startsWith('detergent:')) {
+      line = `세정방식: 폼 (근거: ${reason.slice('detergent:'.length).trim()})`;
+    } else if (reason.startsWith('soap:')) {
+      line = `세정방식: 폼·비누 (근거: ${reason.slice('soap:'.length).trim()})`;
+    } else {
+      line = `세정방식: 폼 (근거: ${reason || '기록 없음'})`;
+    }
+  } else if (info.cleanser_mechanism === 'non_surfactant') {
+    line =
+      !reason || reason.startsWith('no detergent')
+        ? '세정방식: 비폼 (근거: 앞쪽 10번 안에 세정성분 없음)'
+        : `세정방식: 비폼 (근거: 앞쪽 10번 안에 세정성분 없음 — ${reason})`;
+  } else if (reason === 'no ingredients') {
+    line = '세정방식: 미분류 (근거: 등록된 성분 없음)';
+  } else if (info.is_bundle) {
+    line = '세정방식: 미분류 (세트 상품은 분류 안 함)';
+  } else {
+    line = `세정방식: 미분류 (${reason || '분류값 없음'})`;
+  }
+  const g = info.cleanser_gentleness;
+  if (g) line += ` · 순함 등급: ${CLEANSER_GENTLENESS_LABELS[g] ?? g}`;
+  return line;
+}
+
 export function matchStats(row: PendingRow): { matched: number; unmatched: number; unlisted: number } {
   const items = row.matched_ingredients ?? [];
   const matched = items.filter((i) => i.matched === true).length;
