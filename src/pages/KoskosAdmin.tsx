@@ -8,6 +8,7 @@ import { HomeCmsPanel } from './koskos-admin/HomeCmsPanel';
 import { StatsPanel } from './koskos-admin/StatsPanel';
 import { HiddenProductsPanel } from './koskos-admin/HiddenProductsPanel';
 import { SunSpfQueuePanel } from './koskos-admin/SunSpfQueuePanel';
+import { IngredientReviewQueuePanel } from './koskos-admin/IngredientReviewQueuePanel';
 import { KOSKOS_ADMIN_PATH } from './koskos-admin/types';
 
 /**
@@ -21,6 +22,7 @@ type AdminTab =
   | 'pending'
   | 'sunspf'
   | 'hidden'
+  | 'ingreview'
   | 'members'
   | 'notices'
   | 'scans'
@@ -128,6 +130,7 @@ export const KoskosAdmin: React.FC = () => {
                 ['pending', '제보 승인'],
                 ['sunspf', '스캔 SPF 확인'],
                 ['hidden', '숨긴 제품'],
+                ['ingreview', '성분검사 대기함'],
                 ['members', '회원'],
                 ['notices', '공지'],
                 ['scans', '스캔'],
@@ -166,6 +169,7 @@ export const KoskosAdmin: React.FC = () => {
         {tab === 'pending' && <PendingApprovals onError={setBanner} />}
         {tab === 'sunspf' && <SunSpfQueuePanel onError={setBanner} />}
         {tab === 'hidden' && <HiddenProductsPanel onError={setBanner} />}
+        {tab === 'ingreview' && <IngredientReviewQueuePanel onError={setBanner} />}
         {tab === 'members' && <MembersPanel onError={setBanner} />}
         {tab === 'notices' && <NoticesPanel onError={setBanner} />}
         {tab === 'scans' && <ScansPanel onError={setBanner} />}
