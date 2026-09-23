@@ -7,6 +7,7 @@ type Section = {
   sort_order: number;
   title_en: string;
   title_ru: string;
+  title_ko: string;
   visible: boolean;
   card_height: number;
   card_width: number | null;
@@ -18,8 +19,10 @@ type Card = {
   sort_order: number;
   title_en: string;
   title_ru: string;
+  title_ko: string;
   subtitle_en: string;
   subtitle_ru: string;
+  subtitle_ko: string;
   image_url: string | null;
   link_url: string | null;
   visible: boolean;
@@ -51,7 +54,7 @@ export const HomeCmsPanel: React.FC<Props> = ({ onError, onDirtyChange }) => {
   const [removedCardIds, setRemovedCardIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
-  const [previewLang, setPreviewLang] = useState<'en' | 'ru'>('en');
+  const [previewLang, setPreviewLang] = useState<PreviewLang>('en');
 
   const dirty = snapshotOf(sections, cards) !== baseline;
 
@@ -143,6 +146,7 @@ export const HomeCmsPanel: React.FC<Props> = ({ onError, onDirtyChange }) => {
       sort_order: sections.length,
       title_en: kind === 'recommended' ? 'For you' : 'Discover',
       title_ru: kind === 'recommended' ? 'Для вас' : 'Подборка',
+      title_ko: kind === 'recommended' ? '맞춤 추천' : '둘러보기',
       visible: true,
       card_height: kind === 'recommended' ? 128 : 220,
       card_width: kind === 'recommended' ? 128 : null,
@@ -169,8 +173,10 @@ export const HomeCmsPanel: React.FC<Props> = ({ onError, onDirtyChange }) => {
       sort_order: selectedCards.length,
       title_en: 'New card',
       title_ru: 'Новая карточка',
+      title_ko: '새 카드',
       subtitle_en: '',
       subtitle_ru: '',
+      subtitle_ko: '',
       image_url: null,
       link_url: null,
       visible: true,
@@ -240,6 +246,7 @@ export const HomeCmsPanel: React.FC<Props> = ({ onError, onDirtyChange }) => {
           p_id: section.id,
           p_title_en: section.title_en,
           p_title_ru: section.title_ru,
+          p_title_ko: section.title_ko,
           p_visible: section.visible,
           p_card_height: section.card_height,
           p_card_width: section.card_width,
@@ -260,6 +267,8 @@ export const HomeCmsPanel: React.FC<Props> = ({ onError, onDirtyChange }) => {
           p_title_ru: card.title_ru,
           p_subtitle_en: card.subtitle_en,
           p_subtitle_ru: card.subtitle_ru,
+          p_title_ko: card.title_ko,
+          p_subtitle_ko: card.subtitle_ko,
           p_image_url: card.image_url,
           p_link_url: card.link_url,
           p_visible: card.visible,
@@ -390,6 +399,13 @@ export const HomeCmsPanel: React.FC<Props> = ({ onError, onDirtyChange }) => {
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
                   />
                 </Field>
+                <Field label="한국어 제목 (비우면 영문)">
+                  <input
+                    value={selected.title_ko}
+                    onChange={(e) => patchSection(selected.id, { title_ko: e.target.value })}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  />
+                </Field>
                 <Field
                   label={
                     selected.kind === 'carousel'
@@ -494,6 +510,12 @@ export const HomeCmsPanel: React.FC<Props> = ({ onError, onDirtyChange }) => {
                         className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
                       />
                       <input
+                        value={card.title_ko}
+                        placeholder="한국어 제목 (비우면 영문)"
+                        onChange={(e) => patchCard(card.id, { title_ko: e.target.value })}
+                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                      />
+                      <input
                         value={card.subtitle_en}
                         placeholder="영문 태그"
                         onChange={(e) => patchCard(card.id, { subtitle_en: e.target.value })}
@@ -503,6 +525,12 @@ export const HomeCmsPanel: React.FC<Props> = ({ onError, onDirtyChange }) => {
                         value={card.subtitle_ru}
                         placeholder="러시아어 태그"
                         onChange={(e) => patchCard(card.id, { subtitle_ru: e.target.value })}
+                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                      />
+                      <input
+                        value={card.subtitle_ko}
+                        placeholder="한국어 태그 (비우면 영문)"
+                        onChange={(e) => patchCard(card.id, { subtitle_ko: e.target.value })}
                         className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
                       />
                       <input
@@ -551,13 +579,20 @@ export const HomeCmsPanel: React.FC<Props> = ({ onError, onDirtyChange }) => {
                 >
                   RU
                 </button>
+                <button
+                  type="button"
+                  className={`px-2 py-0.5 ${previewLang === 'ko' ? 'bg-slate-900 text-white' : 'text-slate-500'}`}
+                  onClick={() => setPreviewLang('ko')}
+                >
+                  KO
+                </button>
               </div>
             </div>
             {/* isolate: 폰 프레임 다시 그리기가 sticky 조상에 먹히지 않게 레이어 분리 */}
             <div className="isolate h-[648px] overflow-hidden rounded-[2.2rem] border-[10px] border-slate-900 bg-slate-900">
               <div className="h-full space-y-4 overflow-y-auto bg-slate-50 px-3 py-3 [transform:translateZ(0)]">
                 {sections.map((s) => {
-                    const sectionTitle = previewLang === 'ru' ? s.title_ru : s.title_en;
+                    const sectionTitle = pickLang(previewLang, s.title_en, s.title_ru, s.title_ko);
                     const sectionCards = cards
                       .filter((c) => c.section_id === s.id && c.visible)
                       .sort((a, b) => a.sort_order - b.sort_order);
@@ -613,6 +648,15 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+type PreviewLang = 'en' | 'ru' | 'ko';
+
+/** 앱과 같은 규칙: 한국어가 비어 있으면 영문으로 폴백. */
+function pickLang(lang: PreviewLang, en: string, ru: string, ko: string) {
+  if (lang === 'ru') return ru;
+  if (lang === 'ko') return ko?.trim() ? ko : en;
+  return en;
+}
+
 /** 앱 홈 카드와 비슷한 비율. 미리보기 폰 폭이 실제보다 작아서 0.82로 맞춤. */
 const PREVIEW_SCALE = 0.82;
 
@@ -622,11 +666,11 @@ function PhoneBannerCard({
   height,
 }: {
   card: Card | undefined;
-  lang: 'en' | 'ru';
+  lang: PreviewLang;
   height: number;
 }) {
-  const title = card ? (lang === 'ru' ? card.title_ru : card.title_en) : '';
-  const subtitle = card ? (lang === 'ru' ? card.subtitle_ru : card.subtitle_en) : '';
+  const title = card ? pickLang(lang, card.title_en, card.title_ru, card.title_ko) : '';
+  const subtitle = card ? pickLang(lang, card.subtitle_en, card.subtitle_ru, card.subtitle_ko) : '';
   // 슬라이더는 사진 높이. 제목/태그는 그 아래에 항상 보이게 — 예전엔 전체
   // 카드에 고정 height를 줘서 149px처럼 낮으면 글이 잘리고 회색 박스로 멈춘 것처럼 보였다.
   const imageHeight = Math.max(56, height * PREVIEW_SCALE - 52);

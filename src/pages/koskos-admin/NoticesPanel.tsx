@@ -5,8 +5,10 @@ type Notice = {
   id: string;
   title_en: string;
   title_ru: string;
+  title_ko: string | null;
   body_en: string | null;
   body_ru: string | null;
+  body_ko: string | null;
   category: string;
   is_active: boolean;
   target_user_id: string | null;
@@ -19,8 +21,10 @@ type Props = { onError: (message: string) => void };
 const EMPTY = {
   title_en: '',
   title_ru: '',
+  title_ko: '',
   body_en: '',
   body_ru: '',
+  body_ko: '',
   category: 'general',
   target_email: '',
   is_active: true,
@@ -55,8 +59,10 @@ export const NoticesPanel: React.FC<Props> = ({ onError }) => {
     setForm({
       title_en: row.title_en,
       title_ru: row.title_ru,
+      title_ko: row.title_ko ?? '',
       body_en: row.body_en ?? '',
       body_ru: row.body_ru ?? '',
+      body_ko: row.body_ko ?? '',
       category: row.category,
       target_email: row.target_email ?? '',
       is_active: row.is_active,
@@ -75,6 +81,8 @@ export const NoticesPanel: React.FC<Props> = ({ onError }) => {
       p_title_ru: form.title_ru,
       p_body_en: form.body_en,
       p_body_ru: form.body_ru,
+      p_title_ko: form.title_ko,
+      p_body_ko: form.body_ko,
       p_category: form.category,
       p_is_active: form.is_active,
       p_target_email: form.target_email.trim() || null,
@@ -123,6 +131,7 @@ export const NoticesPanel: React.FC<Props> = ({ onError }) => {
                   <button type="button" onClick={() => startEdit(row)} className="min-w-0 text-left">
                     <p className="truncate text-sm font-medium text-slate-900">{row.title_en}</p>
                     <p className="truncate text-xs text-slate-500">{row.title_ru}</p>
+                    {row.title_ko ? <p className="truncate text-xs text-slate-500">{row.title_ko}</p> : null}
                     <p className="mt-1 text-[11px] text-slate-400">
                       {row.category}
                       {row.target_email ? ` · ${row.target_email}` : ' · 전체'}
@@ -151,7 +160,7 @@ export const NoticesPanel: React.FC<Props> = ({ onError }) => {
         }}
       >
         <p className="text-sm font-medium text-slate-800">{editingId ? '공지 수정' : '새 공지'}</p>
-        <p className="text-xs text-slate-500">앱 홈 종모양에 뜹니다. 영문과 러시아어를 같이 넣으세요.</p>
+        <p className="text-xs text-slate-500">앱 홈 종모양에 뜹니다. 영문·러시아어는 필수, 한국어는 비우면 한국어 설정 유저에게 영문이 보입니다.</p>
         <label className="block text-xs font-medium text-slate-500">
           영문 제목
           <input
@@ -171,6 +180,14 @@ export const NoticesPanel: React.FC<Props> = ({ onError }) => {
           />
         </label>
         <label className="block text-xs font-medium text-slate-500">
+          한국어 제목
+          <input
+            value={form.title_ko}
+            onChange={(e) => setForm({ ...form, title_ko: e.target.value })}
+            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+          />
+        </label>
+        <label className="block text-xs font-medium text-slate-500">
           영문 본문
           <textarea
             value={form.body_en}
@@ -184,6 +201,15 @@ export const NoticesPanel: React.FC<Props> = ({ onError }) => {
           <textarea
             value={form.body_ru}
             onChange={(e) => setForm({ ...form, body_ru: e.target.value })}
+            rows={3}
+            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+          />
+        </label>
+        <label className="block text-xs font-medium text-slate-500">
+          한국어 본문
+          <textarea
+            value={form.body_ko}
+            onChange={(e) => setForm({ ...form, body_ko: e.target.value })}
             rows={3}
             className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
           />
