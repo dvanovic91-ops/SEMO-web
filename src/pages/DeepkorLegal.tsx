@@ -60,6 +60,10 @@ const termsEn: Section[] = [
     body: 'Please don’t use Deepkor to submit false product information, impersonate a brand or another person, upload content you don’t have rights to, or attempt to disrupt or reverse-engineer the service. Community-submitted product and ingredient data is reviewed before being published; we may edit, decline, or remove submissions and reviews that don’t meet our guidelines.',
   },
   {
+    heading: 'Automated access and our data',
+    body: 'The product, ingredient, and analysis data in Deepkor — including ingredient explanations, efficacy tags and the evidence behind them, scores, and rankings — is compiled and maintained by Semobox (세모박스) and is protected as a database under applicable law, including the Copyright Act of the Republic of Korea. You may not access the service or its servers through bots, crawlers, scrapers, scripts, or any other automated means, or through any client other than the official Deepkor app; extract, copy, or republish our data in bulk; or use it to build, train, or supply a competing product or database. We may block access and take legal action against such use.',
+  },
+  {
     heading: 'Sponsored content and affiliate links',
     body: 'Some content in the app — for example, items labeled "Sponsored" or "Partner spotlight" — is paid placement from partner brands. We label this content clearly so you can tell it apart from our own editorial picks. Some links in the app (for example, to booking or shopping partners) are affiliate links — Semobox (세모박스) may earn a commission if you make a purchase through them, at no extra cost to you.',
   },
@@ -106,6 +110,10 @@ const termsRu: Section[] = [
   {
     heading: 'Допустимое использование',
     body: 'Пожалуйста, не используйте Deepkor для публикации ложной информации о продуктах, выдачи себя за бренд или другого человека, загрузки контента без соответствующих прав, а также для попыток нарушить работу сервиса. Данные о продуктах и компонентах, добавленные сообществом, проходят проверку перед публикацией; мы можем редактировать, отклонять или удалять заявки и отзывы, не соответствующие нашим правилам.',
+  },
+  {
+    heading: 'Автоматизированный доступ и наши данные',
+    body: 'Данные о продуктах, ингредиентах и результатах анализа в Deepkor — включая описания ингредиентов, теги эффективности и подтверждающие их источники, оценки и рейтинги — собраны и поддерживаются компанией Semobox (세모박스) и охраняются как база данных в соответствии с применимым законодательством, в том числе Законом Республики Корея об авторском праве. Запрещается обращаться к сервису или его серверам с помощью ботов, краулеров, парсеров, скриптов или иных автоматизированных средств, а также через любые клиенты, кроме официального приложения Deepkor; массово извлекать, копировать или публиковать наши данные; использовать их для создания, обучения или наполнения конкурирующего продукта или базы данных. Мы вправе блокировать такой доступ и принимать юридические меры.',
   },
   {
     heading: 'Спонсорский контент и партнёрские ссылки',
