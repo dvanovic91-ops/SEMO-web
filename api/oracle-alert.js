@@ -11,8 +11,16 @@ module.exports = async (req, res) => {
   }
   // 1) 구독 확인 요청: 오라클이 확인 주소를 헤더(또는 본문)로 보낸다 → 그 주소를 열면 구독 승인
   const confirmUrl = req.headers['x-oci-ns-confirmationurl'];
-  let body = req.body;
-  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (_) { /* 그대로 */ } }
+  // 본문은 직접 읽는다: 오라클 콘솔 '메시지 게시'는 Content-Type이 JSON인데 본문이 일반 글자라,
+  // Vercel 기본 해석(req.body)을 건드리면 함수 실행 전에 400으로 끝난다(2026-11-15 실제 발생).
+  const raw = await new Promise((resolve) => {
+    let d = '';
+    req.on('data', (c) => { d += c; });
+    req.on('end', () => resolve(d));
+    req.on('error', () => resolve(d));
+  });
+  let body = raw;
+  try { body = JSON.parse(raw); } catch (_) { /* 일반 글자 그대로 */ }
   const confirm = confirmUrl || (body && typeof body === 'object' && body.ConfirmationURL);
   console.log('oracle-alert', JSON.stringify({ headers: Object.keys(req.headers).filter((h) => h.startsWith('x-oci')), bodyType: typeof body, confirmHost: confirm ? String(confirm).split('/')[2] : null }));
   if (confirm && /^https:\/\/[a-z0-9.-]+\.oraclecloud\.com\//i.test(confirm)) {
