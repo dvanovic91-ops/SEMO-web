@@ -13,9 +13,9 @@ module.exports = async (req, res) => {
   const confirmUrl = req.headers['x-oci-ns-confirmationurl'];
   let body = req.body;
   if (typeof body === 'string') { try { body = JSON.parse(body); } catch (_) { /* 그대로 */ } }
-  const confirm = confirmUrl || (body && body.ConfirmationURL);
-  if (confirm) {
-    if (!/^https:\/\/[a-z0-9.-]+\.oraclecloud\.com\//i.test(confirm)) { res.status(400).send('bad confirm url'); return; }
+  const confirm = confirmUrl || (body && typeof body === 'object' && body.ConfirmationURL);
+  console.log('oracle-alert', JSON.stringify({ headers: Object.keys(req.headers).filter((h) => h.startsWith('x-oci')), bodyType: typeof body, confirmHost: confirm ? String(confirm).split('/')[2] : null }));
+  if (confirm && /^https:\/\/[a-z0-9.-]+\.oraclecloud\.com\//i.test(confirm)) {
     const r = await fetch(confirm);
     res.status(r.ok ? 200 : 502).send(r.ok ? 'confirmed' : 'confirm failed');
     return;
