@@ -39,7 +39,7 @@ const DeepkorLegalPage: React.FC<{ title: string; sections: Section[] }> = ({ ti
 );
 
 // 2026-11-24: 본문은 앱(lib/content/legal_content.dart)에서 자동으로 내보낸 deepkorLegalContent.ts만 쓴다.
-// 앱이 ?lang=ko|en|ru 를 붙여 열면 그 언어, 없으면 사이트 언어. 한국어는 방침만 있고 약관은 영어로 보인다.
+// 앱이 ?lang=ko|en|ru 를 붙여 열면 그 언어, 없으면 사이트 언어(약관·방침 모두 한·영·러, 11-24).
 type Lang = 'en' | 'ru' | 'ko';
 const useLegalLang = (): Lang => {
   const { language } = useI18n();
