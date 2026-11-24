@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { deepkorSupabase } from '../lib/deepkorSupabase';
 import { PendingApprovals } from './koskos-admin/PendingApprovals';
 import { MembersPanel } from './koskos-admin/MembersPanel';
+import { AvatarsPanel } from './koskos-admin/AvatarsPanel';
 import { NoticesPanel } from './koskos-admin/NoticesPanel';
 import { ScansPanel } from './koskos-admin/ScansPanel';
 import { HomeCmsPanel } from './koskos-admin/HomeCmsPanel';
@@ -24,6 +25,7 @@ type AdminTab =
   | 'hidden'
   | 'ingreview'
   | 'members'
+  | 'avatars'
   | 'notices'
   | 'scans'
   | 'ingredients';
@@ -132,6 +134,7 @@ export const KoskosAdmin: React.FC = () => {
                 ['hidden', '숨긴 제품'],
                 ['ingreview', '성분검사 대기함'],
                 ['members', '회원'],
+                ['avatars', '프로필 사진'],
                 ['notices', '공지'],
                 ['scans', '스캔'],
                 ['ingredients', '성분 사전'],
@@ -171,6 +174,7 @@ export const KoskosAdmin: React.FC = () => {
         {tab === 'hidden' && <HiddenProductsPanel onError={setBanner} />}
         {tab === 'ingreview' && <IngredientReviewQueuePanel onError={setBanner} />}
         {tab === 'members' && <MembersPanel onError={setBanner} />}
+        {tab === 'avatars' && <AvatarsPanel onError={setBanner} />}
         {tab === 'notices' && <NoticesPanel onError={setBanner} />}
         {tab === 'scans' && <ScansPanel onError={setBanner} />}
         {tab === 'ingredients' && <ComingSoonTab title="성분 사전" />}
